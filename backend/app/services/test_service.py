@@ -1,0 +1,111 @@
+from __future__ import annotations
+
+import uuid
+from collections import defaultdict
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.analytics.tracker import Event, tracker
+from app.compatibility.traits import TRAIT_CATEGORIES_BY_KEY
+from app.compatibility.weights import ENGINE_VERSION
+from app.core.exceptions import NotFoundError, ValidationError
+from app.models import TestAnswer
+from app.repositories.test_repo import TestRepository
+
+
+class TestService:
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+        self.repo = TestRepository(session)
+
+    async def list_questions(self) -> list:
+        return await self.repo.list_active_questions()
+
+    async def progress(self, user_id: uuid.UUID) -> dict:
+        total = await self.repo.count_active_questions()
+        answered = await self.repo.count_answered(user_id)
+        percent = int(round((answered / total) * 100)) if total else 0
+        return {
+            "answered": answered,
+            "total": total,
+            "percent": min(100, percent),
+            "remaining": max(0, total - answered),
+            "completed": total > 0 and answered >= total,
+        }
+
+    async def save_answers(self, user_id: uuid.UUID, answers: list[dict]) -> dict:
+        if not answers:
+            raise ValidationError("No answers provided.")
+        for item in answers:
+            question = await self.repo.get_question(item["question_id"])
+            if question is None or not question.is_active:
+                raise NotFoundError(f"Question {item['question_id']} not found.")
+            option = await self.repo.get_option(item["option_id"])
+            if option is None or option.question_id != question.id:
+                raise ValidationError(
+                    f"Option {item['option_id']} does not belong to question {question.id}."
+                )
+            await self.repo.upsert_answer(user_id, question.id, option.id)
+        await self.session.commit()
+        # Recompute the compatibility profile whenever answers change.
+        await self.recompute_profile(user_id)
+        return await self.progress(user_id)
+
+    async def build_vector(self, user_id: uuid.UUID) -> tuple[dict, dict]:
+        """Build (trait_vector, category_scores) from stored answers.
+
+        trait_vector: {category: {trait: mean(option values)}}
+        category_scores: {category: mean(trait values)} in 0..1
+        """
+        answers = await self.repo.list_answers(user_id)
+        buckets: dict[str, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
+        for ans in answers:
+            q = ans.question
+            if q is None:
+                continue
+            opt = ans.option
+            value = float(opt.value) if opt is not None else 0.0
+            buckets[q.category][q.trait].append(max(0.0, min(1.0, value)))
+
+        vector: dict[str, dict[str, float]] = {}
+        category_scores: dict[str, float] = {}
+        for category, traits in buckets.items():
+            trait_means: dict[str, float] = {}
+            for trait, values in traits.items():
+                trait_means[trait] = sum(values) / len(values) if values else 0.0
+            vector[category] = trait_means
+            if trait_means:
+                category_scores[category] = sum(trait_means.values()) / len(trait_means)
+        return vector, category_scores
+
+    async def recompute_profile(self, user_id: uuid.UUID) -> None:
+        vector, category_scores = await self.build_vector(user_id)
+        await self.repo.upsert_compatibility_profile(user_id, vector, ENGINE_VERSION)
+        await self.repo.replace_results(user_id, category_scores)
+        await self.session.commit()
+
+    async def complete(self, user_id: uuid.UUID) -> dict:
+        progress = await self.progress(user_id)
+        if not progress["completed"]:
+            raise ValidationError(
+                f"Test is not finished yet ({progress['answered']}/{progress['total']})."
+            )
+        await self.recompute_profile(user_id)
+        vector, category_scores = await self.build_vector(user_id)
+        tracker.track(Event.TEST_COMPLETED, str(user_id), categories=len(category_scores))
+        return {
+            "categories": category_scores,
+            "vector": vector,
+            "engine_version": ENGINE_VERSION,
+        }
+
+    async def validate_categories(self) -> None:
+        """Ensure every active question maps to a known trait category."""
+        questions = await self.repo.list_active_questions()
+        for q in questions:
+            if q.category in TRAIT_CATEGORIES_BY_KEY:
+                trait_keys = {t.key for t in TRAIT_CATEGORIES_BY_KEY[q.category].traits}
+                if q.trait not in trait_keys:
+                    raise ValidationError(
+                        f"Question {q.id} has unknown trait '{q.trait}' for category '{q.category}'."
+                    )

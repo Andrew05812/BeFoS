@@ -1,0 +1,139 @@
+from __future__ import annotations
+
+import uuid
+from datetime import date, datetime
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.exceptions import NotFoundError, ValidationError
+from app.models import Photo, Profile
+from app.repositories.user_repo import UserRepository
+
+VALID_GENDERS = {"male", "female", "nonbinary", "other"}
+VALID_GOALS = {"relationship", "marriage", "friendship", "casual", "networking"}
+
+
+def _parse_birth_date(value: str) -> date:
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").date()
+    except ValueError:
+        raise ValidationError("birth_date must be in YYYY-MM-DD format.")
+
+
+def _validate_age(birth: date) -> int:
+    today = date.today()
+    age = today.year - birth.year - ((today.month, today.day) < (birth.month, birth.day))
+    if age < 18:
+        raise ValidationError("Users must be 18 or older.")
+    if age > 120:
+        raise ValidationError("Invalid birth date.")
+    return age
+
+
+class ProfileService:
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+        self.users = UserRepository(session)
+
+    async def get_or_404(self, user_id: uuid.UUID) -> Profile:
+        profile = await self.users.get_profile(user_id)
+        if profile is None:
+            raise NotFoundError("Profile not found.")
+        return profile
+
+    async def complete_onboarding(self, user_id: uuid.UUID, data: dict) -> Profile:
+        profile = await self.get_or_404(user_id)
+
+        name = data.get("name")
+        if not name or not name.strip():
+            raise ValidationError("Name is required.")
+        birth = _parse_birth_date(data["birth_date"])
+        _validate_age(birth)
+
+        gender = data.get("gender", "other")
+        if gender not in VALID_GENDERS:
+            raise ValidationError("Invalid gender.")
+        goal = data.get("dating_goal", "relationship")
+        if goal not in VALID_GOALS:
+            raise ValidationError("Invalid dating goal.")
+
+        profile.name = name.strip()[:80]
+        profile.birth_date = birth
+        profile.gender = gender
+        profile.city = (data.get("city") or "").strip()[:120]
+        profile.about = (data.get("about") or None)
+        profile.dating_goal = goal
+        profile.lifestyle = data.get("lifestyle") or {}
+        profile.age_min = int(data.get("age_min", 18))
+        profile.age_max = int(data.get("age_max", 60))
+        if profile.age_min > profile.age_max:
+            profile.age_min, profile.age_max = profile.age_max, profile.age_min
+        profile.gender_preference = self._clean_genders(data.get("gender_preference") or [])
+
+        await self._set_interests(profile, data.get("interests") or [])
+        await self.session.commit()
+        await self.session.refresh(profile)
+        return profile
+
+    async def update(self, user_id: uuid.UUID, data: dict) -> Profile:
+        profile = await self.get_or_404(user_id)
+
+        if "name" in data and data["name"] is not None:
+            if not data["name"].strip():
+                raise ValidationError("Name cannot be empty.")
+            profile.name = data["name"].strip()[:80]
+        if "birth_date" in data and data["birth_date"] is not None:
+            birth = _parse_birth_date(data["birth_date"])
+            _validate_age(birth)
+            profile.birth_date = birth
+        if "city" in data and data["city"] is not None:
+            profile.city = data["city"].strip()[:120]
+        if "about" in data:
+            profile.about = data["about"]
+        if "gender" in data and data["gender"] is not None:
+            if data["gender"] not in VALID_GENDERS:
+                raise ValidationError("Invalid gender.")
+            profile.gender = data["gender"]
+        if "dating_goal" in data and data["dating_goal"] is not None:
+            if data["dating_goal"] not in VALID_GOALS:
+                raise ValidationError("Invalid dating goal.")
+            profile.dating_goal = data["dating_goal"]
+        if "lifestyle" in data and data["lifestyle"] is not None:
+            profile.lifestyle = data["lifestyle"]
+        if data.get("age_min") is not None:
+            profile.age_min = int(data["age_min"])
+        if data.get("age_max") is not None:
+            profile.age_max = int(data["age_max"])
+        if profile.age_min > profile.age_max:
+            raise ValidationError("age_min cannot be greater than age_max.")
+        if "gender_preference" in data and data["gender_preference"] is not None:
+            profile.gender_preference = self._clean_genders(data["gender_preference"])
+        if "is_hidden" in data and data["is_hidden"] is not None:
+            profile.is_hidden = bool(data["is_hidden"])
+        if "interests" in data and data["interests"] is not None:
+            await self._set_interests(profile, data["interests"])
+
+        await self.session.commit()
+        await self.session.refresh(profile)
+        return profile
+
+    async def _set_interests(self, profile: Profile, slugs: list[str]) -> None:
+        cleaned = list(dict.fromkeys(s.strip().lower() for s in slugs if s and s.strip()))[:30]
+        interests = await self.users.list_interests_by_slugs(cleaned)
+        await self.users.set_profile_interests(profile.id, interests)
+
+    def _clean_genders(self, genders: list[str]) -> list[str]:
+        cleaned = [g for g in genders if g in VALID_GENDERS]
+        return list(dict.fromkeys(cleaned))
+
+    async def add_photo(self, user_id: uuid.UUID, url: str, make_primary: bool = False) -> Photo:
+        if make_primary:
+            await self.session.execute(
+                Photo.__table__.update()
+                .where(Photo.user_id == user_id)
+                .values(is_primary=False)
+            )
+        photo = Photo(user_id=user_id, url=url, is_primary=make_primary, position=0)
+        self.session.add(photo)
+        await self.session.commit()
+        return photo

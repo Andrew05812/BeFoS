@@ -1,0 +1,50 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: befos_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-befos}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-befos_password}
+      POSTGRES_DB: ${POSTGRES_DB:-befos}
+    ports:
+      - "5432:5432"
+    volumes:
+      - befos_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-befos} -d ${POSTGRES_DB:-befos}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: befos_backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://befos:befos_password@postgres:5432/befos}
+      JWT_SECRET: ${JWT_SECRET:-change-me-access-secret-key-min-32-chars}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-change-me-refresh-secret-key-min-32-chars}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8000,http://10.0.2.2:8000}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      DEMO_ENABLED: ${DEMO_ENABLED:-true}
+      DEMO_EMAIL: ${DEMO_EMAIL:-demo@befos.app}
+      DEMO_PASSWORD: ${DEMO_PASSWORD:-Demo12345}
+      UPLOAD_DIR: /app/uploads
+    ports:
+      - "8000:8000"
+    volumes:
+      - befos_uploads:/app/uploads
+    command: >
+      sh -c "alembic upgrade head &&
+             python -m app.seed --if-empty &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000"
+
+volumes:
+  befos_pgdata:
+  befos_uploads:
