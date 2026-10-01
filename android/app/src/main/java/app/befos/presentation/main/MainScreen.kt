@@ -2,9 +2,9 @@ package app.befos.presentation.main
 
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -23,7 +23,7 @@ import app.befos.presentation.profile.ProfileScreen
 
 private enum class Tab(val label: String, val icon: ImageVector) {
     Discover("Подбор", Icons.Filled.Favorite),
-    Matches("Пары", Icons.Filled.Chat),
+    Matches("Пары", Icons.AutoMirrored.Filled.Chat),
     Profile("Профиль", Icons.Filled.Person),
 }
 
