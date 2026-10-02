@@ -16,9 +16,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -35,8 +32,10 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import app.befos.core.designsystem.LoadingBox
-import app.befos.core.designsystem.MessagePane
+import app.befos.core.designsystem.AppButton
+import app.befos.core.designsystem.AppCard
+import app.befos.core.designsystem.ErrorState
+import app.befos.core.designsystem.LoadingState
 import app.befos.core.di.beFosViewModel
 import app.befos.presentation.common.CategoryScoreList
 
@@ -46,12 +45,11 @@ fun TestScreen(onFinished: () -> Unit) {
     val state by vm.uiState.collectAsState()
 
     when {
-        state.loading -> LoadingBox()
-        state.error != null && state.questions.isEmpty() -> MessagePane(
-            text = state.error ?: "Ошибка",
+        state.loading -> LoadingState()
+        state.error != null && state.questions.isEmpty() -> ErrorState(
+            message = state.error ?: "Ошибка",
             title = "Не удалось загрузить тест",
-            actionLabel = "Повторить",
-            onAction = vm::load,
+            onRetry = vm::load,
         )
         state.result != null -> TestResultView(state, onFinished)
         else -> TestQuestionView(state, vm)
@@ -89,14 +87,12 @@ private fun TestQuestionView(state: TestUiState, vm: TestViewModel) {
                 Text(target.text, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     target.options.forEach { option ->
-                        Card(
+                        AppCard(
+                            modifier = Modifier.fillMaxWidth(),
                             onClick = {
                                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                 vm.select(option.id)
                             },
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-                            modifier = Modifier.fillMaxWidth(),
                         ) {
                             Text(
                                 option.text,
@@ -137,9 +133,7 @@ private fun TestResultView(state: TestUiState, onFinished: () -> Unit) {
         )
         CategoryScoreList(state.result ?: emptyList())
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            Button(onClick = onFinished, modifier = Modifier.height(52.dp)) {
-                Text("Перейти к подбору", fontWeight = FontWeight.SemiBold)
-            }
+            AppButton(text = "Перейти к подбору", onClick = onFinished)
         }
     }
 }

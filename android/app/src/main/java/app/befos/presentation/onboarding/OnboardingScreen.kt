@@ -20,14 +20,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.AssistChipDefaults
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RangeSlider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -41,6 +36,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import app.befos.core.designsystem.AppButton
+import app.befos.core.designsystem.AppTextField
+import app.befos.core.designsystem.InterestChip
+import app.befos.core.designsystem.SectionHeader
 import app.befos.core.di.beFosViewModel
 import app.befos.presentation.common.DatingGoalLabels
 import app.befos.presentation.common.GenderLabels
@@ -74,14 +73,17 @@ fun OnboardingScreen(onDone: () -> Unit) {
             label = "onboardingStep",
         ) { step ->
             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                Text(
-                    when (step) {
+                SectionHeader(
+                    title = when (step) {
                         0 -> "Расскажите о себе"
                         1 -> "Кого вы ищете"
                         else -> "Ваши интересы"
                     },
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
+                    subtitle = when (step) {
+                        0 -> "Эти данные видны другим участникам"
+                        1 -> "Параметры влияют на то, кого показывает подбор"
+                        else -> "По интересам мы предлагаем совместные активности"
+                    },
                 )
                 when (step) {
                     0 -> StepAbout(state, vm)
@@ -99,17 +101,12 @@ fun OnboardingScreen(onDone: () -> Unit) {
             if (state.step > 0) {
                 TextButton(onClick = vm::back, modifier = Modifier.weight(1f)) { Text("Назад") }
             }
-            Button(
+            AppButton(
+                text = if (state.step == 2) "Завершить" else "Далее",
                 onClick = vm::next,
-                enabled = !state.submitting,
-                modifier = Modifier.weight(2f).height(52.dp),
-            ) {
-                if (state.submitting) {
-                    CircularProgressIndicator(modifier = Modifier.height(22.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
-                } else {
-                    Text(if (state.step == 2) "Завершить" else "Далее", fontWeight = FontWeight.SemiBold)
-                }
-            }
+                loading = state.submitting,
+                modifier = Modifier.weight(2f),
+            )
         }
     }
 }
@@ -117,26 +114,36 @@ fun OnboardingScreen(onDone: () -> Unit) {
 @Composable
 private fun StepAbout(state: OnboardingUiState, vm: OnboardingViewModel) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        OutlinedTextField(
-            value = state.name, onValueChange = vm::onNameChange, label = { Text("Имя") },
-            singleLine = true, modifier = Modifier.fillMaxWidth(),
+        AppTextField(
+            value = state.name,
+            onValueChange = vm::onNameChange,
+            label = "Имя",
+            modifier = Modifier.fillMaxWidth(),
         )
-        OutlinedTextField(
-            value = state.birthDate, onValueChange = vm::onBirthDateChange,
-            label = { Text("Дата рождения") }, placeholder = { Text("ГГГГ-ММ-ДД") },
-            singleLine = true,
+        AppTextField(
+            value = state.birthDate,
+            onValueChange = vm::onBirthDateChange,
+            label = "Дата рождения",
+            placeholder = "ГГГГ-ММ-ДД",
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
             modifier = Modifier.fillMaxWidth(),
         )
-        OutlinedTextField(
-            value = state.city, onValueChange = vm::onCityChange, label = { Text("Город") },
-            singleLine = true, modifier = Modifier.fillMaxWidth(),
+        AppTextField(
+            value = state.city,
+            onValueChange = vm::onCityChange,
+            label = "Город",
+            modifier = Modifier.fillMaxWidth(),
         )
-        Text("Пол", style = MaterialTheme.typography.titleSmall)
+        SectionHeader(title = "Пол")
         SingleChoiceRow(options = GenderLabels, selected = state.gender, onSelect = vm::setGender)
-        OutlinedTextField(
-            value = state.about, onValueChange = vm::onAboutChange, label = { Text("О себе") },
-            minLines = 3, modifier = Modifier.fillMaxWidth(),
+        AppTextField(
+            value = state.about,
+            onValueChange = vm::onAboutChange,
+            label = "О себе",
+            singleLine = false,
+            minLines = 3,
+            maxLines = 5,
+            modifier = Modifier.fillMaxWidth(),
         )
     }
 }
@@ -145,7 +152,7 @@ private fun StepAbout(state: OnboardingUiState, vm: OnboardingViewModel) {
 @Composable
 private fun StepPreferences(state: OnboardingUiState, vm: OnboardingViewModel) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("Цель знакомства", style = MaterialTheme.typography.titleSmall)
+        SectionHeader(title = "Цель знакомства")
         SingleChoiceRow(options = DatingGoalLabels, selected = state.datingGoal, onSelect = vm::setDatingGoal)
 
         Text("Возрастной диапазон: ${state.ageMin}–${state.ageMax}", style = MaterialTheme.typography.titleSmall)
@@ -156,13 +163,13 @@ private fun StepPreferences(state: OnboardingUiState, vm: OnboardingViewModel) {
             steps = 80,
         )
 
-        Text("Показывать профили", style = MaterialTheme.typography.titleSmall)
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        SectionHeader(title = "Показывать профили")
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             GenderLabels.forEach { (code, label) ->
-                FilterChip(
+                InterestChip(
+                    label = label,
                     selected = state.genderPreference.contains(code),
                     onClick = { vm.toggleGenderPreference(code) },
-                    label = { Text(label) },
                 )
             }
         }
@@ -191,10 +198,10 @@ private fun StepInterests(state: OnboardingUiState, vm: OnboardingViewModel) {
         } else {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 state.interests.forEach { interest ->
-                    FilterChip(
+                    InterestChip(
+                        label = interest.name,
                         selected = state.selectedInterests.contains(interest.slug),
                         onClick = { vm.toggleInterest(interest.slug) },
-                        label = { Text(interest.name) },
                     )
                 }
             }
@@ -209,20 +216,9 @@ private fun SingleChoiceRow(
     selected: String,
     onSelect: (String) -> Unit,
 ) {
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         options.forEach { (code, label) ->
-            AssistChip(
-                onClick = { onSelect(code) },
-                label = { Text(label) },
-                colors = if (code == selected) {
-                    AssistChipDefaults.assistChipColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                        labelColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                    )
-                } else {
-                    AssistChipDefaults.assistChipColors()
-                },
-            )
+            InterestChip(label = label, selected = code == selected, onClick = { onSelect(code) })
         }
     }
 }

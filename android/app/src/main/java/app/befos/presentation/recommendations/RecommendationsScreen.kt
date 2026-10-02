@@ -9,18 +9,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -28,33 +21,35 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import app.befos.core.designsystem.LoadingBox
-import app.befos.core.designsystem.MessagePane
+import app.befos.core.designsystem.AppButton
+import app.befos.core.designsystem.AppCard
+import app.befos.core.designsystem.AppTopBar
+import app.befos.core.designsystem.EmptyState
+import app.befos.core.designsystem.ErrorState
+import app.befos.core.designsystem.LoadingState
 import app.befos.core.designsystem.scoreColor
 import app.befos.core.di.beFosViewModel
 import app.befos.domain.model.Recommendation
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RecommendationsScreen(matchId: String, onBack: () -> Unit) {
     val vm: RecommendationsViewModel = beFosViewModel { RecommendationsViewModel(it.matchRepository, matchId) }
     val state by vm.uiState.collectAsState()
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Идеи для встречи", fontWeight = FontWeight.SemiBold) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад") }
-                },
-            )
-        },
+        topBar = { AppTopBar(title = "Идеи для встречи", onBack = onBack) },
     ) { padding ->
         when {
-            state.loading -> LoadingBox(Modifier.padding(padding))
-            state.items.isEmpty() -> MessagePane(
-                text = state.error ?: "Пока нет идей для этой пары.",
+            state.loading -> LoadingState(Modifier.padding(padding))
+            state.error != null && state.items.isEmpty() -> ErrorState(
+                message = state.error ?: "Ошибка",
                 title = "Нет рекомендаций",
+                onRetry = vm::load,
+                modifier = Modifier.padding(padding),
+            )
+            state.items.isEmpty() -> EmptyState(
+                title = "Нет рекомендаций",
+                message = "Пока нет идей для этой пары. Загляните позже — рекомендации обновляются вместе с анкетами.",
                 actionLabel = "Обновить",
                 onAction = vm::load,
                 modifier = Modifier.padding(padding),
@@ -78,11 +73,7 @@ fun RecommendationsScreen(matchId: String, onBack: () -> Unit) {
 
 @Composable
 private fun RecommendationCard(rec: Recommendation, selected: Boolean, onSelect: () -> Unit) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-    ) {
+    AppCard(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -112,9 +103,7 @@ private fun RecommendationCard(rec: Recommendation, selected: Boolean, onSelect:
                     Text("Выбрано", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
                 }
             } else {
-                OutlinedButton(onClick = onSelect, modifier = Modifier.fillMaxWidth()) {
-                    Text("Предложить это")
-                }
+                AppButton(text = "Предложить это", onClick = onSelect, modifier = Modifier.fillMaxWidth())
             }
         }
     }
