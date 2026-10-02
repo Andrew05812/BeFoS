@@ -10,6 +10,7 @@ from app.core.database import get_session
 from app.models import User
 from app.schemas.schemas import MessageIn, MessageOut, MessagePage
 from app.services.chat_service import ChatService
+from app.websocket.manager import manager
 
 router = APIRouter(prefix="/matches", tags=["chat"])
 
@@ -39,6 +40,21 @@ async def send_message(
 ):
     service = ChatService(session)
     msg = await service.send(match_id, current_user.id, payload.body)
+    # REST sends must reach open sockets too, otherwise the peer only sees
+    # the message after a history reload.
+    await manager.broadcast_to_match(
+        match_id,
+        {
+            "type": "message",
+            "id": msg["id"],
+            "client_msg_id": None,
+            "match_id": msg["match_id"],
+            "sender_id": msg["sender_id"],
+            "body": msg["body"],
+            "created_at": msg["created_at"].isoformat(),
+            "is_read": msg["is_read"],
+        },
+    )
     return MessageOut(**msg)
 
 
@@ -50,4 +66,8 @@ async def mark_read(
 ):
     service = ChatService(session)
     count = await service.mark_read(match_id, current_user.id)
+    if count:
+        await manager.broadcast_to_match(
+            match_id, {"type": "read", "user_id": str(current_user.id)},
+        )
     return {"marked_read": count}

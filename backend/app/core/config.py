@@ -2,8 +2,15 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Known-insecure placeholder secrets shipped for local development only.
+_INSECURE_DEFAULTS = {
+    "change-me-access-secret-key-min-32-chars",
+    "change-me-refresh-secret-key-min-32-chars",
+}
+_MIN_SECRET_LEN = 32
 
 
 class Settings(BaseSettings):
@@ -49,6 +56,28 @@ class Settings(BaseSettings):
     @classmethod
     def _strip(cls, v: str) -> str:
         return v.strip()
+
+    @model_validator(mode="after")
+    def _reject_insecure_production_secrets(self) -> "Settings":
+        """Fail fast if production runs with placeholder/short JWT secrets.
+
+        Forgery of access/refresh tokens is trivial with the shipped defaults, so
+        a production deployment must override them with strong values.
+        """
+        if not self.is_production:
+            return self
+        for name, value in (
+            ("JWT_SECRET", self.jwt_secret),
+            ("JWT_REFRESH_SECRET", self.jwt_refresh_secret),
+        ):
+            if value in _INSECURE_DEFAULTS or len(value) < _MIN_SECRET_LEN:
+                raise ValueError(
+                    f"{name} must be a strong secret (>= {_MIN_SECRET_LEN} chars, not the "
+                    "development placeholder) when ENVIRONMENT=production."
+                )
+        if self.jwt_secret == self.jwt_refresh_secret:
+            raise ValueError("JWT_SECRET and JWT_REFRESH_SECRET must differ in production.")
+        return self
 
     @property
     def cors_origin_list(self) -> list[str]:

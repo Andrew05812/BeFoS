@@ -27,7 +27,10 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://befos:befos_password@postgres:5432/befos}
+      # Always target the postgres service inside the compose network.
+      # The root .env DATABASE_URL points at localhost:5433 for bare-metal runs
+      # and must NOT leak into the container, so it is derived here explicitly.
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-befos}:${POSTGRES_PASSWORD:-befos_password}@postgres:5432/${POSTGRES_DB:-befos}
       JWT_SECRET: ${JWT_SECRET:-change-me-access-secret-key-min-32-chars}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-change-me-refresh-secret-key-min-32-chars}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8000,http://10.0.2.2:8000}

@@ -32,6 +32,7 @@ class UserSignal:
     vector: dict[str, dict[str, float]] = field(default_factory=dict)
     city: str = ""
     dating_goal: str = ""
+    interest_titles: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -78,7 +79,10 @@ def _interest_match(act: ActivitySignal, a: UserSignal, b: UserSignal) -> tuple[
     shared_both = act_set & a.interests & b.interests
     shared_any = (act_set & a.interests) | (act_set & b.interests)
     score = _clamp01(0.6 * (len(shared_both) / len(act_set)) + 0.4 * (len(shared_any) / len(act_set)))
-    reasons = [f"оба интересуются: {s}" for s in sorted(shared_both)[:3]]
+    reasons = [
+        f"оба интересуются: {a.interest_titles.get(s, b.interest_titles.get(s, s))}"
+        for s in sorted(shared_both)[:3]
+    ]
     return score, reasons
 
 

@@ -36,10 +36,14 @@ def create_app() -> FastAPI:
         openapi_url="/openapi.json",
     )
 
+    origins = settings.cors_origin_list or ["*"]
+    # Wildcard origin must never be paired with credentials (cookies/auth headers);
+    # browsers reject it and it signals a misconfiguration.
+    allow_credentials = "*" not in origins
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.cors_origin_list or ["*"],
-        allow_credentials=True,
+        allow_origins=origins,
+        allow_credentials=allow_credentials,
         allow_methods=["*"],
         allow_headers=["*"],
     )

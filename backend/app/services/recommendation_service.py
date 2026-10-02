@@ -36,6 +36,7 @@ class RecommendationService:
             vector=cp.vector if cp and isinstance(cp.vector, dict) else {},
             city=profile.city if profile else "",
             dating_goal=profile.dating_goal if profile else "",
+            interest_titles={i.slug: i.name for i in profile.interests} if profile else {},
         )
 
     async def for_match(self, match_id: uuid.UUID, user_id: uuid.UUID, *, force: bool = False) -> list[dict]:
