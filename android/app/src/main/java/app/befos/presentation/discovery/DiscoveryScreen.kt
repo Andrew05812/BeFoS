@@ -38,9 +38,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -101,12 +103,14 @@ fun DiscoveryScreen(onOpenMatch: (String) -> Unit, onOpenProfile: (String) -> Un
 private fun DiscoveryContent(state: DiscoveryUiState, vm: DiscoveryViewModel, onOpenProfile: (String) -> Unit) {
     val card = state.current ?: return
     val scope = rememberCoroutineScope()
+    val haptics = LocalHapticFeedback.current
     val dragX = remember(card.userId) { Animatable(0f) }
     val density = LocalDensity.current
     // Distance past which a released card flies off screen (well beyond the swipe threshold).
     val flyDistance = with(density) { 1000.dp.toPx() }
 
     fun fling(right: Boolean) {
+        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
         scope.launch {
             dragX.animateTo(
                 targetValue = if (right) flyDistance else -flyDistance,
