@@ -1,17 +1,25 @@
 package app.befos.presentation.settings
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Logout
+import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -22,10 +30,18 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import app.befos.core.designsystem.AppButton
+import app.befos.core.designsystem.AppButtonVariant
 import app.befos.core.designsystem.AppCard
 import app.befos.core.designsystem.AppTopBar
+import app.befos.core.designsystem.Elev
+import app.befos.core.designsystem.ErrorRed
+import app.befos.core.designsystem.SectionHeader
+import app.befos.core.designsystem.Spacing
 import app.befos.core.di.beFosViewModel
 
 @Composable
@@ -51,40 +67,111 @@ fun SettingsScreen(onBack: () -> Unit, onLoggedOut: () -> Unit) {
         topBar = { AppTopBar(title = "Настройки", onBack = onBack) },
     ) { padding ->
         Column(
-            modifier = Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            modifier = Modifier
+                .padding(padding)
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = Spacing.gutter, vertical = Spacing.xl),
+            verticalArrangement = Arrangement.spacedBy(Spacing.xxl),
         ) {
-            AppCard(modifier = Modifier.fillMaxWidth()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Скрыть из подбора", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
-                        Text(
-                            "Вас не будут показывать новым людям, но существующие пары сохранятся.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+            Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
+                SectionHeader("Приватность")
+                AppCard(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(Spacing.xl),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(Spacing.lg),
+                    ) {
+                        SectionIcon(Icons.Outlined.VisibilityOff, MaterialTheme.colorScheme.onSurfaceVariant)
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text("Скрыть из подбора", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                "Вас не будут показывать новым людям, но существующие пары сохранятся.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Switch(checked = state.hidden, onCheckedChange = vm::setHidden, enabled = !state.busy)
                     }
-                    Switch(checked = state.hidden, onCheckedChange = vm::setHidden, enabled = !state.busy)
                 }
             }
 
-            if (state.message != null) {
-                Text(state.message!!, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            state.message?.let { message ->
+                Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
 
-            OutlinedButton(onClick = vm::logout, modifier = Modifier.fillMaxWidth().height(52.dp)) {
-                Text("Выйти из аккаунта")
+            Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
+                SectionHeader("Аккаунт")
+                AppButton(
+                    text = "Выйти из аккаунта",
+                    onClick = vm::logout,
+                    variant = AppButtonVariant.Tonal,
+                    leadingIcon = Icons.Outlined.Logout,
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
-            OutlinedButton(
-                onClick = vm::askDelete,
-                modifier = Modifier.fillMaxWidth().height(52.dp),
-            ) {
-                Text("Удалить аккаунт", color = MaterialTheme.colorScheme.error)
+
+            // Dangerous actions live in their own visually separated zone.
+            Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
+                SectionHeader("Опасная зона")
+                AppCard(modifier = Modifier.fillMaxWidth()) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .border(Elev.hairlineWidth, ErrorRed.copy(alpha = 0.35f), MaterialTheme.shapes.medium)
+                            .background(ErrorRed.copy(alpha = 0.05f), MaterialTheme.shapes.medium)
+                            .padding(Spacing.xl),
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(Spacing.md),
+                            ) {
+                                SectionIcon(Icons.Outlined.Delete, MaterialTheme.colorScheme.error)
+                                Text(
+                                    "Удаление аккаунта",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            }
+                            Text(
+                                "Профиль, пары и переписка будут удалены безвозвратно.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            AppButton(
+                                text = "Удалить аккаунт",
+                                onClick = vm::askDelete,
+                                variant = AppButtonVariant.Ghost,
+                                contentColorOverride = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                    }
+                }
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                SectionHeader("О приложении")
+                Text(
+                    "BeFoS · совместимость по семи категориям. Расчёт детерминированный — по анкетам и тесту, это не психологический диагноз.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
+    }
+}
+
+@Composable
+private fun SectionIcon(icon: ImageVector, tint: androidx.compose.ui.graphics.Color) {
+    Box(
+        modifier = Modifier
+            .size(40.dp)
+            .clip(CircleShape)
+            .background(tint.copy(alpha = 0.10f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        androidx.compose.material3.Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp))
     }
 }
