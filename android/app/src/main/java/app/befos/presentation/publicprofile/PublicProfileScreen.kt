@@ -37,7 +37,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -237,12 +239,7 @@ private fun ProfileHero(p: PublicProfile) {
     ) {
         if (photos.isNotEmpty()) {
             HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
-                AsyncImage(
-                    model = photos[page],
-                    contentDescription = "Фото ${page + 1} из ${photos.size}",
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
-                )
+                HeroPhoto(photos[page], "Фото ${page + 1} из ${photos.size}", p.name)
             }
         } else {
             Box(
@@ -268,7 +265,7 @@ private fun ProfileHero(p: PublicProfile) {
                 .padding(start = Spacing.xl, end = Spacing.xl, top = Spacing.huge, bottom = if (photos.size > 1) Spacing.huge else Spacing.xxl),
             verticalArrangement = Arrangement.spacedBy(Spacing.xs),
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     p.name,
                     color = Color.White,
@@ -316,6 +313,34 @@ private fun ProfileHero(p: PublicProfile) {
         }
 
         Box(Modifier.fillMaxSize().border(Elev.hairlineWidth, Color.White.copy(alpha = 0.14f), shape))
+    }
+}
+
+/** Single hero photo page; falls back to the branded gradient when the image can't load. */
+@Composable
+private fun HeroPhoto(url: String, description: String, name: String) {
+    var failed by remember(url) { mutableStateOf(false) }
+    if (!failed) {
+        AsyncImage(
+            model = url,
+            contentDescription = description,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop,
+            onError = { failed = true },
+        )
+    } else {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Brush.linearGradient(listOf(IrisTint, EmberTint, Peach))),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                name.trim().firstOrNull()?.uppercase().toString(),
+                style = MaterialTheme.typography.displayLarge,
+                color = Color.White.copy(alpha = 0.9f),
+            )
+        }
     }
 }
 

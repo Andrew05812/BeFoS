@@ -13,6 +13,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import app.befos.core.designsystem.EmptyState
 import app.befos.core.designsystem.ErrorState
 import app.befos.core.designsystem.LoadingState
@@ -40,7 +41,7 @@ fun MatchListScreen(onOpenChat: (String) -> Unit) {
         else -> LazyColumn(
             modifier = Modifier.fillMaxSize().padding(horizontal = Spacing.gutter),
             verticalArrangement = Arrangement.spacedBy(Spacing.md),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = Spacing.lg),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(top = Spacing.lg, bottom = 96.dp),
         ) {
             item {
                 Column(

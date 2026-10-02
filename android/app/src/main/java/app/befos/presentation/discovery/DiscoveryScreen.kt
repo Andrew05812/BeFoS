@@ -36,6 +36,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -266,26 +267,34 @@ private fun CardPhoto(
             .clip(shape)
             .then(if (onOpenProfile != null) Modifier.clickable { onOpenProfile() } else Modifier),
     ) {
-        if (!card.photoUrl.isNullOrBlank()) {
+        var loadFailed by androidx.compose.runtime.remember(card.photoUrl) { androidx.compose.runtime.mutableStateOf(false) }
+        if (!card.photoUrl.isNullOrBlank() && !loadFailed) {
             AsyncImage(
                 model = card.photoUrl,
                 contentDescription = card.name,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop,
+                onError = { loadFailed = true },
             )
         } else {
-            // Branded fallback instead of a gray box.
+            // Branded fallback instead of a gray box; initial sits above the info overlay.
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(Brush.linearGradient(listOf(IrisTint, EmberTint, Peach))),
-                contentAlignment = Alignment.Center,
             ) {
-                Text(
-                    text = card.name.trim().firstOrNull()?.uppercase().toString(),
-                    style = MaterialTheme.typography.displayLarge,
-                    color = Color.White.copy(alpha = 0.9f),
-                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(start = Spacing.lg, top = Spacing.lg, end = Spacing.lg, bottom = 168.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = card.name.trim().firstOrNull()?.uppercase().toString(),
+                        style = MaterialTheme.typography.displayLarge,
+                        color = Color.White.copy(alpha = 0.9f),
+                    )
+                }
             }
         }
         content()
@@ -328,7 +337,7 @@ private fun CardOverlay(card: DiscoveryCard, onOpenProfile: () -> Unit) {
                 .padding(start = Spacing.xl, end = Spacing.xl, bottom = Spacing.xxl, top = Spacing.huge),
             verticalArrangement = Arrangement.spacedBy(Spacing.sm),
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = card.name,
                     color = Color.White,

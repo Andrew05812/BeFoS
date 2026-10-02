@@ -108,6 +108,7 @@ fun AuthScreen(onAuthed: () -> Unit) {
                 label = "Пароль",
                 isPassword = true,
                 keyboardOptions = KeyboardOptions(imeAction = if (state.isRegister) ImeAction.Next else ImeAction.Done),
+                onImeAction = vm::submit,
                 modifier = Modifier.fillMaxWidth(),
             )
             if (state.isRegister) {
@@ -117,6 +118,7 @@ fun AuthScreen(onAuthed: () -> Unit) {
                     label = "Повторите пароль",
                     isPassword = true,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    onImeAction = vm::submit,
                     modifier = Modifier.fillMaxWidth(),
                 )
             }

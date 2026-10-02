@@ -32,6 +32,8 @@ import app.befos.core.designsystem.AppButton
 import app.befos.core.designsystem.AppButtonVariant
 import app.befos.core.designsystem.AppCard
 import app.befos.core.designsystem.AppTopBar
+import app.befos.core.designsystem.EmberDeep
+import app.befos.core.designsystem.EmberSoft
 import app.befos.core.designsystem.Elev
 import app.befos.core.designsystem.EmptyState
 import app.befos.core.designsystem.ErrorState
@@ -167,13 +169,13 @@ private fun RecommendationCard(rec: Recommendation, selected: Boolean, onSelect:
                     horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
                     modifier = Modifier
                         .clip(RoundedCornerShape(12.dp))
-                        .background(MaterialTheme.colorScheme.secondaryContainer)
+                        .background(EmberSoft)
                         .padding(horizontal = Spacing.md, vertical = Spacing.sm),
                 ) {
                     Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                     Text(
                         "Предложено — ждём ответ пары",
-                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        color = EmberDeep,
                         fontWeight = FontWeight.SemiBold,
                         style = MaterialTheme.typography.bodyMedium,
                     )

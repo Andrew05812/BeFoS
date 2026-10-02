@@ -44,6 +44,9 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import app.befos.core.designsystem.AppButton
 import app.befos.core.designsystem.AppTextField
+import app.befos.core.designsystem.Ember
+import app.befos.core.designsystem.EmberDeep
+import app.befos.core.designsystem.EmberSoft
 import app.befos.core.designsystem.Elev
 import app.befos.core.designsystem.InterestChip
 import app.befos.core.designsystem.Spacing
@@ -267,7 +270,7 @@ private fun StepInterests(state: OnboardingUiState, vm: OnboardingViewModel) {
                 modifier = Modifier
                     .clip(CircleShape)
                     .background(
-                        if (state.selectedInterests.size >= 3) MaterialTheme.colorScheme.secondaryContainer
+                        if (state.selectedInterests.size >= 3) EmberSoft
                         else MaterialTheme.colorScheme.surfaceVariant,
                     )
                     .padding(horizontal = Spacing.md, vertical = 2.dp),
@@ -276,7 +279,7 @@ private fun StepInterests(state: OnboardingUiState, vm: OnboardingViewModel) {
                     "${state.selectedInterests.size} / 3",
                     style = MaterialTheme.typography.labelLarge,
                     color = if (state.selectedInterests.size >= 3) {
-                        MaterialTheme.colorScheme.onSecondaryContainer
+                        EmberDeep
                     } else {
                         MaterialTheme.colorScheme.onSurfaceVariant
                     },
@@ -316,12 +319,12 @@ private fun SingleChoiceRow(
                     .fillMaxWidth()
                     .clip(MaterialTheme.shapes.small)
                     .background(
-                        if (isSel) MaterialTheme.colorScheme.secondaryContainer
+                        if (isSel) EmberSoft
                         else MaterialTheme.colorScheme.surface,
                     )
                     .border(
                         Elev.hairlineWidth,
-                        if (isSel) MaterialTheme.colorScheme.secondary.copy(alpha = 0.5f)
+                        if (isSel) Ember.copy(alpha = 0.5f)
                         else MaterialTheme.colorScheme.outlineVariant,
                         MaterialTheme.shapes.small,
                     )
@@ -334,18 +337,18 @@ private fun SingleChoiceRow(
                     modifier = Modifier
                         .size(20.dp)
                         .clip(CircleShape)
-                        .border(1.5.dp, if (isSel) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.outline, CircleShape),
+                        .border(1.5.dp, if (isSel) Ember else MaterialTheme.colorScheme.outline, CircleShape),
                     contentAlignment = Alignment.Center,
                 ) {
                     if (isSel) {
-                        Box(Modifier.size(10.dp).clip(CircleShape).background(MaterialTheme.colorScheme.secondary))
+                        Box(Modifier.size(10.dp).clip(CircleShape).background(Ember))
                     }
                 }
                 Text(
                     label,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = if (isSel) FontWeight.SemiBold else FontWeight.Normal,
-                    color = if (isSel) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
+                    color = if (isSel) EmberDeep else MaterialTheme.colorScheme.onSurface,
                 )
             }
         }

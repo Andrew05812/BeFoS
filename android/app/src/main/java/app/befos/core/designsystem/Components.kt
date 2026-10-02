@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -114,7 +115,8 @@ fun Avatar(
     contentDescription: String? = null,
     initials: String? = null,
 ) {
-    if (url.isNullOrBlank()) {
+    var failed by remember(url) { mutableStateOf(false) }
+    if (url.isNullOrBlank() || failed) {
         // Branded fallback: ember→iris gradient with a letter, never a gray box.
         Box(
             modifier = modifier
@@ -139,6 +141,7 @@ fun Avatar(
                 .clip(CircleShape)
                 .background(MaterialTheme.colorScheme.surfaceVariant),
             contentScale = ContentScale.Crop,
+            onError = { failed = true },
         )
     }
 }
@@ -438,7 +441,7 @@ fun AppButton(
         }
         Box(
             modifier = Modifier
-                .fillMaxSize()
+                .fillMaxWidth()
                 .graphicsLayer { alpha = contentAlpha }
                 .background(bg)
                 .then(if (fill != null) Modifier.background(fill) else Modifier)
@@ -540,6 +543,7 @@ fun AppTextField(
     isPassword: Boolean = false,
     error: String? = null,
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+    onImeAction: (() -> Unit)? = null,
 ) {
     var focused by remember { mutableStateOf(false) }
     var revealed by remember { mutableStateOf(false) }
@@ -581,6 +585,8 @@ fun AppTextField(
                         if (isPassword && !revealed) PasswordVisualTransformation() else VisualTransformation.None,
                     keyboardOptions =
                         if (isPassword) keyboardOptions.copy(keyboardType = KeyboardType.Password) else keyboardOptions,
+                    keyboardActions =
+                        if (onImeAction != null) KeyboardActions(onDone = { onImeAction() }) else KeyboardActions.Default,
                     textStyle = MaterialTheme.typography.bodyLarge.copy(
                         color = MaterialTheme.colorScheme.onSurface,
                     ),
@@ -700,7 +706,7 @@ fun SectionHeader(title: String, modifier: Modifier = Modifier, subtitle: String
     }
 }
 
-/** Pill chip: iris signature when selected, tonal when static. */
+/** Pill chip: ember signature when selected, tonal when static. */
 @Composable
 fun InterestChip(
     label: String,
@@ -712,14 +718,14 @@ fun InterestChip(
 ) {
     val shape = RoundedCornerShape(50)
     val bg = containerColor ?: when {
-        selected -> MaterialTheme.colorScheme.secondaryContainer
+        selected -> EmberSoft
         else -> MaterialTheme.colorScheme.surfaceVariant
     }
     val fg = contentColor ?: when {
-        selected -> MaterialTheme.colorScheme.onSecondaryContainer
+        selected -> EmberDeep
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
-    val border = if (selected) BorderStroke(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.45f)) else null
+    val border = if (selected) BorderStroke(1.dp, Ember.copy(alpha = 0.45f)) else null
     val interaction = remember { MutableInteractionSource() }
     Surface(
         modifier = modifier.then(if (onClick != null) Modifier.then(pressModifier(interaction)) else Modifier),
@@ -736,7 +742,7 @@ fun InterestChip(
                 horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
             ) {
                 AnimatedVisibility(visible = selected, enter = scaleIn(tween(Motion.Fast)) + fadeIn(tween(Motion.Fast)), exit = scaleOut(tween(Motion.Fast)) + fadeOut(tween(Motion.Fast))) {
-                    Box(Modifier.size(14.dp).clip(CircleShape).background(MaterialTheme.colorScheme.secondary))
+                    Box(Modifier.size(14.dp).clip(CircleShape).background(Ember))
                 }
                 Text(label, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }

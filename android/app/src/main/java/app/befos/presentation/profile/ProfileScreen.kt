@@ -79,7 +79,7 @@ fun ProfileScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState())
-                    .padding(horizontal = Spacing.gutter, vertical = Spacing.xl),
+                    .padding(start = Spacing.gutter, top = Spacing.xl, end = Spacing.gutter, bottom = 96.dp),
                 verticalArrangement = Arrangement.spacedBy(Spacing.xxl),
             ) {
                 ProfileHero(profile.primaryPhoto, "${profile.name}, ${profile.age}", profile.city, goalLabel(profile.datingGoal))
@@ -154,7 +154,7 @@ private fun ProfileHero(photoUrl: String?, title: String, city: String, goal: St
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(Spacing.lg),
             ) {
-                Avatar(photoUrl, size = 76.dp)
+                Avatar(photoUrl, size = 76.dp, initials = title, contentDescription = title)
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                     Text(city, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
