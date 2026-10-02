@@ -77,6 +77,10 @@ class Settings(BaseSettings):
                 )
         if self.jwt_secret == self.jwt_refresh_secret:
             raise ValueError("JWT_SECRET and JWT_REFRESH_SECRET must differ in production.")
+        if "*" in self.cors_origin_list:
+            raise ValueError("CORS_ORIGINS must not contain '*' in production.")
+        if any(o.startswith("http://") for o in self.cors_origin_list):
+            raise ValueError("CORS_ORIGINS must use https:// in production.")
         return self
 
     @property

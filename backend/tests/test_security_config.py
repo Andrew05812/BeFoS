@@ -42,9 +42,24 @@ def test_production_rejects_identical_secrets() -> None:
 
 
 def test_production_accepts_strong_distinct_secrets() -> None:
-    s = _settings()
+    s = _settings(CORS_ORIGINS="https://befos.example.com")
     assert s.is_production is True
     assert s.jwt_secret == _STRONG_A
+
+
+def test_production_rejects_wildcard_cors() -> None:
+    with pytest.raises(ValidationError):
+        _settings(CORS_ORIGINS="*")
+
+
+def test_production_rejects_plain_http_cors() -> None:
+    with pytest.raises(ValidationError):
+        _settings(CORS_ORIGINS="http://befos.example.com")
+
+
+def test_development_allows_http_and_wildcard_cors() -> None:
+    s = _settings(ENVIRONMENT="development", CORS_ORIGINS="http://localhost:8000,*")
+    assert s.cors_origin_list == ["http://localhost:8000", "*"]
 
 
 def test_development_allows_insecure_defaults() -> None:
