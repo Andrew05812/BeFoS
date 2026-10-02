@@ -13,6 +13,22 @@ from app.repositories.user_repo import UserRepository
 from app.services.compatibility_service import CompatibilityService
 
 
+def _highlight(viewer_profile: Profile, profile: Profile, shared_slugs: set[str], result) -> str | None:
+    """One-line, data-derived answer to 'why is this person shown to me?'."""
+    names = [i.name for i in profile.interests if i.slug in shared_slugs]
+    if len(names) >= 2:
+        return "Общие интересы: " + ", ".join(names[:3])
+    if len(names) == 1:
+        return f"Вам обоим нравится «{names[0]}»"
+    viewer_city = (viewer_profile.city or "").strip().lower()
+    if viewer_city and (profile.city or "").strip().lower() == viewer_city:
+        return "Из вашего города"
+    best = max(result.categories, key=lambda c: c.percent, default=None)
+    if best is not None and best.percent >= 70:
+        return f"Высокое совпадение: {best.label.lower()} — {best.percent}%"
+    return None
+
+
 class DiscoveryService:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
@@ -77,7 +93,8 @@ class DiscoveryService:
 
             result = compute_compatibility(viewer_input, cand_input, self.compatibility.weight_config)
             photo = await self.users.get_primary_photo(cand_id)
-            shared = len(viewer_input.interests & cand_input.interests)
+            shared_slugs = viewer_input.interests & cand_input.interests
+            shared = len(shared_slugs)
             cards.append(
                 {
                     "user_id": str(cand_id),
@@ -90,6 +107,7 @@ class DiscoveryService:
                     "interests": [i.name for i in profile.interests][:8],
                     "compatibility": result.overall_percent,
                     "shared_interests_count": shared,
+                    "highlight": _highlight(viewer_profile, profile, shared_slugs, result),
                 }
             )
 

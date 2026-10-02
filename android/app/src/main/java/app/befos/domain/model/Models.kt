@@ -78,6 +78,7 @@ data class DiscoveryCard(
     val interests: List<String>,
     val compatibility: Int,
     val sharedInterestsCount: Int,
+    val highlight: String? = null,
 )
 
 data class PublicProfile(

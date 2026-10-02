@@ -17,14 +17,11 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FloatingActionButton
@@ -50,11 +47,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
-import app.befos.core.designsystem.AsyncAvatar
+import app.befos.core.designsystem.AppButton
+import app.befos.core.designsystem.Avatar
+import app.befos.core.designsystem.EmptyState
 import app.befos.core.designsystem.ErrorRed
-import app.befos.core.designsystem.LoadingBox
-import app.befos.core.designsystem.MessagePane
-import app.befos.core.designsystem.ScoreRing
+import app.befos.core.designsystem.ErrorState
+import app.befos.core.designsystem.InterestChip
+import app.befos.core.designsystem.LoadingState
+import app.befos.core.designsystem.CompatibilityScore
 import app.befos.core.designsystem.SuccessGreen
 import app.befos.core.designsystem.scoreColor
 import app.befos.core.di.beFosViewModel
@@ -80,16 +80,15 @@ fun DiscoveryScreen(onOpenMatch: (String) -> Unit, onOpenProfile: (String) -> Un
     }
 
     when {
-        state.loading -> LoadingBox()
-        state.error != null && state.cards.isEmpty() -> MessagePane(
-            text = state.error ?: "Ошибка",
+        state.loading -> LoadingState()
+        state.error != null && state.cards.isEmpty() -> ErrorState(
+            message = state.error ?: "Ошибка",
             title = "Не удалось загрузить анкеты",
-            actionLabel = "Повторить",
-            onAction = vm::load,
+            onRetry = vm::load,
         )
-        state.isEmpty || state.current == null -> MessagePane(
-            text = "Новые анкеты закончились. Загляните позже — или расширите параметры поиска в профиле.",
+        state.isEmpty || state.current == null -> EmptyState(
             title = "Пока никого нет",
+            message = "Новые анкеты закончились. Загляните позже — или расширите параметры поиска в профиле.",
             actionLabel = "Обновить",
             onAction = vm::load,
         )
@@ -257,7 +256,7 @@ private fun ProfileCard(card: DiscoveryCard, onOpenProfile: () -> Unit) {
             Box(
                 Modifier.fillMaxWidth().align(Alignment.TopEnd).padding(16.dp),
             ) {
-                ScoreRing(percent = card.compatibility, size = 72.dp, strokeWidth = 6.dp)
+                CompatibilityScore(percent = card.compatibility, size = 72.dp, strokeWidth = 6.dp)
             }
 
             Column(
@@ -281,6 +280,14 @@ private fun ProfileCard(card: DiscoveryCard, onOpenProfile: () -> Unit) {
                     color = androidx.compose.ui.graphics.Color(0xDDFFFFFF),
                     style = MaterialTheme.typography.bodyMedium,
                 )
+                card.highlight?.let { reason ->
+                    Text(
+                        text = "Почему показан: $reason",
+                        color = androidx.compose.ui.graphics.Color(0xEEFFFFFF),
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 2,
+                    )
+                }
                 if (card.sharedInterestsCount > 0) {
                     Text(
                         "${card.sharedInterestsCount} общих интересов",
@@ -292,9 +299,10 @@ private fun ProfileCard(card: DiscoveryCard, onOpenProfile: () -> Unit) {
                 if (card.interests.isNotEmpty()) {
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         card.interests.take(5).forEach { name ->
-                            AssistChip(
-                                onClick = {},
-                                label = { Text(name, style = MaterialTheme.typography.labelSmall) },
+                            InterestChip(
+                                label = name,
+                                contentColor = Color.White,
+                                containerColor = Color(0x33FFFFFF),
                             )
                         }
                     }
@@ -331,24 +339,20 @@ private fun MatchDialog(compatibility: Int?, onOpen: () -> Unit, onDismiss: () -
             ) {
                 Text("Это взаимно!", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                 if (compatibility != null) {
-                    ScoreRing(percent = compatibility, size = 120.dp)
+                    CompatibilityScore(percent = compatibility, size = 120.dp)
                     Text(
                         "Ваша совместимость $compatibility%",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                Button(onClick = onOpen, modifier = Modifier.fillMaxWidth().height(52.dp)) {
-                    Text("Открыть чат", fontWeight = FontWeight.SemiBold)
-                }
-                Button(
+                AppButton(text = "Открыть чат", onClick = onOpen, modifier = Modifier.fillMaxWidth())
+                AppButton(
+                    text = "Продолжить просмотр",
                     onClick = onDismiss,
-                    modifier = Modifier.fillMaxWidth().height(52.dp),
-                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    ),
-                ) { Text("Продолжить просмотр") }
+                    secondary = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         }
     }

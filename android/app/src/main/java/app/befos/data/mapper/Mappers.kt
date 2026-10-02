@@ -86,6 +86,7 @@ fun DiscoveryCardDto.toDomain() = DiscoveryCard(
     interests = interests,
     compatibility = compatibility,
     sharedInterestsCount = sharedInterestsCount,
+    highlight = highlight,
 )
 
 fun PublicProfileDto.toDomain() = PublicProfile(

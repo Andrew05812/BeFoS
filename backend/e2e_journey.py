@@ -123,6 +123,8 @@ def main() -> int:
     b_in_disc = any(it["user_id"] == uid_b for it in items)
     check(b_in_disc, "B appears in A discovery", f"{len(items)} cards scanned")
     card = next((it for it in items if it["user_id"] == uid_b), items[0])
+    hl = card.get("highlight")
+    check(isinstance(hl, str) and len(hl) > 0, "discovery card has data-derived highlight", str(hl)[:60])
     check(0 <= card["compatibility"] <= 100, "card compatibility is real %", str(card["compatibility"]))
 
     # 6. open public profile

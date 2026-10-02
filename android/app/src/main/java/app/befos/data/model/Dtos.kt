@@ -204,6 +204,7 @@ data class DiscoveryCardDto(
     val interests: List<String> = emptyList(),
     val compatibility: Int = 0,
     @SerialName("shared_interests_count") val sharedInterestsCount: Int = 0,
+    val highlight: String? = null,
 )
 
 @Serializable

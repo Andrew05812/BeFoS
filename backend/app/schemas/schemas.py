@@ -204,6 +204,7 @@ class DiscoveryCard(BaseModel):
     interests: list[str] = []
     compatibility: int
     shared_interests_count: int
+    highlight: str | None = None
 
 
 class DiscoveryResponse(Paginated[DiscoveryCard]):
