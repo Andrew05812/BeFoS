@@ -1,5 +1,11 @@
 package app.befos.presentation.onboarding
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -47,28 +53,42 @@ fun OnboardingScreen(onDone: () -> Unit) {
 
     LaunchedEffect(state.done) { if (state.done) onDone() }
 
+    val animatedProgress by animateFloatAsState((state.step + 1) / 3f, tween(350), label = "onboardingProgress")
+
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).imePadding().padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         LinearProgressIndicator(
-            progress = { (state.step + 1) / 3f },
+            progress = { animatedProgress },
             modifier = Modifier.fillMaxWidth().height(6.dp),
         )
-        Text(
-            when (state.step) {
-                0 -> "Расскажите о себе"
-                1 -> "Кого вы ищете"
-                else -> "Ваши интересы"
+        AnimatedContent(
+            targetState = state.step,
+            transitionSpec = {
+                val forward = targetState > initialState
+                val enter = slideInHorizontally { if (forward) it / 4 else -it / 4 }
+                val exit = slideOutHorizontally { if (forward) -it / 4 else it / 4 }
+                enter togetherWith exit
             },
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold,
-        )
-
-        when (state.step) {
-            0 -> StepAbout(state, vm)
-            1 -> StepPreferences(state, vm)
-            2 -> StepInterests(state, vm)
+            label = "onboardingStep",
+        ) { step ->
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Text(
+                    when (step) {
+                        0 -> "Расскажите о себе"
+                        1 -> "Кого вы ищете"
+                        else -> "Ваши интересы"
+                    },
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                )
+                when (step) {
+                    0 -> StepAbout(state, vm)
+                    1 -> StepPreferences(state, vm)
+                    2 -> StepInterests(state, vm)
+                }
+            }
         }
 
         if (state.error != null) {

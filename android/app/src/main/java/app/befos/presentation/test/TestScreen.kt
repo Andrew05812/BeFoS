@@ -1,5 +1,11 @@
 package app.befos.presentation.test
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,8 +26,12 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -51,12 +61,14 @@ fun TestScreen(onFinished: () -> Unit) {
 @Composable
 private fun TestQuestionView(state: TestUiState, vm: TestViewModel) {
     val question = state.current ?: return
+    val haptics = LocalHapticFeedback.current
+    val animatedProgress by animateFloatAsState(state.progress, tween(350), label = "testProgress")
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         LinearProgressIndicator(
-            progress = { state.progress },
+            progress = { animatedProgress },
             modifier = Modifier.fillMaxWidth().height(6.dp),
         )
         Text(
@@ -64,21 +76,35 @@ private fun TestQuestionView(state: TestUiState, vm: TestViewModel) {
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Text(question.text, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            question.options.forEach { option ->
-                Card(
-                    onClick = { vm.select(option.id) },
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(
-                        option.text,
-                        style = MaterialTheme.typography.bodyLarge,
-                        modifier = Modifier.padding(16.dp),
-                    )
+        AnimatedContent(
+            targetState = question.id,
+            transitionSpec = {
+                (slideInHorizontally { it / 4 } + fadeIn()) togetherWith
+                    (slideOutHorizontally { -it / 4 } + fadeOut())
+            },
+            label = "questionTransition",
+        ) { targetId ->
+            val target = state.questions.firstOrNull { it.id == targetId } ?: return@AnimatedContent
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Text(target.text, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    target.options.forEach { option ->
+                        Card(
+                            onClick = {
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                vm.select(option.id)
+                            },
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(
+                                option.text,
+                                style = MaterialTheme.typography.bodyLarge,
+                                modifier = Modifier.padding(16.dp),
+                            )
+                        }
+                    }
                 }
             }
         }

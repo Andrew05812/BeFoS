@@ -111,6 +111,23 @@ fun ChatScreen(
                     modifier = Modifier.align(Alignment.BottomStart).padding(start = 20.dp, bottom = 8.dp),
                 )
             }
+            if (!state.loading && !state.connected) {
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "Подключение… переподключаемся",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
         }
     }
 }

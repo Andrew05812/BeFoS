@@ -11,7 +11,9 @@ import app.befos.domain.model.Message
 import app.befos.domain.repository.ChatEvent
 import app.befos.domain.repository.ChatRepository
 import io.ktor.client.HttpClient
+import io.ktor.client.call.body
 import io.ktor.client.plugins.websocket.webSocket
+import io.ktor.client.request.get
 import io.ktor.websocket.Frame
 import io.ktor.websocket.readText
 import kotlinx.coroutines.CoroutineScope
@@ -53,13 +55,14 @@ class ChatSocket(
         scope.launch {
             while (isActive) {
                 try {
-                    val token = tokenStore.current()?.accessToken
+                    val token = freshAccessToken()
                     if (token == null) {
                         delay(RECONNECT_DELAY_MS)
                         continue
                     }
                     client.webSocket(urlString = "${ApiConfig.wsUrl(matchId)}?token=$token") {
                         session = this
+                        _events.emit(ChatEvent.Connected)
                         for (frame in incoming) {
                             if (frame is Frame.Text) {
                                 parse(frame.readText())?.let { _events.emit(it) }
@@ -70,10 +73,22 @@ class ChatSocket(
                     _events.emit(ChatEvent.Error(e.message ?: "Ошибка соединения"))
                 } finally {
                     session = null
+                    _events.emit(ChatEvent.Disconnected)
                 }
                 delay(RECONNECT_DELAY_MS)
             }
         }
+    }
+
+    /**
+     * The socket authorizes via a token query param, which cannot trigger the
+     * Ktor refresh flow on 401. A cheap authenticated call rotates an expired
+     * access token before the socket dials, avoiding a 403 reconnect loop.
+     */
+    private suspend fun freshAccessToken(): String? {
+        val probe = ApiConfig.absolute("users/me")
+        if (probe != null) runCatching { client.get(probe).body<JsonObject>() }
+        return tokenStore.current()?.accessToken
     }
 
     suspend fun sendMessage(body: String, clientMsgId: String) {

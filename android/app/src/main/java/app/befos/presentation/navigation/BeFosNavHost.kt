@@ -1,11 +1,15 @@
 package app.befos.presentation.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
+import app.befos.core.di.beFosViewModel
 import app.befos.presentation.auth.AuthScreen
 import app.befos.presentation.chat.ChatScreen
 import app.befos.presentation.compatibility.CompatibilityScreen
@@ -15,12 +19,28 @@ import app.befos.presentation.onboarding.OnboardingScreen
 import app.befos.presentation.publicprofile.PublicProfileScreen
 import app.befos.presentation.recommendations.RecommendationsScreen
 import app.befos.presentation.root.RootDestination
+import app.befos.presentation.root.RootViewModel
 import app.befos.presentation.root.SplashScreen
 import app.befos.presentation.settings.SettingsScreen
 import app.befos.presentation.test.TestScreen
 
 @Composable
 fun BeFosNavHost(navController: NavHostController) {
+    val rootVm: RootViewModel = beFosViewModel { RootViewModel(it.authRepository, it.profileRepository) }
+    val destination by rootVm.destination.collectAsState()
+
+    // Logging in must re-resolve the destination: a returning user who already
+    // completed onboarding goes straight to MAIN, a fresh account to ONBOARDING.
+    LaunchedEffect(destination) {
+        if (navController.currentDestination?.route != Routes.AUTH) return@LaunchedEffect
+        val target = when (destination) {
+            RootDestination.MAIN -> Routes.MAIN
+            RootDestination.ONBOARDING -> Routes.ONBOARDING
+            else -> null
+        } ?: return@LaunchedEffect
+        navController.navigate(target) { popUpTo(Routes.AUTH) { inclusive = true } }
+    }
+
     NavHost(navController = navController, startDestination = Routes.SPLASH) {
         composable(Routes.SPLASH) {
             SplashScreen(
@@ -39,11 +59,7 @@ fun BeFosNavHost(navController: NavHostController) {
 
         composable(Routes.AUTH) {
             AuthScreen(
-                onAuthed = {
-                    navController.navigate(Routes.ONBOARDING) {
-                        popUpTo(Routes.AUTH) { inclusive = true }
-                    }
-                },
+                onAuthed = { rootVm.resolve() },
             )
         }
 

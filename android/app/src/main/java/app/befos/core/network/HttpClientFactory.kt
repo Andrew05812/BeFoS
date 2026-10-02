@@ -1,8 +1,8 @@
 package app.befos.core.network
 
 import app.befos.BuildConfig
-import app.befos.data.model.AuthResponseDto
 import app.befos.data.model.RefreshRequest
+import app.befos.data.model.TokenPairDto
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.engine.okhttp.OkHttp
@@ -73,7 +73,8 @@ fun createHttpClient(tokenStore: TokenStore): HttpClient = HttpClient(OkHttp) {
                     tokenStore.clear()
                     return@refreshTokens null
                 }
-                val tokens = response.body<AuthResponseDto>().tokens
+                // /auth/refresh returns a flat TokenPair (not the AuthResponse envelope).
+                val tokens = response.body<TokenPairDto>()
                 tokenStore.updateTokens(tokens.accessToken, tokens.refreshToken)
                 BearerTokens(tokens.accessToken, tokens.refreshToken)
             }

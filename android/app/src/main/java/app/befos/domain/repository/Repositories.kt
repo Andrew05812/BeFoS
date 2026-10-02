@@ -24,6 +24,10 @@ sealed interface ChatEvent {
     data class Read(val userId: String) : ChatEvent
     data class Presence(val userId: String, val online: Boolean) : ChatEvent
     data class Error(val message: String) : ChatEvent
+    /** Live socket opened successfully. */
+    data object Connected : ChatEvent
+    /** Socket dropped; the repository will keep retrying with backoff. */
+    data object Disconnected : ChatEvent
 }
 
 interface AuthRepository {

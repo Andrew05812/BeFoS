@@ -1,10 +1,10 @@
 package app.befos.presentation.compatibility
 
+import androidx.compose.animation.core.animateIntAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import app.befos.core.designsystem.LoadingBox
 import app.befos.core.designsystem.MessagePane
 import app.befos.core.designsystem.ScoreRing
+import app.befos.core.designsystem.scoreColor
 import app.befos.core.di.beFosViewModel
 import app.befos.domain.model.Explanation
 import app.befos.presentation.common.CategoryScoreList
@@ -61,16 +62,23 @@ fun CompatibilityScreen(matchId: String, onBack: () -> Unit) {
             )
             else -> {
                 val data = state.data!!
+                val animatedScore by animateIntAsState(targetValue = data.overall, label = "score")
                 Column(
                     modifier = Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
                     verticalArrangement = Arrangement.spacedBy(20.dp),
                 ) {
-                    Row(
+                    Column(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        ScoreRing(percent = data.overall, size = 132.dp)
+                        ScoreRing(percent = data.overall, size = 132.dp, label = "$animatedScore%")
+                        Text(
+                            verdictFor(data.overall),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = scoreColor(data.overall),
+                        )
                     }
 
                     Section("По категориям")
@@ -121,3 +129,12 @@ private fun ExplanationList(items: List<Explanation>, positive: Boolean) {
 
 internal fun prettifySlug(slug: String): String =
     slug.replace('_', ' ').replace('-', ' ').replaceFirstChar { it.uppercase() }
+
+/** Human verdict for the overall compatibility percentage. */
+internal fun verdictFor(overall: Int): String = when {
+    overall >= 85 -> "Вы очень хорошо подходите"
+    overall >= 70 -> "Вы хорошо подходите"
+    overall >= 55 -> "Есть перспектива"
+    overall >= 40 -> "Стоит узнать друг друга"
+    else -> "Вы довольно разные"
+}

@@ -1,6 +1,12 @@
 package app.befos.presentation.discovery
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -12,7 +18,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -27,31 +32,38 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
 import app.befos.core.designsystem.AsyncAvatar
+import app.befos.core.designsystem.ErrorRed
 import app.befos.core.designsystem.LoadingBox
 import app.befos.core.designsystem.MessagePane
 import app.befos.core.designsystem.ScoreRing
+import app.befos.core.designsystem.SuccessGreen
 import app.befos.core.designsystem.scoreColor
 import app.befos.core.di.beFosViewModel
 import app.befos.domain.model.DiscoveryCard
 import app.befos.presentation.common.goalLabel
-import kotlin.math.roundToInt
+import kotlinx.coroutines.launch
+
+/** Horizontal drag distance (px) past which a released card counts as like/pass. */
+private const val SWIPE_THRESHOLD_PX = 280f
 
 @Composable
 fun DiscoveryScreen(onOpenMatch: (String) -> Unit, onOpenProfile: (String) -> Unit) {
@@ -89,33 +101,55 @@ fun DiscoveryScreen(onOpenMatch: (String) -> Unit, onOpenProfile: (String) -> Un
 @Composable
 private fun DiscoveryContent(state: DiscoveryUiState, vm: DiscoveryViewModel, onOpenProfile: (String) -> Unit) {
     val card = state.current ?: return
-    var dragX by remember(card.userId) { mutableFloatStateOf(0f) }
+    val scope = rememberCoroutineScope()
+    val dragX = remember(card.userId) { Animatable(0f) }
+    val density = LocalDensity.current
+    // Distance past which a released card flies off screen (well beyond the swipe threshold).
+    val flyDistance = with(density) { 1000.dp.toPx() }
+
+    fun fling(right: Boolean) {
+        scope.launch {
+            dragX.animateTo(
+                targetValue = if (right) flyDistance else -flyDistance,
+                animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing),
+            )
+            if (right) vm.like() else vm.pass()
+        }
+    }
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
-                .offset { IntOffset(dragX.roundToInt(), 0) }
-                .graphicsLayer { rotationZ = dragX / 40f }
-                .clickable { onOpenProfile(card.userId) }
+                .graphicsLayer {
+                    translationX = dragX.value
+                    rotationZ = dragX.value / 22f
+                    val p = (dragX.value / flyDistance).coerceIn(-1f, 1f)
+                    scaleX = 1f - 0.06f * kotlin.math.abs(p)
+                    scaleY = 1f - 0.06f * kotlin.math.abs(p)
+                    alpha = 1f - 0.35f * kotlin.math.abs(p)
+                }
                 .pointerInput(card.userId) {
                     detectHorizontalDragGestures(
                         onDragEnd = {
                             when {
-                                dragX > 300f -> { dragX = 0f; vm.like() }
-                                dragX < -300f -> { dragX = 0f; vm.pass() }
-                                else -> dragX = 0f
+                                dragX.value > SWIPE_THRESHOLD_PX -> fling(right = true)
+                                dragX.value < -SWIPE_THRESHOLD_PX -> fling(right = false)
+                                else -> scope.launch {
+                                    dragX.animateTo(0f, spring(dampingRatio = Spring.DampingRatioMediumBouncy))
+                                }
                             }
                         },
-                        onDragCancel = { dragX = 0f },
+                        onDragCancel = { scope.launch { dragX.animateTo(0f, spring()) } },
                     ) { change, amount ->
                         change.consume()
-                        dragX += amount
+                        scope.launch { dragX.snapTo(dragX.value + amount) }
                     }
                 },
         ) {
-            ProfileCard(card)
+            ProfileCard(card, onOpenProfile = { onOpenProfile(card.userId) })
+            SwipeOverlay(dragX = dragX.value, modifier = Modifier.matchParentSize())
         }
 
         Row(
@@ -124,12 +158,12 @@ private fun DiscoveryContent(state: DiscoveryUiState, vm: DiscoveryViewModel, on
             verticalAlignment = Alignment.CenterVertically,
         ) {
             FloatingActionButton(
-                onClick = vm::pass,
+                onClick = { fling(right = false) },
                 containerColor = MaterialTheme.colorScheme.surfaceVariant,
                 contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
             ) { Icon(Icons.Filled.Close, contentDescription = "Пропустить") }
             FloatingActionButton(
-                onClick = vm::like,
+                onClick = { fling(right = true) },
                 containerColor = MaterialTheme.colorScheme.primary,
                 contentColor = MaterialTheme.colorScheme.onPrimary,
             ) { Icon(Icons.Filled.Favorite, contentDescription = "Нравится") }
@@ -140,11 +174,70 @@ private fun DiscoveryContent(state: DiscoveryUiState, vm: DiscoveryViewModel, on
     }
 }
 
+/** Directional LIKE / NOPE stamp that fades in as the card is dragged past its threshold. */
+@Composable
+private fun SwipeOverlay(dragX: Float, modifier: Modifier = Modifier) {
+    val progress = (dragX / SWIPE_THRESHOLD_PX).coerceIn(-1.6f, 1.6f)
+    val likeAlpha = progress.coerceIn(0f, 1f)
+    val nopeAlpha = (-progress).coerceIn(0f, 1f)
+    Box(modifier = modifier) {
+        if (likeAlpha > 0.01f) {
+            Stamp(
+                text = "LIKE",
+                color = SuccessGreen,
+                alpha = likeAlpha,
+                rotation = -14f,
+                modifier = Modifier.align(Alignment.TopStart),
+            )
+        }
+        if (nopeAlpha > 0.01f) {
+            Stamp(
+                text = "NOPE",
+                color = ErrorRed,
+                alpha = nopeAlpha,
+                rotation = 14f,
+                modifier = Modifier.align(Alignment.TopEnd),
+            )
+        }
+    }
+}
+
+@Composable
+private fun Stamp(
+    text: String,
+    color: Color,
+    alpha: Float,
+    rotation: Float,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .padding(28.dp)
+            .graphicsLayer {
+                this.alpha = alpha
+                rotationZ = rotation
+                val s = 0.8f + 0.2f * alpha
+                scaleX = s
+                scaleY = s
+            }
+            .border(width = 4.dp, color = color.copy(alpha = alpha), shape = RoundedCornerShape(12.dp))
+            .padding(horizontal = 14.dp, vertical = 6.dp),
+    ) {
+        Text(
+            text,
+            color = color.copy(alpha = alpha),
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Black,
+            letterSpacing = 2.sp,
+        )
+    }
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ProfileCard(card: DiscoveryCard) {
+private fun ProfileCard(card: DiscoveryCard, onOpenProfile: () -> Unit) {
     Card(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize().clickable { onOpenProfile() },
         shape = RoundedCornerShape(28.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -213,11 +306,23 @@ private fun ProfileCard(card: DiscoveryCard) {
 
 @Composable
 private fun MatchDialog(compatibility: Int?, onOpen: () -> Unit, onDismiss: () -> Unit) {
+    val scale = remember { Animatable(0.82f) }
+    val fade = remember { Animatable(0f) }
+    LaunchedEffect(Unit) {
+        launch { scale.animateTo(1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow)) }
+        launch { fade.animateTo(1f, tween(durationMillis = 260)) }
+    }
     Dialog(onDismissRequest = onDismiss) {
         Card(
             shape = RoundedCornerShape(28.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .graphicsLayer {
+                    scaleX = scale.value
+                    scaleY = scale.value
+                    alpha = fade.value
+                },
         ) {
             Column(
                 modifier = Modifier.fillMaxWidth().padding(28.dp),

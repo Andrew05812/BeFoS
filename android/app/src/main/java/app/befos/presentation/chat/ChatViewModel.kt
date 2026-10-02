@@ -20,6 +20,7 @@ data class ChatUiState(
     val sending: Boolean = false,
     val otherTyping: Boolean = false,
     val otherOnline: Boolean = false,
+    val connected: Boolean = false,
     val error: String? = null,
 )
 
@@ -60,6 +61,8 @@ class ChatViewModel(
                         st.copy(messages = st.messages.map { if (it.isOwn) it.copy(isRead = true) else it })
                     }
                     is ChatEvent.Presence -> _uiState.update { it.copy(otherOnline = event.online) }
+                    is ChatEvent.Connected -> _uiState.update { it.copy(connected = true, error = null) }
+                    is ChatEvent.Disconnected -> _uiState.update { it.copy(connected = false, otherTyping = false) }
                     is ChatEvent.Error -> Unit
                 }
             }
