@@ -55,7 +55,11 @@ fun createHttpClient(tokenStore: TokenStore): HttpClient = HttpClient(OkHttp) {
         json(befosJson)
     }
 
-    install(WebSockets)
+    // Keepalive pings surface half-open sockets (abrupt server loss) as failures,
+    // so the chat reconnect loop can actually restart instead of hanging on read.
+    install(WebSockets) {
+        pingIntervalMillis = 10_000
+    }
 
     install(Auth) {
         bearer {

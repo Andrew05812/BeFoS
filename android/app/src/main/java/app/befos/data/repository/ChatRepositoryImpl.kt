@@ -62,18 +62,18 @@ class ChatSocket(
                     }
                     client.webSocket(urlString = "${ApiConfig.wsUrl(matchId)}?token=$token") {
                         session = this
-                        _events.emit(ChatEvent.Connected)
+                        _events.tryEmit(ChatEvent.Connected)
                         for (frame in incoming) {
                             if (frame is Frame.Text) {
-                                parse(frame.readText())?.let { _events.emit(it) }
+                                parse(frame.readText())?.let { _events.tryEmit(it) }
                             }
                         }
                     }
                 } catch (e: Exception) {
-                    _events.emit(ChatEvent.Error(e.message ?: "Ошибка соединения"))
+                    _events.tryEmit(ChatEvent.Error(e.message ?: "Ошибка соединения"))
                 } finally {
                     session = null
-                    _events.emit(ChatEvent.Disconnected)
+                    _events.tryEmit(ChatEvent.Disconnected)
                 }
                 delay(RECONNECT_DELAY_MS)
             }
