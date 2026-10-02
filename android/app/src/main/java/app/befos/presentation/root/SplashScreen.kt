@@ -23,9 +23,9 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import app.befos.core.designsystem.Coral
+import app.befos.core.designsystem.Ember
 import app.befos.core.designsystem.Peach
-import app.befos.core.designsystem.Violet
+import app.befos.core.designsystem.Iris
 import app.befos.core.di.beFosViewModel
 import kotlinx.coroutines.launch
 
@@ -83,7 +83,7 @@ fun SplashScreen(
                         alpha = logo.value
                     }
                     .background(
-                        brush = Brush.linearGradient(listOf(Coral, Peach, Violet)),
+                        brush = Brush.linearGradient(listOf(Ember, Peach, Iris)),
                         shape = MaterialTheme.shapes.extraLarge,
                     ),
                 contentAlignment = Alignment.Center,
