@@ -1,19 +1,26 @@
 package app.befos.presentation.publicprofile
 
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -30,24 +37,41 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import app.befos.core.designsystem.AppButton
+import app.befos.core.designsystem.AppButtonVariant
+import app.befos.core.designsystem.AppCard
 import app.befos.core.designsystem.AppTextField
 import app.befos.core.designsystem.AppTopBar
+import app.befos.core.designsystem.CompatibilityScore
+import app.befos.core.designsystem.Elev
 import app.befos.core.designsystem.ErrorState
 import app.befos.core.designsystem.InterestChip
 import app.befos.core.designsystem.LoadingState
-import app.befos.core.designsystem.ProfileCard
+import app.befos.core.designsystem.Motion
+import app.befos.core.designsystem.Peach
 import app.befos.core.designsystem.SectionHeader
+import app.befos.core.designsystem.Spacing
+import app.befos.core.designsystem.SuccessGreen
+import app.befos.core.designsystem.glassSurface
+import app.befos.core.designsystem.photoScrim
 import app.befos.core.di.beFosViewModel
+import app.befos.domain.model.PublicProfile
 import app.befos.presentation.common.CategoryScoreList
 import app.befos.presentation.common.goalLabel
 import app.befos.presentation.compatibility.prettifySlug
 import coil.compose.AsyncImage
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -65,22 +89,14 @@ fun PublicProfileScreen(
 
     state.match?.let { outcome ->
         outcome.matchId?.let { matchId ->
-            AlertDialog(
-                onDismissRequest = vm::dismissMatch,
-                title = { Text("Это взаимно!") },
-                text = {
-                    Text(
-                        if (outcome.compatibility != null) "Ваша совместимость ${outcome.compatibility}%. Откройте чат, чтобы начать общение."
-                        else "Откройте чат, чтобы начать общение.",
-                    )
+            MutualMatchEvent(
+                name = state.profile?.name,
+                compatibility = outcome.compatibility,
+                onOpenChat = {
+                    vm.dismissMatch()
+                    onOpenChat(matchId)
                 },
-                confirmButton = {
-                    TextButton(onClick = {
-                        vm.dismissMatch()
-                        onOpenChat(matchId)
-                    }) { Text("Открыть чат") }
-                },
-                dismissButton = { TextButton(onClick = vm::dismissMatch) { Text("Позже") } },
+                onDismiss = vm::dismissMatch,
             )
         }
     }
@@ -119,60 +135,86 @@ fun PublicProfileScreen(
             else -> {
                 val p = state.profile!!
                 Column(
-                    modifier = Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier
+                        .padding(padding)
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.xxl),
                 ) {
-                    PhotoPager(p.photoUrls)
+                    ProfileHero(p)
 
-                    ProfileCard(
-                        name = p.name,
-                        age = p.age,
-                        city = p.city,
-                        goal = goalLabel(p.datingGoal),
-                        compatibility = p.compatibility,
-                    )
-
-                    if (!p.about.isNullOrBlank()) {
-                        Text(p.about, style = MaterialTheme.typography.bodyLarge)
-                    }
-
-                    if (p.categories.isNotEmpty()) {
-                        SectionHeader("Совместимость по категориям")
-                        CategoryScoreList(p.categories)
-                    }
-
-                    if (p.sharedInterests.isNotEmpty()) {
-                        SectionHeader("Общие интересы")
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            p.sharedInterests.forEach { slug -> InterestChip(label = prettifySlug(slug)) }
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = Spacing.gutter),
+                        verticalArrangement = Arrangement.spacedBy(Spacing.xxl),
+                    ) {
+                        if (!p.about.isNullOrBlank()) {
+                            Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
+                                SectionHeader("О себе")
+                                Text(p.about, style = MaterialTheme.typography.bodyLarge)
+                            }
                         }
-                    }
 
-                    if (p.interests.isNotEmpty()) {
-                        SectionHeader("Интересы")
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            p.interests.forEach { name -> InterestChip(label = name) }
+                        if (p.categories.isNotEmpty()) {
+                            Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
+                                SectionHeader("Совместимость по категориям")
+                                AppCard(modifier = Modifier.fillMaxWidth()) {
+                                    CategoryScoreList(p.categories)
+                                }
+                            }
                         }
-                    }
 
-                    if (state.notice != null) {
-                        Text(state.notice!!, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
-                    }
+                        if (p.sharedInterests.isNotEmpty()) {
+                            Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
+                                SectionHeader("Общие интересы")
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                                    verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+                                ) {
+                                    p.sharedInterests.forEach { slug -> InterestChip(label = prettifySlug(slug)) }
+                                }
+                            }
+                        }
 
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-                        AppButton(
-                            text = "Пропустить",
-                            onClick = vm::pass,
-                            enabled = !state.busy,
-                            secondary = true,
-                            modifier = Modifier.weight(1f),
-                        )
-                        AppButton(
-                            text = "Нравится",
-                            onClick = vm::like,
-                            enabled = !state.busy,
-                            modifier = Modifier.weight(1f),
-                        )
+                        if (p.interests.isNotEmpty()) {
+                            Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
+                                SectionHeader("Интересы")
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                                    verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+                                ) {
+                                    p.interests.forEach { name -> InterestChip(label = name) }
+                                }
+                            }
+                        }
+
+                        state.notice?.let { notice ->
+                            Text(
+                                notice,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(bottom = Spacing.xxl),
+                            horizontalArrangement = Arrangement.spacedBy(Spacing.lg),
+                        ) {
+                            AppButton(
+                                text = "Пропустить",
+                                onClick = vm::pass,
+                                enabled = !state.busy,
+                                variant = AppButtonVariant.Tonal,
+                                modifier = Modifier.weight(1f),
+                            )
+                            AppButton(
+                                text = "Нравится",
+                                onClick = vm::like,
+                                enabled = !state.busy,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
                     }
                 }
             }
@@ -180,27 +222,158 @@ fun PublicProfileScreen(
     }
 }
 
+/** Hero photo pager with identity composed over the scrim; branded fallback without photos. */
 @Composable
-private fun PhotoPager(photos: List<String>) {
-    val visible = photos.filter { it.isNotBlank() }
-    if (visible.isEmpty()) {
-        Box(
-            Modifier.fillMaxWidth().height(320.dp)
-                .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(20.dp)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text("Нет фото", color = MaterialTheme.colorScheme.onSurfaceVariant)
+private fun ProfileHero(p: PublicProfile) {
+    val shape = MaterialTheme.shapes.extraLarge
+    val photos = p.photoUrls.filter { it.isNotBlank() }
+    val pagerState = rememberPagerState(pageCount = { photos.size })
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = Spacing.gutter)
+            .aspectRatio(0.82f)
+            .clip(shape),
+    ) {
+        if (photos.isNotEmpty()) {
+            HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
+                AsyncImage(
+                    model = photos[page],
+                    contentDescription = "Фото ${page + 1} из ${photos.size}",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                )
+            }
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Brush.linearGradient(listOf(IrisTint, EmberTint, Peach))),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    p.name.trim().firstOrNull()?.uppercase().toString(),
+                    style = MaterialTheme.typography.displayLarge,
+                    color = Color.White.copy(alpha = 0.9f),
+                )
+            }
         }
-        return
+
+        // Identity block over the scrim.
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .fillMaxWidth()
+                .background(photoScrim())
+                .padding(start = Spacing.xl, end = Spacing.xl, top = Spacing.huge, bottom = if (photos.size > 1) Spacing.huge else Spacing.xxl),
+            verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                Text(
+                    p.name,
+                    color = Color.White,
+                    style = MaterialTheme.typography.displaySmall,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 2,
+                )
+                Text(", ${p.age}", color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.displaySmall)
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                Box(Modifier.size(7.dp).clip(CircleShape).background(SuccessGreen))
+                Text(
+                    "${p.city} · ${goalLabel(p.datingGoal)}",
+                    color = Color.White.copy(alpha = 0.85f),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+            }
+        }
+
+        // Compatibility on frosted glass, top-right.
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(Spacing.lg)
+                .glassSurface(CircleShape),
+        ) {
+            CompatibilityScore(percent = p.compatibility, size = 66.dp, strokeWidth = 6.dp)
+        }
+
+        // Page dots.
+        if (photos.size > 1) {
+            Row(
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = Spacing.lg),
+                horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+            ) {
+                repeat(photos.size) { i ->
+                    Box(
+                        Modifier
+                            .size(if (pagerState.currentPage == i) 8.dp else 6.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = if (pagerState.currentPage == i) 1f else 0.4f)),
+                    )
+                }
+            }
+        }
+
+        Box(Modifier.fillMaxSize().border(Elev.hairlineWidth, Color.White.copy(alpha = 0.14f), shape))
     }
-    val pagerState = rememberPagerState(pageCount = { visible.size })
-    HorizontalPager(state = pagerState, modifier = Modifier.fillMaxWidth().height(420.dp)) { page ->
-        AsyncImage(
-            model = visible[page],
-            contentDescription = "Фото ${page + 1} анкет ${visible.size}",
-            modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(20.dp)),
-            contentScale = ContentScale.Crop,
-        )
+}
+
+/** Mutual-like moment — same event treatment as discovery, no confetti. */
+@Composable
+private fun MutualMatchEvent(name: String?, compatibility: Int?, onOpenChat: () -> Unit, onDismiss: () -> Unit) {
+    val scale = remember { Animatable(0.86f) }
+    val fade = remember { Animatable(0f) }
+    LaunchedEffect(Unit) {
+        launch { scale.animateTo(1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow)) }
+        launch { fade.animateTo(1f, tween(Motion.Base)) }
+    }
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .graphicsLayer {
+                    scaleX = scale.value
+                    scaleY = scale.value
+                    alpha = fade.value
+                }
+                .clip(MaterialTheme.shapes.extraLarge)
+                .background(Brush.verticalGradient(listOf(Color(0xFF241B2E), Color(0xFF171222))))
+                .border(1.dp, Color.White.copy(alpha = 0.10f), MaterialTheme.shapes.extraLarge)
+                .padding(Spacing.huge),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(Spacing.lg),
+        ) {
+            Text(
+                "ВЗАИМНЫЙ ЛАЙК",
+                style = MaterialTheme.typography.labelSmall,
+                color = Color.White.copy(alpha = 0.6f),
+            )
+            Text(
+                if (name != null) "Это взаимно — вы и $name" else "Это взаимно!",
+                style = MaterialTheme.typography.headlineMedium,
+                color = Color.White,
+            )
+            if (compatibility != null) {
+                CompatibilityScore(percent = compatibility, size = 120.dp, strokeWidth = 10.dp)
+                Text(
+                    "Ваша совместимость $compatibility%",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.White.copy(alpha = 0.72f),
+                )
+            }
+            AppButton(
+                text = if (name != null) "Написать $name" else "Открыть чат",
+                onClick = onOpenChat,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            AppButton(
+                text = "Позже",
+                onClick = onDismiss,
+                variant = AppButtonVariant.Ghost,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
     }
 }
 
@@ -217,7 +390,7 @@ private fun ReportDialog(
         onDismissRequest = onDismiss,
         title = { Text("Пожаловаться") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
                 AppTextField(reason, onReason, label = "Причина", modifier = Modifier.fillMaxWidth())
                 AppTextField(
                     details,
@@ -234,3 +407,6 @@ private fun ReportDialog(
         dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
     )
 }
+
+private val EmberTint: Color get() = Color(0xFFF0544F)
+private val IrisTint: Color get() = Color(0xFF6C4CF1)
