@@ -1,9 +1,30 @@
+import java.util.Properties
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
+}
+
+// Release signing is opt-in: create android/keystore.properties (see
+// keystore.properties.example) outside of version control. Without it the
+// release variant builds unsigned instead of silently reusing the debug key.
+val keystorePropsFile = rootProject.file("keystore.properties")
+val keystoreProps = Properties().apply {
+    if (keystorePropsFile.exists()) keystorePropsFile.inputStream().use { load(it) }
+}
+
+fun envOrProp(name: String, camel: String): String? =
+    System.getenv(name) ?: providers.gradleProperty(camel).orNull
+
+val apiBaseUrl = envOrProp("BEFOS_API_BASE_URL", "befos.apiBaseUrl")
+val wsBaseUrl = envOrProp("BEFOS_WS_BASE_URL", "befos.wsBaseUrl")
+// Local emulator defaults; production backends are served over https/wss.
+val debugApiUrl = apiBaseUrl ?: "http://10.0.2.2:8000/"
+val debugWsUrl = wsBaseUrl ?: "ws://10.0.2.2:8000/"
+val requestingRelease = gradle.startParameter.taskNames.any {
+    it.contains("Release", ignoreCase = true) || it.contains("Bundle", ignoreCase = true)
 }
 
 android {
@@ -18,10 +39,17 @@ android {
         versionName = "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
 
-        // Backend base URL. For the Android emulator, 10.0.2.2 maps to the host loopback.
-        buildConfigField("String", "API_BASE_URL", "\"http://10.0.2.2:8000/\"")
-        buildConfigField("String", "WS_BASE_URL", "\"ws://10.0.2.2:8000/\"")
+    signingConfigs {
+        if (keystorePropsFile.exists()) {
+            create("release") {
+                storeFile = file(keystoreProps.getProperty("storeFile"))
+                storePassword = keystoreProps.getProperty("storePassword")
+                keyAlias = keystoreProps.getProperty("keyAlias")
+                keyPassword = keystoreProps.getProperty("keyPassword")
+            }
+        }
     }
 
     buildFeatures {
@@ -32,6 +60,9 @@ android {
     buildTypes {
         debug {
             isMinifyEnabled = false
+            // Backend base URL. For the Android emulator, 10.0.2.2 maps to the host loopback.
+            buildConfigField("String", "API_BASE_URL", "\"$debugApiUrl\"")
+            buildConfigField("String", "WS_BASE_URL", "\"$debugWsUrl\"")
         }
         release {
             isMinifyEnabled = true
@@ -40,8 +71,18 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
-            // Debug signing so the release variant is installable without a release key.
-            signingConfig = signingConfigs.getByName("debug")
+            if (keystorePropsFile.exists()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+            if (requestingRelease && (apiBaseUrl == null || wsBaseUrl == null)) {
+                throw GradleException(
+                    "Release builds require BEFOS_API_BASE_URL and BEFOS_WS_BASE_URL " +
+                        "(env vars or -Pbefos.apiBaseUrl / -Pbefos.wsBaseUrl) pointing at your " +
+                        "https:// and wss:// backend. Local emulator defaults must not ship in release.",
+                )
+            }
+            buildConfigField("String", "API_BASE_URL", "\"${apiBaseUrl ?: debugApiUrl}\"")
+            buildConfigField("String", "WS_BASE_URL", "\"${wsBaseUrl ?: debugWsUrl}\"")
         }
     }
 
