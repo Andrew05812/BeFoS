@@ -31,9 +31,11 @@ FastAPI (Python, async)  →  Service  →  Repository  →  PostgreSQL
 - **Android:** `android/` — Kotlin 2.2, Jetpack Compose (Material 3), Ktor 3, Navigation Compose, DataStore, Coil. Чистая слоистая архитектура `data / domain / presentation`.
 
 Подробности:
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — слои, модули, движок совместимости.
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — слои, модули, движок совместимости (в конце — краткое резюме для защиты проекта).
 - [`docs/API.md`](docs/API.md) — все REST/WebSocket эндпоинты с форматами запросов и ответов.
 - [`docs/DATABASE.md`](docs/DATABASE.md) — схема БД (21 таблица), миграции.
+- [`CONTINUATION.md`](CONTINUATION.md) — handover-документ для нового разработчика/AI: стек, конфигурация, тесты, ограничения.
+- [`DEMO.md`](DEMO.md) — сценарий демонстрации продукта на 5–10 минут (15 шагов).
 
 ## Быстрый старт
 
@@ -161,6 +163,8 @@ myapp/
 │       ├── domain/     # model, repository (интерфейсы)
 │       └── presentation/  # экраны + ViewModel (auth, onboarding, test, discovery, matches, chat, compatibility, recommendations, profile, editprofile, publicprofile, settings, main, root, navigation)
 ├── docs/               # ARCHITECTURE.md, API.md, DATABASE.md
+├── CONTINUATION.md     # handover-документ для продолжающего разработчика
+├── DEMO.md             # сценарий демонстрации на 5–10 минут
 ├── docker-compose.yml
 └── .env.example
 ```
@@ -187,6 +191,6 @@ Score = Σ ( normalize(component_i) × weight_i ),   Σ weight_i = 1.0
 
 ## Известные ограничения окружения
 
-1. **Запуск unit-тестов Android из кириллического пути.** `./gradlew :app:testDebugUnitTest` из пути, содержащего кириллицу (проект расположен в `…\Рабочий стол\…`), на Windows завершается ошибкой `ClassNotFoundException` для всех тест-классов: форкаемый Gradle test-worker наследует `sun.jnu.encoding=Cp1251` и не может разрешить classpath с не-ASCII-символами. Те же тесты из ASCII-пути проходят (16/16). Обход: запускать unit-тесты из каталога с ASCII-путём (например, в CI). На сборку приложения (`assembleDebug`) это не влияет.
+1. **Запуск unit-тестов Android из кириллического пути.** `./gradlew :app:testDebugUnitTest` из пути, содержащего кириллицу (проект расположен в `…\Рабочий стол\…`), на Windows завершается ошибкой `ClassNotFoundException` для всех тест-классов: форкаемый Gradle test-worker наследует `sun.jnu.encoding=Cp1251` и не может разрешить classpath с не-ASCII-символами. Те же тесты из ASCII-пути проходят (21/21). Обход: запускать unit-тесты из каталога с ASCII-путём (например, в CI). На сборку приложения (`assembleDebug`) это не влияет.
 
 2. **Полный E2E на эмуляторе выполнен.** Создан AVD `befos_avd` (pixel_4, экран 540x1140 / density 220, `hw.keyboard=yes`, RAM 3G); эмулятор запускается headless (`-no-window -gpu swiftshader_indirect -accel on`). На нём пройден полный сценарий: старт → регистрация → онбординг (3 шага) → тест 21 вопрос → профиль совместимости → подбор → публичный профиль → взаимный like и match → чат (отправка, входящее сообщение по WebSocket без перезагрузки, прочтение) → детали совместимости → рекомендации → пары → профиль → настройки → logout → повторный login. Маршрутизация после входа учитывает заполненность профиля: завершённый профиль попадает сразу в MAIN, незавершённый — в онбординг.

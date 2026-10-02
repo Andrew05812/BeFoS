@@ -59,7 +59,7 @@
 Слоистая архитектура, зависимость направлена внутрь (presentation → domain ← data):
 
 - **`core/`**
-  - `designsystem/` — тема Material 3 (`BeFosTheme`), палитра, типографика, формы, переиспользуемые компоненты (`AsyncAvatar`, `ScoreRing`, `LoadingBox`, `MessagePane`, `scoreColor`).
+  - `designsystem/` — тема Material 3 (`BeFosTheme`), палитра, типографика, формы и единая библиотека компонентов: `AppButton`, `AppTextField`, `AppCard`, `AppTopBar`, `SectionHeader`, `LoadingState`, `ErrorState`, `EmptyState`, `MessagePane`, `Avatar`, `CompatibilityScore`, `CompatibilityBadge`, `InterestChip`, `MessageBubble`, `MatchCard`, `ProfileCard`, `scoreColor`. Все экраны используют только эти компоненты — локальных дублей UI-логики в `presentation/` нет.
   - `network/` — `ApiConfig` (базовые URL из `BuildConfig`), `befosJson` (конфигурация kotlinx-serialization), `createHttpClient` (Ktor + OkHttp, ContentNegotiation, WebSockets, bearer-авторизация с автообновлением токенов), `TokenStore` (DataStore), `SafeApiCall` (`ApiResult`, `apiCall`).
   - `di/` — `AppContainer` (ручная DI-граф: scope, TokenStore, HttpClient, ApiService, репозитории) и `beFosViewModel`-фабрика.
   - `common/` — `UiState` (Loading/Success/Error).
@@ -72,6 +72,7 @@
 - Все вызовы через `ApiService` возвращают `ApiResult<T>` — сетевые ошибки и не-2xx не бросают исключение, а превращаются в `ApiResult.Error(code, message)` (сообщение берётся из конверта ошибки backend).
 - Автообновление access-токена настроено в Ktor `Auth` (bearer): при 401 выполняется `POST /auth/refresh`, токены обновляются в `TokenStore`.
 - Чат: история/отправка — через REST (надёжная доставка и персистентность), realtime-события (входящие, typing, read, presence) — через WebSocket; входящие сообщения дедуплицируются по `id`. Сообщения и отметки о прочтении, принятые через REST, backend транслирует в `manager.broadcast_to_match`, поэтому открытый сокет второго участника получает их мгновенно.
+- WebSocket-клиент настроен с keepalive-пингом 10 с (`install(WebSockets) { pingIntervalMillis = 10_000 }`): оборванный без close-фрейма TCP (например, рестарт backend) обнаруживается по pong-таймауту, и цикл `ChatSocket` переподключается с фиксированным backoff. События публикуются через `tryEmit`, чтобы переполнение буфера не могло заморозить петлю reconnect.
 - WebSocket не может инициировать обновление токенов (токен передаётся query-параметром при рукопожатии), поэтому `ChatSocket` перед подключением выполняет probe-запрос `GET /users/me` через REST-клиент с автообновлением и берёт свежий access-токен из `TokenStore`.
 
 ### Тестирование
@@ -81,3 +82,40 @@
 ## Деплой
 
 `docker-compose.yml` поднимает `postgres` (16-alpine) и `backend`. При старте backend применяет миграции (`alembic upgrade head`), сеет данные (`python -m app.seed --if-empty`) и запускает `uvicorn`. Загрузки хранятся в именованном томе `befos_uploads`, БД — в `befos_pgdata`. Android-клиент собирается отдельно (`:app:assembleDebug`).
+
+## Резюме архитектуры (для защиты проекта)
+
+Один запрос — весь путь данных, без «магии»:
+
+```
+Android (Compose UI → ViewModel → Repository)
+   ↓  REST (JSON, Ktor) / WebSocket
+FastAPI (маршруты api/v1)
+   ↓
+Services (бизнес-логика, не знает про HTTP)
+   ↓
+Repositories (SQLAlchemy 2.0 async)
+   ↓
+PostgreSQL 16 (21 таблица)
+```
+
+- **Compatibility Engine** (`app/compatibility/`): семь взвешенных категорий —
+  ценности (0.25), характер, интересы, коммуникация, образ жизни (по 0.15), досуг (0.10), цели (0.05);
+  `Score = Σ normalize(component_i) × weight_i`, Σ weights = 1.0. Детерминирован: одинаковый вход →
+  одинаковый результат; версия движка (`ENGINE_VERSION`) фиксируется в каждом ответе. Результат
+  сопровождается объяснением (сильные стороны, отличия, общие интересы) — всё выводится из реальных
+  данных пары. Это инженерная эвристика на основе анкет и теста, а не психологическая диагностика.
+- **Recommendation Engine** (`app/recommendations/`): каталог активностей с сигналами
+  `energy / social / cost`; оценка пары по интересам, досугу, образу жизни, городу и цели знакомства
+  обоих. Каждая рекомендация несёт `score`, позицию и человекочитаемые `reasons`.
+- **Realtime Chat**: WebSocket `/ws/chat/{match_id}` с JWT-авторизацией на рукопожатии и проверкой
+  участия в матче. Надёжность доставки даёт REST (сообщение сохраняется в БД и транслируется второму
+  участнику через `broadcast_to_match`); сокет отвечает за мгновенность (входящие, typing, read,
+  presence). Клиент: keepalive-пинг 10 с, авто-переподключение с backoff, дедупликация по `id`.
+- **Authentication**: JWT access + refresh; refresh хранится на сервере как SHA-256 и ротируется при
+  каждом обновлении; на клиенте — DataStore, автообновление по 401 в Ktor `Auth`. WebSocket перед
+  подключением получает свежий токен через probe `GET /users/me` (сокет не может сам инициировать refresh).
+- **Security**: bcrypt для паролей; скользящий rate limiting (отдельный лимитер `/auth`); CORS без
+  wildcard+credentials, в production — только https-origins; конфигурация отклоняет плейсхолдер- и
+  короткие/совпадающие JWT-секреты при `ENVIRONMENT=production`; загрузки изображений перекодируются
+  Pillow; SQL-инъекции исключены параметризацией SQLAlchemy; авторизация проверена IDOR-набором тестов.
