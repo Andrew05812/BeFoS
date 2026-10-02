@@ -143,6 +143,8 @@ class DiscoveryService:
         viewer_input = await self.compatibility.build_input(viewer_id)
         target_input = await self.compatibility.build_input(target_id)
         shared = sorted(viewer_input.interests & target_input.interests)
+        name_by_slug = {i.slug: i.name for i in profile.interests}
+        shared = [name_by_slug.get(s, s) for s in shared]
 
         return {
             "user_id": str(target_id),

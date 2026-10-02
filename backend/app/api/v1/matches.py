@@ -3,12 +3,13 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, Query
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.deps import get_current_user
 from app.core.database import get_session
 from app.core.exceptions import NotFoundError
-from app.models import Match, User
+from app.models import Interest, Match, User
 from app.schemas.schemas import (
     CategoryScoreOut,
     CompatibilityOut,
@@ -69,6 +70,12 @@ async def match_compatibility(
 
     service = CompatibilityService(session)
     result, explanation = await service.explain_pair(current_user.id, other_id)
+    shared_titles: dict[str, str] = {}
+    if explanation.shared_interests:
+        rows = (
+            await session.execute(select(Interest).where(Interest.slug.in_(explanation.shared_interests)))
+        ).scalars().all()
+        shared_titles = {i.slug: i.name for i in rows}
     return CompatibilityOut(
         overall=result.overall_percent,
         engine_version=result.version,
@@ -78,7 +85,7 @@ async def match_compatibility(
         ],
         strengths=[ExplanationItemOut(**vars(i)) for i in explanation.strengths],
         differences=[ExplanationItemOut(**vars(i)) for i in explanation.differences],
-        shared_interests=explanation.shared_interests,
+        shared_interests=[shared_titles.get(s, s) for s in explanation.shared_interests],
     )
 
 
