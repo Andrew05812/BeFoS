@@ -1,14 +1,19 @@
 package app.befos.presentation.compatibility
 
 import androidx.compose.animation.core.animateIntAsState
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -18,14 +23,22 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import app.befos.core.designsystem.AppCard
 import app.befos.core.designsystem.AppTopBar
+import app.befos.core.designsystem.CompatibilityScore
 import app.befos.core.designsystem.ErrorState
 import app.befos.core.designsystem.InterestChip
+import app.befos.core.designsystem.IrisSoft
 import app.befos.core.designsystem.LoadingState
-import app.befos.core.designsystem.CompatibilityScore
+import app.befos.core.designsystem.Mint
 import app.befos.core.designsystem.SectionHeader
+import app.befos.core.designsystem.Spacing
+import app.befos.core.designsystem.WarningAmber
 import app.befos.core.designsystem.scoreColor
 import app.befos.core.di.beFosViewModel
 import app.befos.domain.model.Explanation
@@ -52,39 +65,74 @@ fun CompatibilityScreen(matchId: String, onBack: () -> Unit) {
                 val data = state.data!!
                 val animatedScore by animateIntAsState(targetValue = data.overall, label = "score")
                 Column(
-                    modifier = Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(20.dp),
+                    modifier = Modifier
+                        .padding(padding)
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.background)
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = Spacing.gutter, vertical = Spacing.xl),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.section),
                 ) {
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    // Hero panel: iris-tinted, ring + verdict.
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(MaterialTheme.shapes.large)
+                            .background(Brush.verticalGradient(listOf(IrisSoft, MaterialTheme.colorScheme.surface))),
                     ) {
-                        CompatibilityScore(percent = data.overall, size = 132.dp, label = "$animatedScore%")
-                        Text(
-                            verdictFor(data.overall),
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = scoreColor(data.overall),
-                        )
+                        Column(
+                            modifier = Modifier.padding(Spacing.xxl),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(Spacing.md),
+                        ) {
+                            Text(
+                                text = "ВАША СОВМЕСТИМОСТЬ",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            CompatibilityScore(percent = data.overall, size = 160.dp, strokeWidth = 12.dp, label = "$animatedScore%")
+                            Text(
+                                verdictFor(data.overall),
+                                style = MaterialTheme.typography.headlineMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = scoreColor(data.overall),
+                            )
+                            Text(
+                                "Детерминированный расчёт по анкетам и тесту, а не психологический диагноз.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
 
-                    SectionHeader("По категориям")
-                    CategoryScoreList(data.categories)
+                    Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
+                        SectionHeader("По категориям")
+                        AppCard(modifier = Modifier.fillMaxWidth()) {
+                            Column(modifier = Modifier.padding(Spacing.xl)) {
+                                CategoryScoreList(data.categories)
+                            }
+                        }
+                    }
 
                     if (data.strengths.isNotEmpty()) {
-                        SectionHeader("Почему вы подходите")
-                        ExplanationList(data.strengths, positive = true)
+                        Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
+                            SectionHeader("Почему вы подходите")
+                            ExplanationBlock(items = data.strengths, accent = Mint)
+                        }
                     }
                     if (data.differences.isNotEmpty()) {
-                        SectionHeader("Что может отличаться")
-                        ExplanationList(data.differences, positive = false)
+                        Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
+                            SectionHeader("Что может отличаться")
+                            ExplanationBlock(items = data.differences, accent = WarningAmber)
+                        }
                     }
                     if (data.sharedInterests.isNotEmpty()) {
-                        SectionHeader("Общие интересы")
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            data.sharedInterests.forEach { slug ->
-                                InterestChip(label = prettifySlug(slug))
+                        Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
+                            SectionHeader("Общие интересы")
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm), verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                                data.sharedInterests.forEach { slug ->
+                                    InterestChip(label = prettifySlug(slug))
+                                }
                             }
                         }
                     }
@@ -94,17 +142,35 @@ fun CompatibilityScreen(matchId: String, onBack: () -> Unit) {
     }
 }
 
+/** Data-derived explanation block: accent dot per real reason. */
 @Composable
-private fun ExplanationList(items: List<Explanation>, positive: Boolean) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        items.forEach { item ->
-            Column {
-                Text(item.label, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
-                Text(
-                    item.text,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+private fun ExplanationBlock(items: List<Explanation>, accent: Color) {
+    AppCard(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(Spacing.xl),
+            verticalArrangement = Arrangement.spacedBy(Spacing.lg),
+        ) {
+            items.forEach { item ->
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.md),
+                    verticalAlignment = Alignment.Top,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .padding(top = 6.dp)
+                            .size(10.dp)
+                            .clip(CircleShape)
+                            .background(accent),
+                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(item.label, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            item.text,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
             }
         }
     }
