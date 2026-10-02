@@ -19,13 +19,14 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import app.befos.core.designsystem.AppButton
+import app.befos.core.designsystem.AppCard
 import app.befos.core.designsystem.AppTextField
 import app.befos.core.designsystem.AppTopBar
 import app.befos.core.designsystem.InterestChip
 import app.befos.core.designsystem.LoadingState
 import app.befos.core.designsystem.SectionHeader
+import app.befos.core.designsystem.Spacing
 import app.befos.core.di.beFosViewModel
 import app.befos.presentation.common.DatingGoalLabels
 import app.befos.presentation.common.GenderLabels
@@ -46,53 +47,80 @@ fun EditProfileScreen(onBack: () -> Unit) {
             return@Scaffold
         }
         Column(
-            modifier = Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).imePadding().padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            modifier = Modifier
+                .padding(padding)
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .imePadding()
+                .padding(horizontal = Spacing.gutter, vertical = Spacing.xl),
+            verticalArrangement = Arrangement.spacedBy(Spacing.xxl),
         ) {
-            AppTextField(state.name, vm::onNameChange, label = "Имя", modifier = Modifier.fillMaxWidth())
-            AppTextField(state.city, vm::onCityChange, label = "Город", modifier = Modifier.fillMaxWidth())
-            AppTextField(
-                state.about,
-                vm::onAboutChange,
-                label = "О себе",
-                singleLine = false,
-                minLines = 3,
-                maxLines = 5,
-                modifier = Modifier.fillMaxWidth(),
-            )
-
-            SectionHeader("Пол")
-            ChoiceRow(GenderLabels, state.gender, vm::setGender)
-            SectionHeader("Цель знакомства")
-            ChoiceRow(DatingGoalLabels, state.datingGoal, vm::setDatingGoal)
-
-            SectionHeader("Возрастной диапазон: ${state.ageMin}–${state.ageMax}")
-            RangeSlider(
-                value = state.ageMin.toFloat()..state.ageMax.toFloat(),
-                onValueChange = { r -> vm.setAgeRange(r.start.toInt(), r.endInclusive.toInt()) },
-                valueRange = 18f..99f,
-                steps = 80,
-            )
-
-            SectionHeader("Показывать профили")
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                GenderLabels.forEach { (code, label) ->
-                    InterestChip(
-                        label = label,
-                        selected = state.genderPreference.contains(code),
-                        onClick = { vm.toggleGenderPreference(code) },
-                    )
+            Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
+                SectionHeader("Основные данные")
+                AppCard(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier.padding(Spacing.xl),
+                        verticalArrangement = Arrangement.spacedBy(Spacing.md),
+                    ) {
+                        AppTextField(state.name, vm::onNameChange, label = "Имя", modifier = Modifier.fillMaxWidth())
+                        AppTextField(state.city, vm::onCityChange, label = "Город", modifier = Modifier.fillMaxWidth())
+                        AppTextField(
+                            state.about,
+                            vm::onAboutChange,
+                            label = "О себе",
+                            singleLine = false,
+                            minLines = 3,
+                            maxLines = 5,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
                 }
             }
 
-            SectionHeader("Интересы (${state.selectedInterests.size})")
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                state.allInterests.forEach { interest ->
-                    InterestChip(
-                        label = interest.name,
-                        selected = state.selectedInterests.contains(interest.slug),
-                        onClick = { vm.toggleInterest(interest.slug) },
-                    )
+            Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
+                SectionHeader("Кого вы ищете")
+                Text("Ваш пол", style = MaterialTheme.typography.titleSmall)
+                ChoiceRow(GenderLabels, state.gender, vm::setGender)
+                Text("Цель знакомства", style = MaterialTheme.typography.titleSmall)
+                ChoiceRow(DatingGoalLabels, state.datingGoal, vm::setDatingGoal)
+                Text(
+                    "Возрастной диапазон: ${state.ageMin}–${state.ageMax}",
+                    style = MaterialTheme.typography.titleSmall,
+                )
+                RangeSlider(
+                    value = state.ageMin.toFloat()..state.ageMax.toFloat(),
+                    onValueChange = { r -> vm.setAgeRange(r.start.toInt(), r.endInclusive.toInt()) },
+                    valueRange = 18f..99f,
+                    steps = 80,
+                )
+                Text("Показывать профили", style = MaterialTheme.typography.titleSmall)
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+                ) {
+                    GenderLabels.forEach { (code, label) ->
+                        InterestChip(
+                            label = label,
+                            selected = state.genderPreference.contains(code),
+                            onClick = { vm.toggleGenderPreference(code) },
+                        )
+                    }
+                }
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
+                SectionHeader("Интересы · ${state.selectedInterests.size}")
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+                ) {
+                    state.allInterests.forEach { interest ->
+                        InterestChip(
+                            label = interest.name,
+                            selected = state.selectedInterests.contains(interest.slug),
+                            onClick = { vm.toggleInterest(interest.slug) },
+                        )
+                    }
                 }
             }
 
@@ -108,7 +136,10 @@ fun EditProfileScreen(onBack: () -> Unit) {
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ChoiceRow(options: Map<String, String>, selected: String, onSelect: (String) -> Unit) {
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+        verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+    ) {
         options.forEach { (code, label) ->
             InterestChip(label = label, selected = code == selected, onClick = { onSelect(code) })
         }

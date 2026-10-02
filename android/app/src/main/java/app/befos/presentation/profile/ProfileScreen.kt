@@ -1,35 +1,53 @@
 package app.befos.presentation.profile
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.befos.core.designsystem.AppButton
+import app.befos.core.designsystem.AppButtonVariant
 import app.befos.core.designsystem.AppCard
 import app.befos.core.designsystem.Avatar
+import app.befos.core.designsystem.EmberGradient
 import app.befos.core.designsystem.ErrorState
 import app.befos.core.designsystem.InterestChip
+import app.befos.core.designsystem.IrisSoft
 import app.befos.core.designsystem.LoadingState
+import app.befos.core.designsystem.Motion
 import app.befos.core.designsystem.SectionHeader
+import app.befos.core.designsystem.Spacing
 import app.befos.core.di.beFosViewModel
 import app.befos.presentation.common.goalLabel
 
@@ -58,36 +76,89 @@ fun ProfileScreen(
         else -> {
             val profile = state.profile!!
             Column(
-                modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = Spacing.gutter, vertical = Spacing.xl),
+                verticalArrangement = Arrangement.spacedBy(Spacing.xxl),
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Avatar(profile.primaryPhoto, size = 84.dp)
-                    Column {
-                        Text("${profile.name}, ${profile.age}", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                        Text(profile.city, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text(goalLabel(profile.datingGoal), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                ProfileHero(profile.primaryPhoto, "${profile.name}, ${profile.age}", profile.city, goalLabel(profile.datingGoal))
+
+                if (!profile.about.isNullOrBlank()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
+                        SectionHeader("О себе")
+                        Text(profile.about, style = MaterialTheme.typography.bodyLarge)
                     }
                 }
 
-                if (!profile.about.isNullOrBlank()) {
-                    Text(profile.about, style = MaterialTheme.typography.bodyLarge)
-                }
-
-                TestProgressCard(percent = state.testProgress?.percent ?: 0, completed = state.testProgress?.completed ?: false, onTest = onTest)
+                TestProgressCard(
+                    percent = state.testProgress?.percent ?: 0,
+                    completed = state.testProgress?.completed ?: false,
+                    onTest = onTest,
+                )
 
                 if (profile.interests.isNotEmpty()) {
-                    SectionHeader("Интересы")
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        profile.interests.forEach { interest ->
-                            InterestChip(label = interest.name)
+                    Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
+                        SectionHeader("Интересы")
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                            verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+                        ) {
+                            profile.interests.forEach { interest ->
+                                InterestChip(label = interest.name)
+                            }
                         }
                     }
                 }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-                    AppButton(text = "Редактировать", onClick = onEdit, secondary = true, modifier = Modifier.weight(1f))
-                    AppButton(text = "Настройки", onClick = onSettings, secondary = true, modifier = Modifier.weight(1f))
+                Row(horizontalArrangement = Arrangement.spacedBy(Spacing.lg), modifier = Modifier.fillMaxWidth()) {
+                    AppButton(
+                        text = "Редактировать",
+                        onClick = onEdit,
+                        leadingIcon = Icons.Filled.Edit,
+                        modifier = Modifier.weight(1f),
+                    )
+                    AppButton(
+                        text = "Настройки",
+                        onClick = onSettings,
+                        variant = AppButtonVariant.Tonal,
+                        leadingIcon = Icons.Outlined.Settings,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** Branded identity panel: photo/initial on a warm gradient, name front and center. */
+@Composable
+private fun ProfileHero(photoUrl: String?, title: String, city: String, goal: String) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(MaterialTheme.shapes.large)
+            .background(Brush.verticalGradient(listOf(IrisSoft, MaterialTheme.colorScheme.surface)))
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.large),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(Spacing.xxl),
+            verticalArrangement = Arrangement.spacedBy(Spacing.md),
+        ) {
+            Text(
+                "МОЙ ПРОФИЛЬ",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(Spacing.lg),
+            ) {
+                Avatar(photoUrl, size = 76.dp)
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                    Text(city, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(goal, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                 }
             }
         }
@@ -96,19 +167,60 @@ fun ProfileScreen(
 
 @Composable
 private fun TestProgressCard(percent: Int, completed: Boolean, onTest: () -> Unit) {
+    var visible by remember { androidx.compose.runtime.mutableStateOf(false) }
+    LaunchedEffect(Unit) { visible = true }
+    val fill by animateFloatAsState(
+        targetValue = if (visible) percent / 100f else 0f,
+        animationSpec = tween(Motion.Slow, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+        label = "testProgressFill",
+    )
     AppCard(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("Профиль совместимости", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                Text("$percent%", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Column(
+            modifier = Modifier.padding(Spacing.xl),
+            verticalArrangement = Arrangement.spacedBy(Spacing.md),
+        ) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                    Text("ПРОФИЛЬ СОВМЕСТИМОСТИ", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        if (completed) "Тест пройден" else "Тест не пройден",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+                Text(
+                    "$percent%",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                )
             }
-            LinearProgressIndicator(progress = { percent / 100f }, modifier = Modifier.fillMaxWidth().height(8.dp))
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(10.dp)
+                    .clip(RoundedCornerShape(5.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+            ) {
+                Box(
+                    Modifier
+                        .fillMaxWidth(fill)
+                        .height(10.dp)
+                        .clip(RoundedCornerShape(5.dp))
+                        .background(EmberGradient),
+                )
+            }
             Text(
-                if (completed) "Тест пройден. Вы можете пройти его заново, чтобы уточнить ответы." else "Пройдите тест — без него совместимость считается неточно.",
+                if (completed) "Вы можете пройти тест заново, чтобы уточнить ответы." else "Пройдите тест — без него совместимость считается неточно.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            AppButton(text = if (completed) "Пройти заново" else "Пройти тест", onClick = onTest, modifier = Modifier.fillMaxWidth())
+            AppButton(
+                text = if (completed) "Пройти заново" else "Пройти тест",
+                onClick = onTest,
+                variant = if (completed) AppButtonVariant.Tonal else AppButtonVariant.Filled,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
     }
 }

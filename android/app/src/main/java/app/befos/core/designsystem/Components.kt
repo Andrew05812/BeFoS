@@ -410,6 +410,8 @@ fun AppButton(
     loading: Boolean = false,
     secondary: Boolean = false,
     variant: AppButtonVariant = if (secondary) AppButtonVariant.Tonal else AppButtonVariant.Filled,
+    leadingIcon: androidx.compose.ui.graphics.vector.ImageVector? = null,
+    contentColorOverride: Color? = null,
 ) {
     val interaction = remember { MutableInteractionSource() }
     val contentAlpha = if (enabled && !loading) 1f else 0.45f
@@ -419,7 +421,7 @@ fun AppButton(
             .heightIn(min = 52.dp),
         shape = MaterialTheme.shapes.small,
         color = Color.Transparent,
-        contentColor = when (variant) {
+        contentColor = contentColorOverride ?: when (variant) {
             AppButtonVariant.Filled -> Color.White
             AppButtonVariant.Tonal -> MaterialTheme.colorScheme.onSurface
             AppButtonVariant.Ghost -> MaterialTheme.colorScheme.primary
@@ -442,7 +444,11 @@ fun AppButton(
                 .then(if (fill != null) Modifier.background(fill) else Modifier)
                 .then(
                     if (variant == AppButtonVariant.Ghost) {
-                        Modifier.border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f), MaterialTheme.shapes.small)
+                        Modifier.border(
+                            1.dp,
+                            (contentColorOverride ?: MaterialTheme.colorScheme.primary).copy(alpha = 0.5f),
+                            MaterialTheme.shapes.small,
+                        )
                     } else {
                         Modifier
                     }
@@ -464,6 +470,24 @@ fun AppButton(
                         else -> MaterialTheme.colorScheme.onSurface
                     },
                 )
+            } else if (leadingIcon != null) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                    modifier = Modifier.padding(horizontal = Spacing.xxl, vertical = Spacing.md),
+                ) {
+                    Icon(
+                        leadingIcon,
+                        contentDescription = null,
+                        modifier = Modifier.size(19.dp),
+                        tint = androidx.compose.material3.LocalContentColor.current,
+                    )
+                    Text(
+                        text,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
             } else {
                 Text(
                     text,
