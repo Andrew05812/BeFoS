@@ -83,16 +83,24 @@ class DiscoveryService:
         )
 
         viewer_input = await self.compatibility.build_input(viewer_id)
+        # Batch-load everything the cards need: one query per concern, not per candidate.
+        profiles = {
+            p.user_id: p
+            for p in await self.users.get_profiles_by_ids(pool_ids)
+        }
+        photos = await self.users.get_primary_photos(pool_ids)
+        comp_profiles = await self.compatibility.tests.get_compatibility_profiles(pool_ids)
+
         cards = []
         for cand_id in pool_ids:
-            profile = await self.users.get_profile_with_user(cand_id)
+            profile = profiles.get(cand_id)
             if profile is None:
                 continue
-            cand_input = await self.compatibility.build_input(cand_id)
+            cand_input = CompatibilityService.input_from(profile, comp_profiles.get(cand_id))
             from app.compatibility.engine import compute_compatibility
 
             result = compute_compatibility(viewer_input, cand_input, self.compatibility.weight_config)
-            photo = await self.users.get_primary_photo(cand_id)
+            photo = photos.get(cand_id)
             shared_slugs = viewer_input.interests & cand_input.interests
             shared = len(shared_slugs)
             cards.append(

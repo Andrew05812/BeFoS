@@ -68,6 +68,14 @@ class TestRepository:
         stmt = select(CompatibilityProfile).where(CompatibilityProfile.user_id == user_id)
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
+    async def get_compatibility_profiles(
+        self, user_ids: list[uuid.UUID]
+    ) -> dict[uuid.UUID, CompatibilityProfile]:
+        if not user_ids:
+            return {}
+        stmt = select(CompatibilityProfile).where(CompatibilityProfile.user_id.in_(user_ids))
+        return {cp.user_id: cp for cp in (await self.session.execute(stmt)).scalars()}
+
     async def upsert_compatibility_profile(
         self, user_id: uuid.UUID, vector: dict, version: int
     ) -> CompatibilityProfile:

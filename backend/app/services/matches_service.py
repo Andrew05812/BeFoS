@@ -24,15 +24,22 @@ class MatchesService:
         )
         matches = list((await self.session.execute(stmt)).scalars().all())
 
+        # Batch-load per-match data: no query inside the loop.
+        match_ids = [m.id for m in matches]
+        other_ids = [m.other_user(user_id) for m in matches]
+        profiles = {p.user_id: p for p in await self.users.get_profiles_by_ids(other_ids)}
+        photos = await self.users.get_primary_photos(other_ids)
+        last_messages = await self.chat.last_messages(match_ids)
+        unread_counts = await self.chat.unread_counts(match_ids, user_id)
+
         result: list[dict] = []
         for match in matches:
             other_id = match.other_user(user_id)
-            profile = await self.users.get_profile_with_user(other_id)
+            profile = profiles.get(other_id)
             if profile is None:
                 continue
-            photo = await self.users.get_primary_photo(other_id)
-            last = await self.chat.last_message(match.id)
-            unread = await self.chat.unread_count(match.id, user_id)
+            photo = photos.get(other_id)
+            last = last_messages.get(match.id)
             result.append(
                 {
                     "match_id": str(match.id),
@@ -44,7 +51,7 @@ class MatchesService:
                     "compatibility": int(round(match.compatibility_score * 100)),
                     "last_message": last.body if last else None,
                     "last_message_at": last.created_at if last else None,
-                    "unread": unread,
+                    "unread": unread_counts.get(match.id, 0),
                     "created_at": match.created_at,
                 }
             )

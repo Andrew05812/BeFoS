@@ -8,6 +8,7 @@ from app.compatibility.engine import CompatibilityInput, CompatibilityResult, co
 from app.compatibility.explanation import CompatibilityExplanation, build_explanation
 from app.compatibility.weights import DEFAULT_WEIGHT_CONFIG, WeightConfig
 from app.core.exceptions import NotFoundError
+from app.models import CompatibilityProfile, Profile
 from app.repositories.test_repo import TestRepository
 from app.repositories.user_repo import UserRepository
 
@@ -24,11 +25,14 @@ class CompatibilityService:
         if profile is None:
             raise NotFoundError("Profile not found.")
         cp = await self.tests.get_compatibility_profile(user_id)
+        return self.input_from(profile, cp)
+
+    @staticmethod
+    def input_from(profile: Profile, cp: CompatibilityProfile | None) -> CompatibilityInput:
         vector = cp.vector if cp and isinstance(cp.vector, dict) else {}
-        interests = {i.slug for i in profile.interests}
         return CompatibilityInput(
             vector=vector,
-            interests=interests,
+            interests={i.slug for i in profile.interests},
             dating_goal=profile.dating_goal,
         )
 

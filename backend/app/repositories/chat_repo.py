@@ -92,3 +92,32 @@ class ChatRepository:
             Message.id.not_in(sub_read),
         )
         return int((await self.session.execute(stmt)).scalar_one())
+
+    async def last_messages(self, match_ids: list[uuid.UUID]) -> dict[uuid.UUID, Message]:
+        if not match_ids:
+            return {}
+        # PostgreSQL DISTINCT ON picks the newest row per match in one pass.
+        stmt = (
+            select(Message)
+            .distinct(Message.match_id)
+            .where(Message.match_id.in_(match_ids), Message.is_deleted.is_(False))
+            .order_by(Message.match_id, Message.created_at.desc())
+        )
+        return {m.match_id: m for m in (await self.session.execute(stmt)).scalars()}
+
+    async def unread_counts(self, match_ids: list[uuid.UUID], user_id: uuid.UUID) -> dict[uuid.UUID, int]:
+        if not match_ids:
+            return {}
+        sub_read = select(MessageRead.message_id).where(MessageRead.reader_id == user_id)
+        stmt = (
+            select(Message.match_id, func.count(Message.id))
+            .where(
+                Message.match_id.in_(match_ids),
+                Message.sender_id != user_id,
+                Message.is_deleted.is_(False),
+                Message.id.not_in(sub_read),
+            )
+            .group_by(Message.match_id)
+        )
+        counts = {mid: int(n) for mid, n in (await self.session.execute(stmt)).all()}
+        return {mid: counts.get(mid, 0) for mid in match_ids}

@@ -46,6 +46,30 @@ class UserRepository:
         )
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
+    async def get_profiles_by_ids(self, user_ids: list[uuid.UUID]) -> list[Profile]:
+        if not user_ids:
+            return []
+        stmt = (
+            select(Profile)
+            .join(User, User.id == Profile.user_id)
+            .options(selectinload(Profile.interests))
+            .where(Profile.user_id.in_(user_ids), User.is_deleted.is_(False))
+        )
+        return list((await self.session.execute(stmt)).scalars().all())
+
+    async def get_primary_photos(self, user_ids: list[uuid.UUID]) -> dict[uuid.UUID, Photo]:
+        if not user_ids:
+            return {}
+        stmt = (
+            select(Photo)
+            .where(Photo.user_id.in_(user_ids))
+            .order_by(Photo.user_id, Photo.is_primary.desc(), Photo.position.asc())
+        )
+        first: dict[uuid.UUID, Photo] = {}
+        for photo in (await self.session.execute(stmt)).scalars():
+            first.setdefault(photo.user_id, photo)
+        return first
+
     async def upsert_profile(self, profile: Profile) -> Profile:
         self.session.add(profile)
         await self.session.flush()
