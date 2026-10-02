@@ -96,4 +96,31 @@ class ChatViewModelTest {
 
         assertTrue(vm.uiState.value.messages.any { it.id == "7" })
     }
+
+    @Test
+    fun `connection state tracks socket connect and disconnect`() = runTest {
+        coEvery { repo.history("m1", any()) } returns ApiResult.Success(emptyList())
+        coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
+        coEvery { repo.sendTyping(any(), any()) } returns Unit
+
+        val vm = ChatViewModel(repo, "m1")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        // Not connected until the socket opens.
+        assertEquals(false, vm.uiState.value.connected)
+
+        events.tryEmit(ChatEvent.Connected)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(true, vm.uiState.value.connected)
+
+        // A typing indicator is cleared when the socket drops.
+        events.tryEmit(ChatEvent.Typing(userId = "them", typing = true))
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(true, vm.uiState.value.otherTyping)
+
+        events.tryEmit(ChatEvent.Disconnected)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(false, vm.uiState.value.connected)
+        assertEquals(false, vm.uiState.value.otherTyping)
+    }
 }
