@@ -1,11 +1,15 @@
 package app.befos.presentation.test
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,20 +17,23 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
@@ -34,8 +41,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import app.befos.core.designsystem.AppButton
 import app.befos.core.designsystem.AppCard
+import app.befos.core.designsystem.EmberGradient
 import app.befos.core.designsystem.ErrorState
 import app.befos.core.designsystem.LoadingState
+import app.befos.core.designsystem.Spacing
 import app.befos.core.di.beFosViewModel
 import app.befos.presentation.common.CategoryScoreList
 
@@ -45,7 +54,7 @@ fun TestScreen(onFinished: () -> Unit) {
     val state by vm.uiState.collectAsState()
 
     when {
-        state.loading -> LoadingState()
+        state.loading -> LoadingState(message = "Загружаем вопросы")
         state.error != null && state.questions.isEmpty() -> ErrorState(
             message = state.error ?: "Ошибка",
             title = "Не удалось загрузить тест",
@@ -60,45 +69,116 @@ fun TestScreen(onFinished: () -> Unit) {
 private fun TestQuestionView(state: TestUiState, vm: TestViewModel) {
     val question = state.current ?: return
     val haptics = LocalHapticFeedback.current
-    val animatedProgress by animateFloatAsState(state.progress, tween(350), label = "testProgress")
+    val animatedProgress by animateFloatAsState(state.progress, tween(400), label = "testProgress")
     Column(
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = Spacing.gutter, vertical = Spacing.xl),
+        verticalArrangement = Arrangement.spacedBy(Spacing.xl),
     ) {
-        LinearProgressIndicator(
-            progress = { animatedProgress },
-            modifier = Modifier.fillMaxWidth().height(6.dp),
-        )
-        Text(
-            "Вопрос ${state.index + 1} из ${state.questions.size}",
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        // Progress as movement: counter is the hero, the line is its shadow.
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.Bottom,
+        ) {
+            Column {
+                Text(
+                    text = "ВОПРОС",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(verticalAlignment = Alignment.Bottom) {
+                    Text(
+                        text = "${state.index + 1}",
+                        style = MaterialTheme.typography.displayMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Text(
+                        text = " / ${state.questions.size}",
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 6.dp, start = Spacing.xs),
+                    )
+                }
+            }
+            Text(
+                text = "${(state.progress * 100).toInt()}%",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(6.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(animatedProgress)
+                    .height(6.dp)
+                    .clip(CircleShape)
+                    .background(EmberGradient),
+            )
+        }
+
         AnimatedContent(
             targetState = question.id,
             transitionSpec = {
-                (slideInHorizontally { it / 4 } + fadeIn()) togetherWith
-                    (slideOutHorizontally { -it / 4 } + fadeOut())
+                (slideInHorizontally { it / 4 } + fadeIn(tween(240))) togetherWith
+                    (slideOutHorizontally { -it / 4 } + fadeOut(tween(140)))
             },
             label = "questionTransition",
         ) { targetId ->
             val target = state.questions.firstOrNull { it.id == targetId } ?: return@AnimatedContent
-            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                Text(target.text, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    target.options.forEach { option ->
+            Column(verticalArrangement = Arrangement.spacedBy(Spacing.lg)) {
+                Text(
+                    target.text,
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground,
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
+                    target.options.forEachIndexed { i, option ->
                         AppCard(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 64.dp),
                             onClick = {
                                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                 vm.select(option.id)
                             },
                         ) {
-                            Text(
-                                option.text,
-                                style = MaterialTheme.typography.bodyLarge,
-                                modifier = Modifier.padding(16.dp),
-                            )
+                            Row(
+                                modifier = Modifier.padding(horizontal = Spacing.lg, vertical = Spacing.lg),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(Spacing.md),
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(32.dp)
+                                        .clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Text(
+                                        ('А' + i).toString(),
+                                        style = MaterialTheme.typography.labelLarge,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                Text(
+                                    option.text,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                            }
                         }
                     }
                 }
@@ -122,18 +202,44 @@ private fun TestQuestionView(state: TestUiState, vm: TestViewModel) {
 @Composable
 private fun TestResultView(state: TestUiState, onFinished: () -> Unit) {
     Column(
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = Spacing.gutter, vertical = Spacing.hero),
+        verticalArrangement = Arrangement.spacedBy(Spacing.lg),
     ) {
-        Text("Профиль совместимости готов", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        Text(
+            text = "ТЕСТ ПРОЙДЕН",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            "Профиль совместимости готов",
+            style = MaterialTheme.typography.headlineLarge,
+            fontWeight = FontWeight.Bold,
+        )
         Text(
             "Так алгоритм видит ваши ответы по семи категориям. Эти же категории используются для расчёта совместимости с другими людьми.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        CategoryScoreList(state.result ?: emptyList())
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            AppButton(text = "Перейти к подбору", onClick = onFinished)
+        AppCard(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(Spacing.xl)) {
+                CategoryScoreList(state.result ?: emptyList())
+            }
         }
+        Text(
+            text = "Детерминированный расчёт: одинаковые ответы дают одинаковый результат.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        AppButton(
+            text = "Перейти к подбору",
+            onClick = onFinished,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = Spacing.sm),
+        )
     }
 }

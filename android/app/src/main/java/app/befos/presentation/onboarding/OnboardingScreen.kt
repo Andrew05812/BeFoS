@@ -1,11 +1,14 @@
 package app.befos.presentation.onboarding
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,29 +20,33 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.RangeSlider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import app.befos.core.designsystem.AppButton
 import app.befos.core.designsystem.AppTextField
+import app.befos.core.designsystem.Elev
 import app.befos.core.designsystem.InterestChip
-import app.befos.core.designsystem.SectionHeader
+import app.befos.core.designsystem.Spacing
 import app.befos.core.di.beFosViewModel
 import app.befos.presentation.common.DatingGoalLabels
 import app.befos.presentation.common.GenderLabels
@@ -55,57 +62,104 @@ fun OnboardingScreen(onDone: () -> Unit) {
     val animatedProgress by animateFloatAsState((state.step + 1) / 3f, tween(350), label = "onboardingProgress")
 
     Column(
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).imePadding().padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .padding(horizontal = Spacing.gutter),
     ) {
-        LinearProgressIndicator(
-            progress = { animatedProgress },
-            modifier = Modifier.fillMaxWidth().height(6.dp),
-        )
-        AnimatedContent(
-            targetState = state.step,
-            transitionSpec = {
-                val forward = targetState > initialState
-                val enter = slideInHorizontally { if (forward) it / 4 else -it / 4 }
-                val exit = slideOutHorizontally { if (forward) -it / 4 else it / 4 }
-                enter togetherWith exit
-            },
-            label = "onboardingStep",
-        ) { step ->
-            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                SectionHeader(
-                    title = when (step) {
-                        0 -> "Расскажите о себе"
-                        1 -> "Кого вы ищете"
-                        else -> "Ваши интересы"
-                    },
-                    subtitle = when (step) {
-                        0 -> "Эти данные видны другим участникам"
-                        1 -> "Параметры влияют на то, кого показывает подбор"
-                        else -> "По интересам мы предлагаем совместные активности"
-                    },
+        // Segmented stepper instead of a bare progress bar.
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = Spacing.lg, bottom = Spacing.xl),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+        ) {
+            repeat(3) { i ->
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(5.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (i <= state.step) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.surfaceVariant,
+                        ),
                 )
-                when (step) {
-                    0 -> StepAbout(state, vm)
-                    1 -> StepPreferences(state, vm)
-                    2 -> StepInterests(state, vm)
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .verticalScroll(rememberScrollState())
+                .imePadding(),
+        ) {
+            AnimatedContent(
+                targetState = state.step,
+                transitionSpec = {
+                    val forward = targetState > initialState
+                    val enter = slideInHorizontally { if (forward) it / 4 else -it / 4 } +
+                        androidx.compose.animation.fadeIn(tween(220))
+                    val exit = slideOutHorizontally { if (forward) -it / 4 else it / 4 } +
+                        androidx.compose.animation.fadeOut(tween(140))
+                    enter togetherWith exit
+                },
+                label = "onboardingStep",
+            ) { step ->
+                Column(verticalArrangement = Arrangement.spacedBy(Spacing.xl)) {
+                    Text(
+                        text = "ШАГ ${step + 1} ИЗ 3",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        text = when (step) {
+                            0 -> "Расскажите о себе"
+                            1 -> "Кого вы ищете"
+                            else -> "Что вы любите"
+                        },
+                        style = MaterialTheme.typography.headlineLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onBackground,
+                    )
+                    Text(
+                        text = when (step) {
+                            0 -> "Эти данные видны другим участникам."
+                            1 -> "Параметры влияют на то, кого показывает подбор."
+                            else -> "По интересам мы предлагаем совместные активности и строим объяснимый подбор."
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    when (step) {
+                        0 -> StepAbout(state, vm)
+                        1 -> StepPreferences(state, vm)
+                        2 -> StepInterests(state, vm)
+                    }
+                    if (state.error != null) {
+                        Text(state.error!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+                    }
                 }
             }
         }
 
-        if (state.error != null) {
-            Text(state.error!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
-        }
-
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = Spacing.xl),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.md),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             if (state.step > 0) {
-                TextButton(onClick = vm::back, modifier = Modifier.weight(1f)) { Text("Назад") }
+                TextButton(onClick = vm::back) { Text("Назад") }
             }
             AppButton(
                 text = if (state.step == 2) "Завершить" else "Далее",
                 onClick = vm::next,
                 loading = state.submitting,
-                modifier = Modifier.weight(2f),
+                modifier = Modifier
+                    .weight(1f)
+                    .height(52.dp),
             )
         }
     }
@@ -113,7 +167,7 @@ fun OnboardingScreen(onDone: () -> Unit) {
 
 @Composable
 private fun StepAbout(state: OnboardingUiState, vm: OnboardingViewModel) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(Spacing.lg)) {
         AppTextField(
             value = state.name,
             onValueChange = vm::onNameChange,
@@ -134,7 +188,11 @@ private fun StepAbout(state: OnboardingUiState, vm: OnboardingViewModel) {
             label = "Город",
             modifier = Modifier.fillMaxWidth(),
         )
-        SectionHeader(title = "Пол")
+        Text(
+            text = "ПОЛ",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         SingleChoiceRow(options = GenderLabels, selected = state.gender, onSelect = vm::setGender)
         AppTextField(
             value = state.about,
@@ -151,20 +209,32 @@ private fun StepAbout(state: OnboardingUiState, vm: OnboardingViewModel) {
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun StepPreferences(state: OnboardingUiState, vm: OnboardingViewModel) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        SectionHeader(title = "Цель знакомства")
+    Column(verticalArrangement = Arrangement.spacedBy(Spacing.lg)) {
+        Text(
+            text = "ЦЕЛЬ ЗНАКОМСТВА",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         SingleChoiceRow(options = DatingGoalLabels, selected = state.datingGoal, onSelect = vm::setDatingGoal)
 
-        Text("Возрастной диапазон: ${state.ageMin}–${state.ageMax}", style = MaterialTheme.typography.titleSmall)
-        RangeSlider(
+        Text(
+            text = "ВОЗРАСТНОЙ ДИАПАЗОН · ${state.ageMin}–${state.ageMax}",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        androidx.compose.material3.RangeSlider(
             value = state.ageMin.toFloat()..state.ageMax.toFloat(),
             onValueChange = { r -> vm.setAgeRange(r.start.toInt(), r.endInclusive.toInt()) },
             valueRange = 18f..99f,
             steps = 80,
         )
 
-        SectionHeader(title = "Показывать профили")
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text = "ПОКАЗЫВАТЬ ПРОФИЛИ",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm), verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
             GenderLabels.forEach { (code, label) ->
                 InterestChip(
                     label = label,
@@ -186,17 +256,39 @@ private fun StepPreferences(state: OnboardingUiState, vm: OnboardingViewModel) {
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun StepInterests(state: OnboardingUiState, vm: OnboardingViewModel) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(
-            "Выберите минимум 3 (${state.selectedInterests.size})",
-            style = MaterialTheme.typography.titleSmall,
-        )
+    Column(verticalArrangement = Arrangement.spacedBy(Spacing.lg)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+            Text(
+                text = "ВЫБЕРИТЕ МИНИМУМ 3",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Box(
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .background(
+                        if (state.selectedInterests.size >= 3) MaterialTheme.colorScheme.secondaryContainer
+                        else MaterialTheme.colorScheme.surfaceVariant,
+                    )
+                    .padding(horizontal = Spacing.md, vertical = 2.dp),
+            ) {
+                Text(
+                    "${state.selectedInterests.size} / 3",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = if (state.selectedInterests.size >= 3) {
+                        MaterialTheme.colorScheme.onSecondaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+            }
+        }
         if (state.interestsLoading) {
-            Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
+            Box(Modifier.fillMaxWidth().padding(Spacing.huge), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
             }
         } else {
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm), verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                 state.interests.forEach { interest ->
                     InterestChip(
                         label = interest.name,
@@ -209,16 +301,53 @@ private fun StepInterests(state: OnboardingUiState, vm: OnboardingViewModel) {
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
+/** Full-width single-choice rows: selected gets the iris signature + dot. */
 @Composable
 private fun SingleChoiceRow(
     options: Map<String, String>,
     selected: String,
     onSelect: (String) -> Unit,
 ) {
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
         options.forEach { (code, label) ->
-            InterestChip(label = label, selected = code == selected, onClick = { onSelect(code) })
+            val isSel = code == selected
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(MaterialTheme.shapes.small)
+                    .background(
+                        if (isSel) MaterialTheme.colorScheme.secondaryContainer
+                        else MaterialTheme.colorScheme.surface,
+                    )
+                    .border(
+                        Elev.hairlineWidth,
+                        if (isSel) MaterialTheme.colorScheme.secondary.copy(alpha = 0.5f)
+                        else MaterialTheme.colorScheme.outlineVariant,
+                        MaterialTheme.shapes.small,
+                    )
+                    .clickable { onSelect(code) }
+                    .padding(horizontal = Spacing.lg, vertical = Spacing.md),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(Spacing.md),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(20.dp)
+                        .clip(CircleShape)
+                        .border(1.5.dp, if (isSel) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.outline, CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (isSel) {
+                        Box(Modifier.size(10.dp).clip(CircleShape).background(MaterialTheme.colorScheme.secondary))
+                    }
+                }
+                Text(
+                    label,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = if (isSel) FontWeight.SemiBold else FontWeight.Normal,
+                    color = if (isSel) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
+                )
+            }
         }
     }
 }
