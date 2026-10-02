@@ -75,18 +75,29 @@ cd android
 
 ### Тесты
 
-**Backend** (35 тестов: 16 unit + 19 integration, требуют запущенный PostgreSQL и отдельную БД `befos_test`):
+**Backend** (44 теста: unit + integration + security-config). По умолчанию тесты поднимают отдельную БД `befos_test` на **Docker-PostgreSQL** (`localhost:5432`), поэтому достаточно запущенного `docker compose up -d`:
 
 ```bash
 cd backend
 pytest
 ```
 
-**Android** (12 unit-тестов ViewModel):
+Целевой кластер можно переопределить переменными `BEFOS_TEST_PG_HOST/PORT/USER/PASSWORD/DB` (например, на bare-metal PostgreSQL на `5433`).
+
+**Android** (21 unit-тест ViewModel: auth, root-маршрутизация, chat, discovery, форматирование совместимости):
 
 ```bash
 cd android
 ./gradlew :app:testDebugUnitTest
+```
+
+### E2E-сценарий продукта (backend)
+
+`backend/e2e_journey.py` прогоняет полную цепочку ценности на живом Docker-backend двумя реальными пользователями (регистрация → онбординг → тест → подбор → взаимный like → **match** → чат (отправка/прочтение/ответ) → совместимость → рекомендации → block/visibility → refresh → logout → повторный login → удаление аккаунта) и проверяет негативные сценарии безопасности:
+
+```bash
+cd backend
+./.venv/Scripts/python.exe e2e_journey.py     # 45/45 проверок
 ```
 
 ## Технологии
@@ -96,7 +107,7 @@ cd android
 | Backend | Python 3.12, FastAPI 0.115, Pydantic 2.10, SQLAlchemy 2.0 (async), asyncpg, Alembic 1.14 |
 | БД | PostgreSQL 16 |
 | Auth/Security | JWT (access + rotating refresh, refresh хранится как SHA-256 hash), bcrypt, CORS, sliding-window rate limiting, Pillow (перекодирование загружаемых изображений) |
-| Realtime | WebSocket (`/ws/chat/{match_id}`) с JWT-авторизацией |
+| Realtime | WebSocket (`/ws/chat/{match_id}`) с JWT-авторизацией; сообщения и отметки о прочтении, отправленные через REST, транслируются в сокет пары, поэтому оба клиента видят их без перезагрузки |
 | Android | Kotlin 2.2, Jetpack Compose (BOM 2024.09), Material 3, Navigation Compose 2.8, Ktor 3.0, kotlinx-serialization, Coil 2.7, DataStore 1.1, Coroutines/Flow |
 | Инфра | Docker Compose, pytest, JUnit4 + MockK + Turbine |
 
@@ -106,6 +117,7 @@ cd android
 - Пароли хранятся исключительно как bcrypt-хэш; в логах не выводятся пароли, access/refresh-токены и чувствительные пользовательские данные.
 - Запросы защищены от SQL-инъекций (SQLAlchemy параметризует запросы), загрузки изображений — перекодированием через Pillow, авторизация WebSocket проверяет JWT (невалидный токен → close 1008).
 - Применено скользящее rate limiting (в т.ч. отдельный лимитер для `/auth`).
+- Конфигурация проверяется при старте: при `ENVIRONMENT=production` приложение **не запустится** с плейсхолдер-секретами JWT, секретами короче 32 символов или совпадающими `JWT_SECRET`/`JWT_REFRESH_SECRET` (защита от развёртывания с forgeable-токенами). CORS не позволяет сочетать wildcard-origin с credentials.
 
 ## Структура репозитория
 
@@ -156,6 +168,8 @@ Score = Σ ( normalize(component_i) × weight_i ),   Σ weight_i = 1.0
 
 Один и тот же вход всегда даёт одинаковый результат. Помимо общего процента API возвращает разбивку по категориям, списки «сильных сторон» и «отличий», а также общие интересы — всё это выводится из реальных данных пары. Версия движка (`engine_version`) фиксируется в результате.
 
-## Известное ограничение окружения
+## Известные ограничения окружения
 
-Запуск `./gradlew :app:testDebugUnitTest` **из пути, содержащего кириллицу** (проект расположен в `…\Рабочий стол\…`), на Windows завершается ошибкой `ClassNotFoundException` для всех тест-классов: форкаемый Gradle test-worker наследует `sun.jnu.encoding=Cp1251` и не может разрешить classpath с не-ASCII-символами. Те же тесты из ASCII-пути проходят (12/12). Обход: запускать unit-тесты из каталога с ASCII-путём (например, в CI). На сборку приложения (`assembleDebug`) это не влияет.
+1. **Запуск unit-тестов Android из кириллического пути.** `./gradlew :app:testDebugUnitTest` из пути, содержащего кириллицу (проект расположен в `…\Рабочий стол\…`), на Windows завершается ошибкой `ClassNotFoundException` для всех тест-классов: форкаемый Gradle test-worker наследует `sun.jnu.encoding=Cp1251` и не может разрешить classpath с не-ASCII-символами. Те же тесты из ASCII-пути проходят (16/16). Обход: запускать unit-тесты из каталога с ASCII-путём (например, в CI). На сборку приложения (`assembleDebug`) это не влияет.
+
+2. **Полный E2E на эмуляторе выполнен.** Создан AVD `befos_avd` (pixel_4, экран 540x1140 / density 220, `hw.keyboard=yes`, RAM 3G); эмулятор запускается headless (`-no-window -gpu swiftshader_indirect -accel on`). На нём пройден полный сценарий: старт → регистрация → онбординг (3 шага) → тест 21 вопрос → профиль совместимости → подбор → публичный профиль → взаимный like и match → чат (отправка, входящее сообщение по WebSocket без перезагрузки, прочтение) → детали совместимости → рекомендации → пары → профиль → настройки → logout → повторный login. Маршрутизация после входа учитывает заполненность профиля: завершённый профиль попадает сразу в MAIN, незавершённый — в онбординг.

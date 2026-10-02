@@ -197,6 +197,8 @@
 | POST | `/matches/{match_id}/messages` | `{body}` (1..4000) | `201` `MessageOut` |
 | POST | `/matches/{match_id}/read` | — | `{marked_read: N}` |
 
+Сообщения, отправленные через REST, и отметки о прочтении дополнительно транслируются в WebSocket матча (`type: message` / `type: read`), поэтому подключённый второй клиент получает их без повторного запроса истории.
+
 `MessageOut`:
 
 ```json
