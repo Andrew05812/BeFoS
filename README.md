@@ -73,9 +73,26 @@ cd android
 
 Эмулятор обращается к хосту по `10.0.2.2`, поэтому backend на `localhost:8000` доступен приложению без дополнительных настроек (см. `API_BASE_URL` в `android/app/build.gradle.kts`).
 
+### Release-сборка (APK/AAB)
+
+Конфигурация локального эмулятора (`http://10.0.2.2`) намеренно не может попасть в release-бинарник: release требует явного указания backend-адресов и отдельного механизма подписи.
+
+```bash
+cd android
+# 1) Продуктивные адреса (только https/wss) — через env или -Pbefos.apiBaseUrl/-Pbefos.wsBaseUrl:
+export BEFOS_API_BASE_URL="https://api.example.com/" BEFOS_WS_BASE_URL="wss://api.example.com/"
+# 2) Подпись (опционально): скопируйте android/keystore.properties.example
+#    в android/keystore.properties (файл вне git) и укажите свой keystore.
+#    Без него сборка проходит честно и даёт unsigned APK/AAB (без debug-ключа).
+./gradlew :app:assembleRelease :app:bundleRelease
+# APK: app/build/outputs/apk/release/, AAB: app/build/outputs/bundle/release/
+```
+
+Без `BEFOS_API_BASE_URL`/`BEFOS_WS_BASE_URL` `assembleRelease` падает с внятным сообщением — «случайный» release с HTTP-адресом эмулятора невозможен.
+
 ### Тесты
 
-**Backend** (44 теста: unit + integration + security-config). По умолчанию тесты поднимают отдельную БД `befos_test` на **Docker-PostgreSQL** (`localhost:5432`), поэтому достаточно запущенного `docker compose up -d`:
+**Backend** (60 тестов: unit + integration + security-config + IDOR-набор + perf-ограничение числа запросов). По умолчанию тесты поднимают отдельную БД `befos_test` на **Docker-PostgreSQL** (`localhost:5432`), поэтому достаточно запущенного `docker compose up -d`:
 
 ```bash
 cd backend
@@ -93,11 +110,11 @@ cd android
 
 ### E2E-сценарий продукта (backend)
 
-`backend/e2e_journey.py` прогоняет полную цепочку ценности на живом Docker-backend двумя реальными пользователями (регистрация → онбординг → тест → подбор → взаимный like → **match** → чат (отправка/прочтение/ответ) → совместимость → рекомендации → block/visibility → refresh → logout → повторный login → удаление аккаунта) и проверяет негативные сценарии безопасности:
+`backend/e2e_journey.py` прогоняет полную цепочку ценности на живом Docker-backend двумя реальными пользователями (регистрация → онбординг → тест → подбор → взаимный like → **match** → чат (отправка/прочтение/ответ) → совместимость → рекомендации → block/visibility → refresh → logout → повторный login → удаление аккаунта) и проверяет негативные сценарии безопасности, включая data-derived `highlight` карточки подбора:
 
 ```bash
 cd backend
-./.venv/Scripts/python.exe e2e_journey.py     # 45/45 проверок
+./.venv/Scripts/python.exe e2e_journey.py     # 46/46 проверок
 ```
 
 ## Технологии
@@ -117,7 +134,7 @@ cd backend
 - Пароли хранятся исключительно как bcrypt-хэш; в логах не выводятся пароли, access/refresh-токены и чувствительные пользовательские данные.
 - Запросы защищены от SQL-инъекций (SQLAlchemy параметризует запросы), загрузки изображений — перекодированием через Pillow, авторизация WebSocket проверяет JWT (невалидный токен → close 1008).
 - Применено скользящее rate limiting (в т.ч. отдельный лимитер для `/auth`).
-- Конфигурация проверяется при старте: при `ENVIRONMENT=production` приложение **не запустится** с плейсхолдер-секретами JWT, секретами короче 32 символов или совпадающими `JWT_SECRET`/`JWT_REFRESH_SECRET` (защита от развёртывания с forgeable-токенами). CORS не позволяет сочетать wildcard-origin с credentials.
+- Конфигурация проверяется при старте: при `ENVIRONMENT=production` приложение **не запустится** с плейсхолдер-секретами JWT, секретами короче 32 символов или совпадающими `JWT_SECRET`/`JWT_REFRESH_SECRET` (защита от развёртывания с forgeable-токенами). CORS не позволяет сочетать wildcard-origin с credentials, а при `ENVIRONMENT=production` дополнительно отклоняет `CORS_ORIGINS` с `*` или `http://` (только https).
 
 ## Структура репозитория
 
