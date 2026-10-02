@@ -262,6 +262,44 @@ async def test_chat_send_and_history(client: AsyncClient):
     assert any(m["body"] == "Привет из интеграционного теста!" for m in messages)
 
 
+async def test_chat_send_and_read_broadcast_to_match_socket(client: AsyncClient, monkeypatch):
+    from app.api.v1 import chat as chat_api
+
+    events: list[dict] = []
+
+    async def fake_broadcast(match_id: str, payload: dict) -> None:
+        events.append(payload)
+
+    monkeypatch.setattr(chat_api.manager, "broadcast_to_match", fake_broadcast)
+
+    a = await _make_ready_user(client, "ws_a@befos.app", "Аня", "female")
+    b = await _make_ready_user(client, "ws_b@befos.app", "Боря", "male")
+    await client.post(f"/api/v1/users/{b['user_id']}/like", json={}, headers=auth_headers(a["token"]))
+    mutual = await client.post(
+        f"/api/v1/users/{a['user_id']}/like", json={}, headers=auth_headers(b["token"])
+    )
+    match_id = mutual.json()["match_id"]
+
+    sent = await client.post(
+        f"/api/v1/matches/{match_id}/messages",
+        json={"body": "Реалтайм без перезагрузки"},
+        headers=auth_headers(a["token"]),
+    )
+    assert sent.status_code == 201
+    message_events = [p for p in events if p["type"] == "message"]
+    assert len(message_events) == 1
+    assert message_events[0]["body"] == "Реалтайм без перезагрузки"
+    assert message_events[0]["match_id"] == match_id
+    assert message_events[0]["sender_id"] == a["user_id"]
+
+    events.clear()
+    read = await client.post(f"/api/v1/matches/{match_id}/read", headers=auth_headers(b["token"]))
+    assert read.status_code == 200
+    read_events = [p for p in events if p["type"] == "read"]
+    assert len(read_events) == 1
+    assert read_events[0]["user_id"] == b["user_id"]
+
+
 async def test_chat_requires_membership(client: AsyncClient):
     a = await _make_ready_user(client, "mem_a@befos.app", "Аня", "female")
     b = await _make_ready_user(client, "mem_b@befos.app", "Боря", "male")

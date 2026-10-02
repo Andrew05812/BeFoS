@@ -10,9 +10,19 @@ from __future__ import annotations
 import asyncio
 import os
 
+# Test database location. Defaults to the Docker Compose postgres published on
+# localhost:5432 so `pytest` runs against the same runtime as the app. Override
+# via BEFOS_TEST_PG_* env vars to point at another cluster (e.g. a bare-metal
+# PostgreSQL on 5433).
+_PG_HOST = os.environ.get("BEFOS_TEST_PG_HOST", "localhost")
+_PG_PORT = os.environ.get("BEFOS_TEST_PG_PORT", "5432")
+_PG_USER = os.environ.get("BEFOS_TEST_PG_USER", "befos")
+_PG_PASSWORD = os.environ.get("BEFOS_TEST_PG_PASSWORD", "befos_password")
+_TEST_DB = os.environ.get("BEFOS_TEST_DB", "befos_test")
+
 # Must be set before any app module is imported so Settings picks it up.
 os.environ["DATABASE_URL"] = (
-    "postgresql+asyncpg://befos:befos_password@localhost:5433/befos_test"
+    f"postgresql+asyncpg://{_PG_USER}:{_PG_PASSWORD}@{_PG_HOST}:{_PG_PORT}/{_TEST_DB}"
 )
 os.environ.setdefault("DEMO_ENABLED", "false")
 os.environ.setdefault("RATE_LIMIT_PER_MINUTE", "100000")
@@ -23,8 +33,7 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete
 
-_TEST_DB = "befos_test"
-_MAINT_DSN = "postgresql://befos:befos_password@localhost:5433/postgres"
+_MAINT_DSN = f"postgresql://{_PG_USER}:{_PG_PASSWORD}@{_PG_HOST}:{_PG_PORT}/postgres"
 
 
 def _ensure_test_database() -> None:
@@ -35,7 +44,7 @@ def _ensure_test_database() -> None:
                 "SELECT 1 FROM pg_database WHERE datname = $1", _TEST_DB
             )
             if not exists:
-                await conn.execute(f'CREATE DATABASE {_TEST_DB} OWNER befos')
+                await conn.execute(f'CREATE DATABASE {_TEST_DB} OWNER {_PG_USER}')
         finally:
             await conn.close()
 

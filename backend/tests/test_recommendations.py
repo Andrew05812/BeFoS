@@ -21,6 +21,27 @@ def test_shared_interests_boost_score():
     assert any("фотограф" in r.lower() or "travel" in r.lower() or "интерес" in r.lower() for r in s1.reasons)
 
 
+def test_interest_reasons_use_human_titles():
+    a = UserSignal(
+        interests={"photography"}, city="Москва", dating_goal="relationship",
+        interest_titles={"photography": "Фотография"},
+    )
+    b = UserSignal(
+        interests={"photography"}, city="Москва", dating_goal="relationship",
+        interest_titles={"photography": "Фотография"},
+    )
+    scored = score_activity(_act(1, "photo_walk", ["photography"]), a, b)
+    assert any("Фотография" in r for r in scored.reasons)
+    assert not any("photography" in r for r in scored.reasons)
+
+
+def test_interest_reasons_fall_back_to_slug_without_titles():
+    a = UserSignal(interests={"photography"}, city="Москва", dating_goal="relationship")
+    b = UserSignal(interests={"photography"}, city="Москва", dating_goal="relationship")
+    scored = score_activity(_act(1, "photo_walk", ["photography"]), a, b)
+    assert any("photography" in r for r in scored.reasons)
+
+
 def test_city_specific_activity_scores_zero_when_no_overlap():
     a = UserSignal(interests={"coffee"}, city="Москва", dating_goal="relationship")
     b = UserSignal(interests={"coffee"}, city="Москва", dating_goal="relationship")
