@@ -37,18 +37,32 @@ private data class ErrorEnvelopeDto(
     val error: ErrorDetailDto? = null,
 )
 
-/** Human-readable message for a failed response, preferring the backend's error envelope. */
+/** Product-copy message for a failed response; the English envelope text never reaches the UI. */
 suspend fun parseErrorMessage(response: HttpResponse): String {
+    val status = response.status.value
     return try {
-        val envelope = response.body<ErrorEnvelopeDto>()
-        envelope.error?.message?.takeIf { it.isNotBlank() } ?: defaultHttpMessage(response.status.value)
+        val detail = response.body<ErrorEnvelopeDto>().error
+        localizeBackendError(detail?.message.orEmpty(), detail?.code.orEmpty(), status)
     } catch (_: Exception) {
         try {
-            response.bodyAsText().take(160).ifBlank { defaultHttpMessage(response.status.value) }
+            val text = response.bodyAsText()
+            val detail = Regex("\"message\"\\s*:\\s*\"([^\"]+)\"").find(text)?.groupValues?.getOrNull(1).orEmpty()
+            val code = Regex("\"code\"\\s*:\\s*\"([^\"]+)\"").find(text)?.groupValues?.getOrNull(1).orEmpty()
+            localizeBackendError(detail, code, status)
         } catch (_: Exception) {
-            defaultHttpMessage(response.status.value)
+            defaultHttpMessage(status)
         }
     }
+}
+
+/** Never leak raw exception text (English stack-trace messages) into the UI. */
+fun friendlyNetworkMessage(e: Throwable): String = when (e) {
+    is java.net.SocketTimeoutException -> "Сервер не отвечает. Попробуйте ещё раз."
+    is java.net.UnknownHostException -> "Нет подключения к интернету."
+    is java.net.ConnectException -> "Сервер недоступен. Проверьте соединение и попробуйте ещё раз."
+    is javax.net.ssl.SSLException -> "Защищённое соединение недоступно. Попробуйте ещё раз."
+    is io.ktor.client.plugins.HttpRequestTimeoutException -> "Сервер не отвечает. Попробуйте ещё раз."
+    else -> defaultHttpMessage(-1)
 }
 
 fun defaultHttpMessage(code: Int): String = when (code) {
@@ -71,13 +85,13 @@ suspend inline fun <reified T> HttpClient.apiCall(
     val response: HttpResponse = try {
         request(block)
     } catch (e: Exception) {
-        return ApiResult.Error(-1, e.message ?: defaultHttpMessage(-1))
+        return ApiResult.Error(-1, friendlyNetworkMessage(e))
     }
     return if (response.status.isSuccess()) {
         try {
             ApiResult.Success(response.body<T>())
         } catch (e: Exception) {
-            ApiResult.Error(-2, "Не удалось разобрать ответ: ${e.message}")
+            ApiResult.Error(-2, "Не удалось получить данные. Попробуйте ещё раз.")
         }
     } else {
         ApiResult.Error(response.status.value, parseErrorMessage(response))
@@ -91,7 +105,7 @@ suspend inline fun HttpClient.apiCallUnit(
     val response: HttpResponse = try {
         request(block)
     } catch (e: Exception) {
-        return ApiResult.Error(-1, e.message ?: defaultHttpMessage(-1))
+        return ApiResult.Error(-1, friendlyNetworkMessage(e))
     }
     return if (response.status.isSuccess()) {
         ApiResult.Success(Unit)
