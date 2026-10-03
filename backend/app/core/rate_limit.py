@@ -8,6 +8,10 @@ from fastapi import Request
 from app.core.config import settings
 from app.core.exceptions import RateLimitedError
 
+# Bucket keys come straight off the network, so the store must stay bounded even when a
+# caller invents a new client identity per request.
+_MAX_KEYS = 4096
+
 
 class SlidingWindowRateLimiter:
     """In-memory sliding-window limiter keyed by client identity.
@@ -20,6 +24,7 @@ class SlidingWindowRateLimiter:
         self.limit = limit
         self.window = window_seconds
         self._hits: dict[str, deque[float]] = defaultdict(deque)
+        self._swept_at = 0.0
 
     def check(self, key: str) -> None:
         now = time.monotonic()
@@ -29,6 +34,16 @@ class SlidingWindowRateLimiter:
         if len(bucket) >= self.limit:
             raise RateLimitedError()
         bucket.append(now)
+        if len(self._hits) > _MAX_KEYS:
+            # A limiter whose state grows with every identity it has ever seen is a memory
+            # leak whose size the caller controls. Idle buckets are dead weight; when the
+            # store is still over budget the oldest identities make room for the newest.
+            if now - self._swept_at > self.window:
+                self._swept_at = now
+                for stale in [k for k, v in self._hits.items() if not v or now - v[-1] > self.window]:
+                    self._hits.pop(stale, None)
+            while len(self._hits) > _MAX_KEYS:
+                self._hits.pop(next(iter(self._hits)), None)
 
     def reset(self) -> None:
         self._hits.clear()
@@ -45,9 +60,19 @@ def reset_rate_limiters() -> None:
 
 
 def _client_key(request: Request) -> str:
-    forwarded = request.headers.get("x-forwarded-for")
-    ip = forwarded.split(",")[0].strip() if forwarded else (request.client.host if request.client else "unknown")
-    return ip
+    """Identify the caller by the peer address of the TCP connection.
+
+    ``X-Forwarded-For`` is attacker-controlled: trusting it unconditionally lets anyone
+    rotate the header and get a fresh bucket per request, which walks straight past the
+    limit this exists to enforce. It is read only when the deployment declares that a
+    proxy in front of the app overwrites it.
+    """
+    if settings.trust_proxy_headers:
+        forwarded = request.headers.get("x-forwarded-for", "")
+        if forwarded:
+            return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
 
 
 async def rate_limit_dependency(request: Request) -> None:
