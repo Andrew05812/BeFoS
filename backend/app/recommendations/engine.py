@@ -111,7 +111,10 @@ def _lifestyle_match(a: UserSignal, b: UserSignal) -> tuple[float, list[str]]:
 
 def _location_match(act: ActivitySignal, a: UserSignal, b: UserSignal) -> tuple[float, list[str]]:
     if not act.cities:
-        return 1.0, ["Доступно в любом городе"]
+        # The catalogue simply does not restrict this activity, which says nothing about
+        # the pair. Full score, no bullet: "подходит всем" under "почему подходит именно
+        # вам" is filler, and the list would otherwise repeat one identical line per card.
+        return 1.0, []
     cities = {c.lower() for c in act.cities}
     a_ok = a.city.lower() in cities
     b_ok = b.city.lower() in cities

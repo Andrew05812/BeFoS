@@ -8,8 +8,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -23,6 +25,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -50,6 +53,11 @@ fun RecommendationsScreen(matchId: String, onBack: () -> Unit) {
     val vm: RecommendationsViewModel =
         beFosViewModel { RecommendationsViewModel(it.matchRepository, it.chatRepository, matchId) }
     val state by vm.uiState.collectAsState()
+    // Reasons carried by every idea in the list are facts about the pair, not about
+    // the idea; they are shown once above the list instead of eight times inside it.
+    val shared = remember(state.items) {
+        state.items.map { it.reasons.toSet() }.reduceOrNull { a, b -> a intersect b }.orEmpty()
+    }
 
     Scaffold(
         topBar = { AppTopBar(title = "Идеи для встречи", onBack = onBack) },
@@ -92,11 +100,43 @@ fun RecommendationsScreen(matchId: String, onBack: () -> Unit) {
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        // A reason printed under every single idea describes the pair, not
+                        // the idea, and eight copies of it read as boilerplate. It gets one
+                        // home here so what is left on the card is what actually differs.
+                        if (shared.isNotEmpty()) {
+                            Spacer(Modifier.height(Spacing.sm))
+                            Text(
+                                "ЧТО У ВАС ОБЩЕГО",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                                // Same bullet language as the cards, in a neutral tint: the
+                                // accent belongs to the idea's own score, not to a fact
+                                // printed above the whole list.
+                                shared.forEach { reason ->
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                                        verticalAlignment = Alignment.Top,
+                                    ) {
+                                        Box(
+                                            Modifier
+                                                .padding(top = 7.dp)
+                                                .size(6.dp)
+                                                .clip(CircleShape)
+                                                .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)),
+                                        )
+                                        Text(reason, style = MaterialTheme.typography.bodySmall)
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
                 items(state.items, key = { it.activity.id }) { rec ->
                     RecommendationCard(
                         rec = rec,
+                        hidden = shared,
                         selected = state.selected.contains(rec.activity.id),
                         onSelect = { vm.select(rec.activity.id, rec.activity.title) },
                     )
@@ -107,8 +147,16 @@ fun RecommendationsScreen(matchId: String, onBack: () -> Unit) {
 }
 
 @Composable
-private fun RecommendationCard(rec: Recommendation, selected: Boolean, onSelect: () -> Unit) {
+private fun RecommendationCard(
+    rec: Recommendation,
+    hidden: Set<String>,
+    selected: Boolean,
+    onSelect: () -> Unit,
+) {
     val accent = scoreColor(rec.score)
+    // Never empty a card of its explanation: when the pair-level fact above is the only
+    // thing this idea has going for it, it stays here instead of moving to the header.
+    val reasons = if (rec.reasons.size > 1) rec.reasons.filterNot { it in hidden } else rec.reasons
     AppCard(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(Spacing.xl),
@@ -147,14 +195,14 @@ private fun RecommendationCard(rec: Recommendation, selected: Boolean, onSelect:
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            if (rec.reasons.isNotEmpty()) {
+            if (reasons.isNotEmpty()) {
                 Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
                     Text(
                         "ПОЧЕМУ ПОДХОДИТ",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    rec.reasons.forEach { reason ->
+                    reasons.forEach { reason ->
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
                             verticalAlignment = Alignment.Top,
