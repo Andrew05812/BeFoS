@@ -20,7 +20,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
@@ -41,7 +43,20 @@ class ChatSocket(
     private val scope: CoroutineScope,
 ) {
     private val _events = MutableSharedFlow<ChatEvent>(extraBufferCapacity = 64)
-    val events: Flow<ChatEvent> = _events.asSharedFlow()
+
+    /**
+     * Connection lives in a StateFlow, not in the event stream: the socket dials as soon
+     * as it is created, which can be long before the chat screen starts collecting. A
+     * replay-less SharedFlow would drop that handshake and leave the screen reporting a
+     * dead connection over a live one. A StateFlow re-states the truth to every new
+     * collector, so the indicator can only be as wrong as the socket itself.
+     */
+    private val _connected = MutableStateFlow(false)
+
+    val events: Flow<ChatEvent> = merge(
+        _connected.map { if (it) ChatEvent.Connected else ChatEvent.Disconnected },
+        _events,
+    )
 
     @Volatile
     private var session: io.ktor.client.plugins.websocket.DefaultClientWebSocketSession? = null
@@ -62,7 +77,7 @@ class ChatSocket(
                     }
                     client.webSocket(urlString = "${ApiConfig.wsUrl(matchId)}?token=$token") {
                         session = this
-                        _events.tryEmit(ChatEvent.Connected)
+                        _connected.value = true
                         for (frame in incoming) {
                             if (frame is Frame.Text) {
                                 parse(frame.readText())?.let { _events.tryEmit(it) }
@@ -73,6 +88,7 @@ class ChatSocket(
                     _events.tryEmit(ChatEvent.Error(e.message ?: "Ошибка соединения"))
                 } finally {
                     session = null
+                    _connected.value = false
                     _events.tryEmit(ChatEvent.Disconnected)
                 }
                 delay(RECONNECT_DELAY_MS)
