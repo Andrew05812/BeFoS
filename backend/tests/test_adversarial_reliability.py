@@ -7,15 +7,22 @@ spoofed headers, deleted accounts), not by reading the happy path.
 from __future__ import annotations
 
 import asyncio
+import io
+import os
+import struct
 import time
+import zlib
 
 import pytest
 from httpx import AsyncClient
+from PIL import Image
 from starlette.requests import Request
 
-from app.core.exceptions import RateLimitedError
+from app.core.config import settings
+from app.core.exceptions import RateLimitedError, ValidationError
 from app.core.logging import redact
 from app.core.rate_limit import _MAX_KEYS, SlidingWindowRateLimiter, _client_key
+from app.services.photo_service import process_and_store_upload
 from app.websocket.chat_ws import parse_client_frame
 from .conftest import (
     answer_all_questions,
@@ -319,4 +326,106 @@ def test_a_logged_body_never_carries_a_password() -> None:
     assert "Demo12345" not in scrubbed
     assert '"password": "[redacted]"' in scrubbed
     assert "demo@befos.app" in scrubbed
+
+
+def _declared_png(width: int, height: int) -> bytes:
+    """A real PNG whose IHDR is patched to declare a far larger canvas than it holds.
+
+    The file stays a few hundred bytes, which is exactly the shape of a decompression
+    bomb: cheap to send, ruinous to decode.
+    """
+    canvas = io.BytesIO()
+    Image.new("RGB", (8, 8), "white").save(canvas, format="PNG")
+    raw = bytearray(canvas.getvalue())
+    raw[16:24] = struct.pack(">II", width, height)
+    raw[29:33] = struct.pack(">I", zlib.crc32(bytes(raw[12:29])) & 0xFFFFFFFF)
+    return bytes(raw)
+
+
+@pytest.mark.parametrize(
+    "width, height, expected",
+    [
+        # Pillow's own guard fires while the header is read, before our size check runs.
+        (20000, 20000, "not a valid image"),
+        # Above our cap but under Pillow's own thresholds, so our size check is the one
+        # that answers rather than a library warning escaping into the log.
+        (9200, 9200, "too large"),
+    ],
+    ids=["pillow-bomb", "over-our-cap"],
+)
+async def test_a_huge_declared_canvas_is_refused_as_input(width, height, expected) -> None:
+    """A declared canvas is paid for in RAM: refusing it is an answer, never a 500."""
+    with pytest.raises(ValidationError) as raised:
+        await process_and_store_upload(_declared_png(width, height), "image/png")
+    assert expected in str(raised.value).lower()
+
+
+async def test_the_pixel_cap_refuses_bombs_and_not_phone_cameras() -> None:
+    """63 MP is past the largest sensor on the market and well inside the cap, so the
+    refusal this file raises for the same bytes has to be about the missing pixels."""
+    with pytest.raises(ValidationError) as raised:
+        await process_and_store_upload(_declared_png(9000, 7000), "image/png")
+    assert "too large" not in str(raised.value).lower()
+
+
+async def test_a_valid_photo_still_survives_the_guards() -> None:
+    picture = io.BytesIO()
+    Image.new("RGBA", (120, 90), (200, 40, 60, 128)).save(picture, format="PNG")
+    # A picker that labels a transparent photo JPEG is ordinary input; JPEG has no alpha,
+    # so the target format, not the source mode, decides how it is re-encoded.
+    path = await process_and_store_upload(picture.getvalue(), "image/jpeg")
+    assert path.startswith("/uploads/") and path.endswith(".jpg")
+    stored = Image.open(os.path.join(settings.upload_dir, path.removeprefix("/uploads/")))
+    assert stored.mode == "RGB" and max(stored.size) <= 1600
+
+    # A full-resolution camera JPEG: downscaled during the decode, never refused.
+    photo = io.BytesIO()
+    Image.new("RGB", (4000, 3000), "darkorange").save(photo, format="JPEG")
+    path = await process_and_store_upload(photo.getvalue(), "image/jpeg")
+    stored = Image.open(os.path.join(settings.upload_dir, path.removeprefix("/uploads/")))
+    assert max(stored.size) <= 1600
+
+
+@pytest.mark.parametrize("content_type", ["image/png", "image/jpeg"])
+async def test_truncated_bytes_answer_validation_not_internal_error(content_type) -> None:
+    picture = io.BytesIO()
+    Image.new("RGB", (200, 200), "steelblue").save(picture, format="PNG")
+    half = picture.getvalue()[:60]
+    with pytest.raises(ValidationError):
+        await process_and_store_upload(half, content_type)
+
+
+async def test_a_photo_upload_never_ends_the_request_with_a_500(client: AsyncClient) -> None:
+    """This route receives the user's camera roll: every rejection must be an answer they can act on."""
+    account = await register_and_auth(client, "photo_edges@befos.app")
+    headers = auth_headers(account["token"])
+    good = io.BytesIO()
+    Image.new("RGB", (2400, 1800), "seagreen").save(good, format="PNG")
+
+    cases = {
+        "declared bomb": _declared_png(20000, 20000),
+        "over our cap": _declared_png(9200, 9200),
+        "truncated": good.getvalue()[:80],
+        "not a picture at all": b"PK\x03\x04pretending to be an image",
+        "empty": b"",
+    }
+    for name, body in cases.items():
+        response = await client.post(
+            "/api/v1/users/me/photo",
+            headers=headers,
+            files={"file": ("photo.png", body, "image/png")},
+        )
+        assert response.status_code == 422, (name, response.status_code, response.text)
+        assert response.json()["error"]["code"] == "validation_error", name
+
+    # The whole point of answering instead of crashing: the session is still usable after.
+    ok = await client.post(
+        "/api/v1/users/me/photo",
+        headers=headers,
+        files={"file": ("photo.png", good.getvalue(), "image/png")},
+    )
+    assert ok.status_code == 200, ok.text
+    url = ok.json()["photos"][0]["url"]
+    stored = Image.open(os.path.join(settings.upload_dir, url.removeprefix("/uploads/")))
+    assert max(stored.size) <= 1600, "an oversized photo is scaled, not refused"
 
