@@ -7,9 +7,11 @@ import app.befos.domain.repository.ChatEvent
 import app.befos.domain.repository.ChatRepository
 import app.befos.domain.repository.MatchRepository
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -67,8 +69,50 @@ class ChatViewModelTest {
     }
 
     @Test
-    fun `socket echo of own sent message is deduplicated`() = runTest {
+    fun `a rejected send puts the text back on screen`() = runTest {
         coEvery { repo.history("m1", any()) } returns ApiResult.Success(emptyList())
+        coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
+        coEvery { repo.sendTyping(any(), any()) } returns Unit
+        coEvery { repo.send("m1", "too long") } returns
+            ApiResult.Error(422, "Сообщение слишком длинное — разбейте его на два.")
+
+        val vm = ChatViewModel(repo, matchRepo, "m1")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        vm.onDraftChange("too long")
+        vm.send()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        // A message the server refused must not silently vanish with the draft.
+        assertEquals("too long", vm.uiState.value.draft)
+        assertEquals("Сообщение слишком длинное — разбейте его на два.", vm.uiState.value.sendError)
+        assertTrue(vm.uiState.value.messages.isEmpty())
+    }
+
+    @Test
+    fun `a double tap on send posts one message`() = runTest {
+        coEvery { repo.history("m1", any()) } returns ApiResult.Success(emptyList())
+        coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
+        coEvery { repo.sendTyping(any(), any()) } returns Unit
+        coEvery { repo.send("m1", "hey") } coAnswers {
+            delay(50)
+            ApiResult.Success(message("5", true, "hey"))
+        }
+
+        val vm = ChatViewModel(repo, matchRepo, "m1")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        vm.onDraftChange("hey")
+        vm.send()
+        vm.send()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        coVerify(exactly = 1) { repo.send("m1", "hey") }
+        assertEquals(listOf("5"), vm.uiState.value.messages.map { it.id })
+    }
+
+    @Test
+    fun `socket echo of own sent message is deduplicated`() = runTest {        coEvery { repo.history("m1", any()) } returns ApiResult.Success(emptyList())
         coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
         coEvery { repo.sendTyping(any(), any()) } returns Unit
         coEvery { repo.send("m1", "hey") } returns ApiResult.Success(message("5", true, "hey"))
