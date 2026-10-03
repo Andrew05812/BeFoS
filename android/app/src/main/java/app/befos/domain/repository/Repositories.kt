@@ -74,7 +74,6 @@ interface ChatRepository {
     suspend fun send(matchId: String, body: String): ApiResult<Message>
     suspend fun markRead(matchId: String): ApiResult<Unit>
     fun socket(matchId: String): Flow<ChatEvent>
-    suspend fun sendViaSocket(matchId: String, body: String, clientMsgId: String)
     suspend fun sendTyping(matchId: String, typing: Boolean)
 }
 
