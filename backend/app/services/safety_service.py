@@ -10,6 +10,7 @@ from app.models import User
 from app.repositories.social_repo import SocialRepository
 from app.repositories.token_repo import TokenRepository
 from app.repositories.user_repo import UserRepository
+from app.websocket.manager import manager
 
 VALID_REASONS = {"spam", "harassment", "inappropriate", "fake", "minor", "other"}
 
@@ -27,8 +28,10 @@ class SafetyService:
         target = await self.users.get_by_id(blocked_id)
         if target is None or target.is_deleted:
             raise NotFoundError("User not found.")
-        await self.social.add_block(blocker_id, blocked_id)
+        dissolved = await self.social.add_block(blocker_id, blocked_id)
         await self.session.commit()
+        if dissolved is not None:
+            await manager.close_room(dissolved)
         return {"blocked": True, "user_id": str(blocked_id)}
 
     async def report(self, reporter_id: uuid.UUID, reported_id: uuid.UUID, reason: str, details: str | None) -> dict:
@@ -71,8 +74,10 @@ class SafetyService:
         user.email = f"deleted_{user.id}@deleted.befos.local"
         user.password_hash = "!deleted"
         await self.tokens.revoke_all_for_user(user_id)
-        await self.social.purge_social_graph(user_id)
+        dissolved = await self.social.purge_social_graph(user_id)
         await self.session.commit()
+        for match_id in dissolved:
+            await manager.close_room(match_id)
         return {"deleted": True}
 
     async def set_hidden(self, user_id: uuid.UUID, hidden: bool) -> dict:

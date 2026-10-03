@@ -97,7 +97,7 @@ class SocialRepository:
         )
         return (await self.session.execute(stmt)).first() is not None
 
-    async def add_block(self, blocker_id: uuid.UUID, blocked_id: uuid.UUID) -> None:
+    async def add_block(self, blocker_id: uuid.UUID, blocked_id: uuid.UUID) -> uuid.UUID | None:
         await self.session.execute(
             pg_insert(Block)
             .values(blocker_id=blocker_id, blocked_id=blocked_id)
@@ -105,9 +105,14 @@ class SocialRepository:
         )
         # Blocking dissolves any existing match between the two users.
         ua, ub = ordered_pair(blocker_id, blocked_id)
-        await self.session.execute(
-            delete(Match).where(Match.user_a_id == ua, Match.user_b_id == ub)
-        )
+        dissolved = (
+            await self.session.execute(
+                delete(Match)
+                .where(Match.user_a_id == ua, Match.user_b_id == ub)
+                .returning(Match.id)
+            )
+        ).scalar()
+        return dissolved
 
     async def list_blocked_ids(self, user_id: uuid.UUID) -> set[uuid.UUID]:
         stmt = select(Block.blocked_id).where(Block.blocker_id == user_id)
@@ -116,7 +121,7 @@ class SocialRepository:
         ids |= {row[0] for row in (await self.session.execute(stmt2)).all()}
         return ids
 
-    async def purge_social_graph(self, user_id: uuid.UUID) -> None:
+    async def purge_social_graph(self, user_id: uuid.UUID) -> list[uuid.UUID]:
         """Delete every edge that points at an account which no longer represents a person.
 
         Deletion is a soft delete of the user row, so the database cascade never fires.
@@ -136,6 +141,7 @@ class SocialRepository:
         await self.session.execute(
             delete(Block).where(or_(Block.blocker_id == user_id, Block.blocked_id == user_id))
         )
+        return match_ids
 
     # --- Reports ---
     async def add_report(

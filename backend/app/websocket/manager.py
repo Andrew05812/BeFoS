@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 
-from fastapi import WebSocket
+from fastapi import WebSocket, status
 
 from app.core.logging import get_logger
 
@@ -35,6 +35,20 @@ class ConnectionManager:
         if not self._rooms[match_id]:
             self._rooms.pop(match_id, None)
         logger.info("WS disconnected match=%s", match_id)
+
+    async def close_room(self, match_id: uuid.UUID) -> None:
+        """End every socket for a pair that no longer exists.
+
+        A block or a deletion removes the match row; the open sockets would otherwise
+        keep reporting a live connection into a conversation that can no longer hold a
+        message, and the client has no way to find that out.
+        """
+        for conn in self._rooms.pop(match_id, []):
+            try:
+                await conn.websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            except Exception:  # pragma: no cover - the socket is already going away
+                logger.debug("WS close failed match=%s", match_id, exc_info=True)
+        logger.info("WS room closed match=%s", match_id)
 
     async def broadcast_to_match(
         self,

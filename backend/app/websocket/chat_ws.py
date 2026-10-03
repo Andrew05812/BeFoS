@@ -1,23 +1,23 @@
 from __future__ import annotations
 
+import json
 import uuid
-from datetime import datetime, timezone
 
 import jwt
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect, status
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal
 from app.core.logging import get_logger
 from app.core.security import decode_token
-from app.models import Match, User
+from app.models import Match
 from app.repositories.chat_repo import ChatRepository
 from app.websocket.manager import manager
 
 logger = get_logger(__name__)
 
 router = APIRouter()
+
+MAX_BODY_CHARS = 4000
 
 
 async def _authenticate(token: str | None) -> uuid.UUID | None:
@@ -33,6 +33,22 @@ async def _authenticate(token: str | None) -> uuid.UUID | None:
         return uuid.UUID(payload["sub"])
     except (ValueError, KeyError):
         return None
+
+
+async def _still_belongs_to_match(match_id: uuid.UUID, user_id: uuid.UUID) -> bool:
+    """The pair can stop existing while a socket for it is open (a block, a deletion)."""
+    async with AsyncSessionLocal() as session:
+        match = await session.get(Match, match_id)
+        return bool(match and user_id in (match.user_a_id, match.user_b_id))
+
+
+def parse_client_frame(raw: object) -> dict | None:
+    """A frame is a JSON object or nothing at all; a malformed one must not end the socket."""
+    try:
+        data = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
 
 
 @router.websocket("/ws/chat/{match_id}")
@@ -53,7 +69,13 @@ async def chat_socket(
             return
 
     await manager.connect(match_id, websocket, user_id)
-    other_id = match.user_b_id if match.user_a_id == user_id else match.user_a_id
+    # A client that joins a room nobody is watching would otherwise show the peer as
+    # offline until the peer's next state change, so the room's truth is stated once on
+    # entry as well as on every change.
+    for peer in manager.presence(match_id) - {user_id}:
+        await manager.send_personal(
+            websocket, {"type": "presence", "user_id": str(peer), "online": True}
+        )
     await manager.broadcast_to_match(
         match_id,
         {"type": "presence", "user_id": str(user_id), "online": True},
@@ -62,7 +84,21 @@ async def chat_socket(
 
     try:
         while True:
-            data = await websocket.receive_json()
+            try:
+                raw: object = await websocket.receive_text()
+            except WebSocketDisconnect:
+                raise
+            except Exception:
+                # A binary frame cannot be read as text; the socket itself is still usable.
+                raw = None
+            data = parse_client_frame(raw)
+            if data is None:
+                # One malformed frame is a bad message, not a dead connection.
+                await manager.send_personal(
+                    websocket, {"type": "error", "message": "Invalid frame."}
+                )
+                continue
+
             msg_type = data.get("type")
 
             if msg_type == "typing":
@@ -82,13 +118,17 @@ async def chat_socket(
                 )
 
             elif msg_type == "message":
-                body = (data.get("body") or "").strip()
-                client_msg_id = data.get("client_msg_id")
-                if not body or len(body) > 4000:
+                raw_body = data.get("body")
+                body = raw_body.strip() if isinstance(raw_body, str) else ""
+                if not body or len(body) > MAX_BODY_CHARS:
                     await manager.send_personal(
                         websocket, {"type": "error", "message": "Invalid message body."}
                     )
                     continue
+                if not await _still_belongs_to_match(match_id, user_id):
+                    await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+                    return
+                client_msg_id = data.get("client_msg_id")
                 async with AsyncSessionLocal() as session:
                     repo = ChatRepository(session)
                     msg = await repo.add_message(match_id, user_id, body)
@@ -111,10 +151,11 @@ async def chat_socket(
                 )
 
     except WebSocketDisconnect:
+        pass
+    except Exception:  # pragma: no cover
+        logger.exception("WS error match=%s user=%s", match_id, user_id)
+    finally:
         manager.disconnect(match_id, websocket)
         await manager.broadcast_to_match(
             match_id, {"type": "presence", "user_id": str(user_id), "online": False}
         )
-    except Exception:  # pragma: no cover
-        logger.exception("WS error match=%s user=%s", match_id, user_id)
-        manager.disconnect(match_id, websocket)
