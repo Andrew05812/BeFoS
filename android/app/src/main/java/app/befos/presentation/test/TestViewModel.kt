@@ -47,6 +47,7 @@ class TestViewModel(private val testRepository: TestRepository) : ViewModel() {
     }
 
     fun select(optionId: Int) {
+        if (_uiState.value.submitting) return
         val q = _uiState.value.current ?: return
         val answers = _uiState.value.answers.toMutableMap()
         answers[q.id] = optionId

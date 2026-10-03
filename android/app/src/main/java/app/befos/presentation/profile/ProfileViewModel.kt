@@ -20,6 +20,7 @@ data class ProfileUiState(
     val testProgress: TestProgress? = null,
     val testProgressFailed: Boolean = false,
     val error: String? = null,
+    val signingOut: Boolean = false,
     val loggedOut: Boolean = false,
 )
 
@@ -66,9 +67,12 @@ class ProfileViewModel(
     }
 
     fun logout() {
+        // signingOut flips before the suspend call, so a double tap cannot sign out twice.
+        if (_uiState.value.signingOut) return
+        _uiState.update { it.copy(signingOut = true) }
         viewModelScope.launch {
             authRepository.logout()
-            _uiState.update { it.copy(loggedOut = true) }
+            _uiState.update { it.copy(signingOut = false, loggedOut = true) }
         }
     }
 }

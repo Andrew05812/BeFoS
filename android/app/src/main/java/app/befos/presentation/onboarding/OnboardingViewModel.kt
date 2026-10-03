@@ -101,6 +101,7 @@ class OnboardingViewModel(private val profileRepository: ProfileRepository) : Vi
 
     private fun submit() {
         val s = _uiState.value
+        if (s.submitting) return
         _uiState.update { it.copy(submitting = true, error = null) }
         viewModelScope.launch {
             val data = OnboardingData(

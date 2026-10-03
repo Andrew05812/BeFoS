@@ -65,14 +65,16 @@ fun friendlyNetworkMessage(e: Throwable): String = when (e) {
     else -> defaultHttpMessage(-1)
 }
 
+/** Last resort for an unreadable response: the status family in product words, never a bare HTTP code. */
 fun defaultHttpMessage(code: Int): String = when (code) {
     in 500..599 -> "Ошибка сервера. Попробуйте позже."
     429 -> "Слишком много запросов. Подождите немного."
     401 -> "Сессия истекла. Войдите снова."
     403 -> "Нет доступа."
     404 -> "Не найдено."
+    in 400..499 -> "Запрос не принят. Попробуйте ещё раз."
     -1 -> "Нет подключения к интернету."
-    else -> "Не удалось выполнить запрос (код $code)."
+    else -> "Не удалось выполнить запрос. Попробуйте ещё раз."
 }
 
 /**

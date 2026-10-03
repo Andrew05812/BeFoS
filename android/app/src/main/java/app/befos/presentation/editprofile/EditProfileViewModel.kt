@@ -92,6 +92,7 @@ class EditProfileViewModel(private val profileRepository: ProfileRepository) : V
 
     fun save() {
         val s = _uiState.value
+        if (s.saving) return
         if (s.name.isBlank()) return _uiState.update { it.copy(error = "Укажите имя.") }
         if (s.city.isBlank()) return _uiState.update { it.copy(error = "Укажите город.") }
         _uiState.update { it.copy(saving = true, error = null) }

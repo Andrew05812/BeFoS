@@ -78,6 +78,7 @@ class PublicProfileViewModel(
     }
 
     fun block() {
+        if (_uiState.value.busy) return
         _uiState.update { it.copy(busy = true, error = null) }
         viewModelScope.launch {
             when (val result = safetyRepository.block(userId)) {

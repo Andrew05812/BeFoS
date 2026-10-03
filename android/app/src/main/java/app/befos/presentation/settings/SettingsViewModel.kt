@@ -59,9 +59,12 @@ class SettingsViewModel(
     }
 
     fun logout() {
+        // busy is set before the suspend call, so a second tap in the same frame is a no-op.
+        if (_uiState.value.busy) return
+        _uiState.update { it.copy(busy = true) }
         viewModelScope.launch {
             authRepository.logout()
-            _uiState.update { it.copy(loggedOut = true) }
+            _uiState.update { it.copy(busy = false, loggedOut = true) }
         }
     }
 
@@ -69,6 +72,7 @@ class SettingsViewModel(
     fun cancelDelete() = _uiState.update { it.copy(confirmDelete = false) }
 
     fun deleteAccount() {
+        if (_uiState.value.busy) return
         _uiState.update { it.copy(busy = true, confirmDelete = false) }
         viewModelScope.launch {
             when (val result = safetyRepository.deleteAccount()) {
