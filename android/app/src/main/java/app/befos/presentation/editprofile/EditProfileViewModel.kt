@@ -26,6 +26,7 @@ data class EditProfileUiState(
     val ageMax: Int = 60,
     val genderPreference: Set<String> = emptySet(),
     val error: String? = null,
+    val loadFailed: Boolean = false,
     val saved: Boolean = false,
 )
 
@@ -38,7 +39,7 @@ class EditProfileViewModel(private val profileRepository: ProfileRepository) : V
         load()
     }
 
-    private fun load() {
+    fun load() {
         viewModelScope.launch {
             when (val result = profileRepository.me()) {
                 is ApiResult.Success -> {
@@ -46,6 +47,7 @@ class EditProfileViewModel(private val profileRepository: ProfileRepository) : V
                     _uiState.update {
                         it.copy(
                             loading = false,
+                            loadFailed = false,
                             name = p.name,
                             city = p.city,
                             about = p.about ?: "",
@@ -58,7 +60,9 @@ class EditProfileViewModel(private val profileRepository: ProfileRepository) : V
                         )
                     }
                 }
-                is ApiResult.Error -> _uiState.update { it.copy(loading = false, error = result.message) }
+                is ApiResult.Error -> _uiState.update {
+                    it.copy(loading = false, loadFailed = true, error = result.message)
+                }
             }
             when (val interests = profileRepository.interests()) {
                 is ApiResult.Success -> _uiState.update { it.copy(allInterests = interests.data) }

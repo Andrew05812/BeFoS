@@ -39,6 +39,7 @@ import app.befos.core.designsystem.AppButtonVariant
 import app.befos.core.designsystem.AppCard
 import app.befos.core.designsystem.AppTopBar
 import app.befos.core.designsystem.Elev
+import app.befos.core.designsystem.InlineNotice
 import app.befos.core.designsystem.ErrorRed
 import app.befos.core.designsystem.SectionHeader
 import app.befos.core.designsystem.Spacing
@@ -46,11 +47,18 @@ import app.befos.core.di.beFosViewModel
 
 @Composable
 fun SettingsScreen(onBack: () -> Unit, onLoggedOut: () -> Unit) {
-    val vm: SettingsViewModel = beFosViewModel { SettingsViewModel(it.safetyRepository, it.authRepository) }
+    val vm: SettingsViewModel = beFosViewModel { SettingsViewModel(it.safetyRepository, it.authRepository, it.profileRepository) }
     val state by vm.uiState.collectAsState()
 
     LaunchedEffect(state.loggedOut, state.deleted) {
         if (state.loggedOut || state.deleted) onLoggedOut()
+    }
+
+    LaunchedEffect(state.message) {
+        if (state.message != null) {
+            kotlinx.coroutines.delay(3500)
+            vm.clearMessage()
+        }
     }
 
     if (state.confirmDelete) {
@@ -97,7 +105,7 @@ fun SettingsScreen(onBack: () -> Unit, onLoggedOut: () -> Unit) {
             }
 
             state.message?.let { message ->
-                Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                InlineNotice(message, isError = state.messageIsError)
             }
 
             Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {

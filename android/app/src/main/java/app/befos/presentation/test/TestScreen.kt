@@ -37,14 +37,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import app.befos.core.designsystem.AppButton
 import app.befos.core.designsystem.AppCard
 import app.befos.core.designsystem.EmberGradient
 import app.befos.core.designsystem.ErrorState
-import app.befos.core.designsystem.LoadingState
+import app.befos.core.designsystem.InlineNotice
 import app.befos.core.designsystem.Spacing
+import app.befos.core.designsystem.TestSkeleton
 import app.befos.core.di.beFosViewModel
 import app.befos.presentation.common.CategoryScoreList
 
@@ -54,13 +54,18 @@ fun TestScreen(onFinished: () -> Unit) {
     val state by vm.uiState.collectAsState()
 
     when {
-        state.loading -> LoadingState(message = "Загружаем вопросы")
+        state.loading -> TestSkeleton()
         state.error != null && state.questions.isEmpty() -> ErrorState(
-            message = state.error ?: "Ошибка",
+            message = state.error ?: "Проверьте подключение и попробуйте ещё раз.",
             title = "Не удалось загрузить тест",
             onRetry = vm::load,
         )
         state.result != null -> TestResultView(state, onFinished)
+        state.questions.isEmpty() -> ErrorState(
+            message = "Список вопросов пуст. Попробуйте загрузить тест заново.",
+            title = "Тест временно недоступен",
+            onRetry = vm::load,
+        )
         else -> TestQuestionView(state, vm)
     }
 }
@@ -194,7 +199,7 @@ private fun TestQuestionView(state: TestUiState, vm: TestViewModel) {
             }
         }
         if (state.error != null) {
-            Text(state.error!!, color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+            InlineNotice(state.error!!)
         }
     }
 }
@@ -220,7 +225,7 @@ private fun TestResultView(state: TestUiState, onFinished: () -> Unit) {
             fontWeight = FontWeight.Bold,
         )
         Text(
-            "Так алгоритм видит ваши ответы по семи категориям. Эти же категории используются для расчёта совместимости с другими людьми.",
+            "Так алгоритм видит ваши ответы. Совместимость с другими считается по этим же категориям — вместе с общими интересами и целью знакомства.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

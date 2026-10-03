@@ -20,6 +20,7 @@ data class Profile(
     val ageMin: Int,
     val ageMax: Int,
     val genderPreference: List<String>,
+    val isHidden: Boolean = false,
 ) {
     val primaryPhoto: String? get() = photoUrls.firstOrNull()
 }

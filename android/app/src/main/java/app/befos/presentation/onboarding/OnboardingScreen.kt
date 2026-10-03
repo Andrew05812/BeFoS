@@ -48,6 +48,7 @@ import app.befos.core.designsystem.Ember
 import app.befos.core.designsystem.EmberDeep
 import app.befos.core.designsystem.EmberSoft
 import app.befos.core.designsystem.Elev
+import app.befos.core.designsystem.InlineNotice
 import app.befos.core.designsystem.InterestChip
 import app.befos.core.designsystem.Spacing
 import app.befos.core.di.beFosViewModel
@@ -139,9 +140,7 @@ fun OnboardingScreen(onDone: () -> Unit) {
                         1 -> StepPreferences(state, vm)
                         2 -> StepInterests(state, vm)
                     }
-                    if (state.error != null) {
-                        Text(state.error!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
-                    }
+                    state.error?.let { InlineNotice(it) }
                 }
             }
         }
@@ -276,7 +275,11 @@ private fun StepInterests(state: OnboardingUiState, vm: OnboardingViewModel) {
                     .padding(horizontal = Spacing.md, vertical = 2.dp),
             ) {
                 Text(
-                    "${state.selectedInterests.size} / 3",
+                    text = if (state.selectedInterests.size >= 3) {
+                        "Выбрано ${state.selectedInterests.size}"
+                    } else {
+                        "${state.selectedInterests.size} / 3"
+                    },
                     style = MaterialTheme.typography.labelLarge,
                     color = if (state.selectedInterests.size >= 3) {
                         EmberDeep

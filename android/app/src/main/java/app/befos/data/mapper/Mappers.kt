@@ -49,6 +49,7 @@ fun ProfileDto.toDomain() = Profile(
     ageMin = ageMin,
     ageMax = ageMax,
     genderPreference = genderPreference,
+    isHidden = isHidden,
 )
 
 fun OptionDto.toDomain() = Option(id, text)

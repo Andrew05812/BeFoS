@@ -80,6 +80,7 @@ data class ProfileDto(
     @SerialName("age_min") val ageMin: Int = 18,
     @SerialName("age_max") val ageMax: Int = 60,
     @SerialName("gender_preference") val genderPreference: List<String> = emptyList(),
+    @SerialName("is_hidden") val isHidden: Boolean = false,
 )
 
 @Serializable

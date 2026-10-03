@@ -23,8 +23,10 @@ import app.befos.core.designsystem.AppButton
 import app.befos.core.designsystem.AppCard
 import app.befos.core.designsystem.AppTextField
 import app.befos.core.designsystem.AppTopBar
+import app.befos.core.designsystem.ErrorState
+import app.befos.core.designsystem.InlineNotice
 import app.befos.core.designsystem.InterestChip
-import app.befos.core.designsystem.LoadingState
+import app.befos.core.designsystem.ProfileSkeleton
 import app.befos.core.designsystem.SectionHeader
 import app.befos.core.designsystem.Spacing
 import app.befos.core.di.beFosViewModel
@@ -43,7 +45,16 @@ fun EditProfileScreen(onBack: () -> Unit) {
         topBar = { AppTopBar(title = "Профиль", onBack = onBack) },
     ) { padding ->
         if (state.loading) {
-            LoadingState(Modifier.padding(padding))
+            ProfileSkeleton(Modifier.padding(padding))
+            return@Scaffold
+        }
+        if (state.loadFailed) {
+            ErrorState(
+                message = state.error ?: "Проверьте подключение и попробуйте ещё раз.",
+                title = "Профиль не загрузился",
+                onRetry = vm::load,
+                modifier = Modifier.padding(padding),
+            )
             return@Scaffold
         }
         Column(
@@ -124,9 +135,7 @@ fun EditProfileScreen(onBack: () -> Unit) {
                 }
             }
 
-            if (state.error != null) {
-                Text(state.error!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
-            }
+            state.error?.let { InlineNotice(it) }
 
             AppButton(text = "Сохранить", onClick = vm::save, loading = state.saving, modifier = Modifier.fillMaxWidth())
         }

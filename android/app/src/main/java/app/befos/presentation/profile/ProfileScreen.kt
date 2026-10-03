@@ -36,6 +36,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import app.befos.core.designsystem.AppButton
 import app.befos.core.designsystem.AppButtonVariant
 import app.befos.core.designsystem.AppCard
@@ -44,7 +45,7 @@ import app.befos.core.designsystem.EmberGradient
 import app.befos.core.designsystem.ErrorState
 import app.befos.core.designsystem.InterestChip
 import app.befos.core.designsystem.IrisSoft
-import app.befos.core.designsystem.LoadingState
+import app.befos.core.designsystem.ProfileSkeleton
 import app.befos.core.designsystem.Motion
 import app.befos.core.designsystem.SectionHeader
 import app.befos.core.designsystem.Spacing
@@ -66,10 +67,15 @@ fun ProfileScreen(
 
     LaunchedEffect(state.loggedOut) { if (state.loggedOut) onLoggedOut() }
 
+    LifecycleResumeEffect(Unit) {
+        vm.refreshSilently()
+        onPauseOrDispose { }
+    }
+
     when {
-        state.loading -> LoadingState()
+        state.loading -> ProfileSkeleton()
         state.profile == null -> ErrorState(
-            message = state.error ?: "Ошибка",
+            message = state.error ?: "Проверьте подключение и попробуйте ещё раз.",
             title = "Не удалось загрузить профиль",
             onRetry = vm::load,
         )
@@ -94,6 +100,7 @@ fun ProfileScreen(
                 TestProgressCard(
                     percent = state.testProgress?.percent ?: 0,
                     completed = state.testProgress?.completed ?: false,
+                    failed = state.testProgress == null && state.testProgressFailed,
                     onTest = onTest,
                 )
 
@@ -111,19 +118,24 @@ fun ProfileScreen(
                     }
                 }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(Spacing.lg), modifier = Modifier.fillMaxWidth()) {
+                // Full width: side by side "Редактировать" broke mid-word on a 320dp
+                // screen, and the two actions are not a pair the user compares.
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.md),
+                ) {
                     AppButton(
-                        text = "Редактировать",
+                        text = "Редактировать анкету",
                         onClick = onEdit,
                         leadingIcon = Icons.Filled.Edit,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.fillMaxWidth(),
                     )
                     AppButton(
                         text = "Настройки",
                         onClick = onSettings,
                         variant = AppButtonVariant.Tonal,
                         leadingIcon = Icons.Outlined.Settings,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.fillMaxWidth(),
                     )
                 }
             }
@@ -166,11 +178,11 @@ private fun ProfileHero(photoUrl: String?, title: String, city: String, goal: St
 }
 
 @Composable
-private fun TestProgressCard(percent: Int, completed: Boolean, onTest: () -> Unit) {
+private fun TestProgressCard(percent: Int, completed: Boolean, failed: Boolean, onTest: () -> Unit) {
     var visible by remember { androidx.compose.runtime.mutableStateOf(false) }
     LaunchedEffect(Unit) { visible = true }
     val fill by animateFloatAsState(
-        targetValue = if (visible) percent / 100f else 0f,
+        targetValue = if (visible && !failed) percent / 100f else 0f,
         animationSpec = tween(Motion.Slow, easing = androidx.compose.animation.core.FastOutSlowInEasing),
         label = "testProgressFill",
     )
@@ -183,13 +195,17 @@ private fun TestProgressCard(percent: Int, completed: Boolean, onTest: () -> Uni
                 Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
                     Text("ПРОФИЛЬ СОВМЕСТИМОСТИ", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(
-                        if (completed) "Тест пройден" else "Тест не пройден",
+                        when {
+                            failed -> "Прогресс теста не загрузился"
+                            completed -> "Тест пройден"
+                            else -> "Тест не пройден"
+                        },
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                     )
                 }
                 Text(
-                    "$percent%",
+                    if (failed) "—" else "$percent%",
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary,
@@ -211,7 +227,11 @@ private fun TestProgressCard(percent: Int, completed: Boolean, onTest: () -> Uni
                 )
             }
             Text(
-                if (completed) "Вы можете пройти тест заново, чтобы уточнить ответы." else "Пройдите тест — без него совместимость считается неточно.",
+                when {
+                    failed -> "Обновите экран, чтобы получить данные теста."
+                    completed -> "Вы можете пройти тест заново, чтобы уточнить ответы."
+                    else -> "Пройдите тест — без него совместимость считается неточно."
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

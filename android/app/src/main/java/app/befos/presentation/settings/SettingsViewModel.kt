@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.befos.core.network.ApiResult
 import app.befos.domain.repository.AuthRepository
+import app.befos.domain.repository.ProfileRepository
 import app.befos.domain.repository.SafetyRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -15,6 +16,7 @@ data class SettingsUiState(
     val hidden: Boolean = false,
     val busy: Boolean = false,
     val message: String? = null,
+    val messageIsError: Boolean = false,
     val loggedOut: Boolean = false,
     val deleted: Boolean = false,
     val confirmDelete: Boolean = false,
@@ -23,19 +25,34 @@ data class SettingsUiState(
 class SettingsViewModel(
     private val safetyRepository: SafetyRepository,
     private val authRepository: AuthRepository,
+    private val profileRepository: ProfileRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SettingsUiState())
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
 
+    init {
+        load()
+    }
+
+    /** Sync the visibility switch with the server state on open. */
+    fun load() {
+        viewModelScope.launch {
+            when (val result = profileRepository.me()) {
+                is ApiResult.Success -> _uiState.update { it.copy(hidden = result.data.isHidden) }
+                is ApiResult.Error -> Unit
+            }
+        }
+    }
+
     fun setHidden(hidden: Boolean) {
-        _uiState.update { it.copy(busy = true) }
+        _uiState.update { it.copy(busy = true, message = null) }
         viewModelScope.launch {
             when (val result = safetyRepository.setVisibility(hidden)) {
                 is ApiResult.Success -> _uiState.update {
-                    it.copy(busy = false, hidden = hidden, message = if (hidden) "Вы скрыты из подбора." else "Вы снова видны в подборе.")
+                    it.copy(busy = false, hidden = hidden, messageIsError = false, message = if (hidden) "Вы скрыты из подбора." else "Вы снова видны в подборе.")
                 }
-                is ApiResult.Error -> _uiState.update { it.copy(busy = false, message = result.message) }
+                is ApiResult.Error -> _uiState.update { it.copy(busy = false, messageIsError = true, message = result.message) }
             }
         }
     }
@@ -58,7 +75,7 @@ class SettingsViewModel(
                     authRepository.logout()
                     _uiState.update { it.copy(busy = false, deleted = true) }
                 }
-                is ApiResult.Error -> _uiState.update { it.copy(busy = false, message = result.message) }
+                is ApiResult.Error -> _uiState.update { it.copy(busy = false, messageIsError = true, message = result.message) }
             }
         }
     }

@@ -18,6 +18,7 @@ data class ProfileUiState(
     val loading: Boolean = true,
     val profile: Profile? = null,
     val testProgress: TestProgress? = null,
+    val testProgressFailed: Boolean = false,
     val error: String? = null,
     val loggedOut: Boolean = false,
 )
@@ -43,7 +44,22 @@ class ProfileViewModel(
                 is ApiResult.Error -> _uiState.update { it.copy(loading = false, error = result.message) }
             }
             when (val progress = testRepository.progress()) {
-                is ApiResult.Success -> _uiState.update { it.copy(testProgress = progress.data) }
+                is ApiResult.Success -> _uiState.update { it.copy(testProgress = progress.data, testProgressFailed = false) }
+                is ApiResult.Error -> _uiState.update { it.copy(testProgressFailed = true) }
+            }
+        }
+    }
+
+    /** Re-fetch after returning from edit-profile; keeps current content on screen. */
+    fun refreshSilently() {
+        if (_uiState.value.loading) return
+        viewModelScope.launch {
+            when (val result = profileRepository.me()) {
+                is ApiResult.Success -> _uiState.update { it.copy(profile = result.data, error = null) }
+                is ApiResult.Error -> Unit
+            }
+            when (val progress = testRepository.progress()) {
+                is ApiResult.Success -> _uiState.update { it.copy(testProgress = progress.data, testProgressFailed = false) }
                 is ApiResult.Error -> Unit
             }
         }
