@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.befos.core.network.ApiResult
 import app.befos.domain.model.Recommendation
+import app.befos.domain.repository.ChatRepository
 import app.befos.domain.repository.MatchRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -16,10 +17,12 @@ data class RecommendationsUiState(
     val items: List<Recommendation> = emptyList(),
     val selected: Set<Int> = emptySet(),
     val error: String? = null,
+    val selectError: String? = null,
 )
 
 class RecommendationsViewModel(
     private val matchRepository: MatchRepository,
+    private val chatRepository: ChatRepository,
     private val matchId: String,
 ) : ViewModel() {
 
@@ -42,14 +45,16 @@ class RecommendationsViewModel(
         }
     }
 
-    fun select(activityId: Int) {
+    fun select(activityId: Int, title: String) {
         if (_uiState.value.selected.contains(activityId)) return
-        _uiState.update { it.copy(selected = it.selected + activityId) }
+        _uiState.update { it.copy(selected = it.selected + activityId, selectError = null) }
         viewModelScope.launch {
-            when (val result = matchRepository.selectRecommendation(matchId, activityId)) {
-                is ApiResult.Success -> Unit
+            // The proposal only exists once the pair can read it; the recorded choice
+            // is a side effect for the next recommendation pass.
+            when (val result = chatRepository.send(matchId, "Предлагаю сходить на: $title")) {
+                is ApiResult.Success -> matchRepository.selectRecommendation(matchId, activityId)
                 is ApiResult.Error -> _uiState.update {
-                    it.copy(selected = it.selected - activityId, error = result.message)
+                    it.copy(selected = it.selected - activityId, selectError = result.message)
                 }
             }
         }

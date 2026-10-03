@@ -11,6 +11,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -49,11 +50,19 @@ import app.befos.core.designsystem.AppTopBar
 import app.befos.core.designsystem.EmberGradient
 import app.befos.core.designsystem.Elev
 import app.befos.core.designsystem.EmptyState
-import app.befos.core.designsystem.LoadingState
+import app.befos.core.designsystem.ErrorState
+import app.befos.core.designsystem.InlineNotice
+import app.befos.core.designsystem.ListSkeleton
 import app.befos.core.designsystem.MessageBubble
 import app.befos.core.designsystem.Spacing
 import app.befos.core.designsystem.WarningAmber
 import app.befos.core.di.beFosViewModel
+import kotlinx.coroutines.delay
+import java.time.OffsetDateTime
+import java.time.ZoneId
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 @Composable
 fun ChatScreen(
@@ -62,7 +71,7 @@ fun ChatScreen(
     onOpenCompatibility: () -> Unit,
     onOpenRecommendations: () -> Unit,
 ) {
-    val vm: ChatViewModel = beFosViewModel { ChatViewModel(it.chatRepository, matchId) }
+    val vm: ChatViewModel = beFosViewModel { ChatViewModel(it.chatRepository, it.matchRepository, matchId) }
     val state by vm.uiState.collectAsState()
     val listState = rememberLazyListState()
 
@@ -73,7 +82,7 @@ fun ChatScreen(
     Scaffold(
         topBar = {
             AppTopBar(
-                title = "Чат",
+                title = state.partnerName ?: "Чат",
                 onBack = onBack,
                 actions = {
                     IconButton(onClick = onOpenCompatibility) {
@@ -91,46 +100,19 @@ fun ChatScreen(
                 onDraftChange = vm::onDraftChange,
                 onSend = vm::send,
                 enabled = !state.sending,
+                sendError = state.sendError,
+                onDismissError = vm::dismissSendError,
             )
         },
     ) { padding ->
-        Box(Modifier.padding(padding).fillMaxSize()) {
-            when {
-                state.loading -> LoadingState()
-                state.messages.isEmpty() -> EmptyState(
-                    title = "Начните разговор",
-                    message = "Напишите первым — сообщение доставится мгновенно.",
-                    overline = "Переписка",
-                )
-                else -> LazyColumn(
-                    state = listState,
-                    modifier = Modifier.fillMaxSize().padding(horizontal = Spacing.gutter),
-                    verticalArrangement = Arrangement.spacedBy(Spacing.xs),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                        top = Spacing.lg,
-                        bottom = Spacing.xl,
-                    ),
-                ) {
-                    items(state.messages, key = { it.id }) { message ->
-                        MessageBubble(
-                            body = message.body,
-                            isOwn = message.isOwn,
-                            footer = if (message.isOwn && message.isRead) "прочитано" else formatTime(message.createdAt),
-                        )
-                    }
-                }
-            }
-
-            if (state.otherTyping) {
-                TypingIndicator(Modifier.align(Alignment.BottomStart).padding(start = Spacing.gutter, bottom = Spacing.sm))
-            }
-
+        Column(Modifier.padding(padding).fillMaxSize()) {
             // Tidy status pill — no raw technical wording for the user.
+            // It takes its own row: floated over the list it covered the first bubble.
             if (!state.loading && !state.connected) {
                 Row(
                     modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .padding(top = Spacing.md)
+                        .align(Alignment.CenterHorizontally)
+                        .padding(bottom = Spacing.xs)
                         .clip(RoundedCornerShape(18.dp))
                         .background(WarningAmber.copy(alpha = 0.12f))
                         .border(Elev.hairlineWidth, WarningAmber.copy(alpha = 0.38f), RoundedCornerShape(18.dp))
@@ -144,6 +126,47 @@ fun ChatScreen(
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                }
+            }
+
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                when {
+                    state.loading -> ListSkeleton(rows = 6)
+                    state.messages.isEmpty() && state.historyError != null -> ErrorState(
+                        message = state.historyError!!,
+                        title = "Не удалось загрузить переписку",
+                        onRetry = vm::retryHistory,
+                    )
+                    state.messages.isEmpty() -> EmptyState(
+                        title = "Начните разговор",
+                        message = "Напишите первым — пара увидит сообщение, когда откроет приложение.",
+                        overline = "Переписка",
+                    )
+                    else -> LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize().padding(horizontal = Spacing.gutter),
+                        verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                            top = Spacing.lg,
+                            bottom = Spacing.xl,
+                        ),
+                    ) {
+                        items(state.messages, key = { it.id }) { message ->
+                            MessageBubble(
+                                body = message.body,
+                                isOwn = message.isOwn,
+                                footer = if (message.isOwn && message.isRead) {
+                                    "прочитано"
+                                } else {
+                                    formatTime(message.createdAt)
+                                },
+                            )
+                        }
+                    }
+                }
+
+                if (state.otherTyping) {
+                    TypingIndicator(Modifier.align(Alignment.BottomStart).padding(start = Spacing.gutter, bottom = Spacing.sm))
                 }
             }
         }
@@ -190,86 +213,108 @@ private fun ChatInputBar(
     onDraftChange: (String) -> Unit,
     onSend: () -> Unit,
     enabled: Boolean,
+    sendError: String?,
+    onDismissError: () -> Unit,
 ) {
     val canSend = enabled && draft.isNotBlank()
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.background.copy(alpha = 0.94f))
             .navigationBarsPadding()
-            .imePadding()
-            .padding(horizontal = Spacing.gutter, vertical = Spacing.md),
-        verticalAlignment = Alignment.Bottom,
-        horizontalArrangement = Arrangement.spacedBy(Spacing.md),
+            .imePadding(),
     ) {
-        Row(
-            modifier = Modifier
-                .weight(1f)
-                .widthIn(min = 52.dp)
-                .clip(RoundedCornerShape(26.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant)
-                .border(
-                    Elev.hairlineWidth,
-                    MaterialTheme.colorScheme.outlineVariant,
-                    RoundedCornerShape(26.dp),
-                )
-                .padding(start = Spacing.xl, end = Spacing.sm, top = Spacing.md, bottom = Spacing.md),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            BasicTextField(
-                value = draft,
-                onValueChange = onDraftChange,
-                maxLines = 4,
-                textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
-                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                modifier = Modifier.weight(1f),
-                decorationBox = { inner ->
-                    Box {
-                        if (draft.isEmpty()) {
-                            Text(
-                                "Сообщение…",
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        inner()
-                    }
-                },
+        if (sendError != null) {
+            LaunchedEffect(sendError) {
+                delay(4000)
+                onDismissError()
+            }
+            InlineNotice(
+                text = "$sendError Текст остался в поле — отправьте ещё раз.",
+                modifier = Modifier.padding(horizontal = Spacing.gutter, vertical = Spacing.xs),
             )
         }
-        Box(
+        Row(
             modifier = Modifier
-                .size(52.dp)
-                .clip(CircleShape)
-                .then(
-                    if (canSend) {
-                        Modifier.background(EmberGradient, CircleShape)
-                    } else {
-                        Modifier.background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
+                .fillMaxWidth()
+                .padding(horizontal = Spacing.gutter, vertical = Spacing.md),
+            verticalAlignment = Alignment.Bottom,
+            horizontalArrangement = Arrangement.spacedBy(Spacing.md),
+        ) {
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .widthIn(min = 52.dp)
+                    .clip(RoundedCornerShape(26.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .border(
+                        Elev.hairlineWidth,
+                        MaterialTheme.colorScheme.outlineVariant,
+                        RoundedCornerShape(26.dp),
+                    )
+                    .padding(start = Spacing.xl, end = Spacing.sm, top = Spacing.md, bottom = Spacing.md),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                BasicTextField(
+                    value = draft,
+                    onValueChange = onDraftChange,
+                    maxLines = 4,
+                    textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                    modifier = Modifier.weight(1f),
+                    decorationBox = { inner ->
+                        Box {
+                            if (draft.isEmpty()) {
+                                Text(
+                                    "Сообщение…",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            inner()
+                        }
                     },
                 )
-                .then(
-                    if (canSend) {
-                        Modifier.clickable { onSend() }
-                    } else {
-                        Modifier
-                    },
-                ),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                Icons.AutoMirrored.Filled.Send,
-                contentDescription = "Отправить",
-                tint = if (canSend) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            }
+            Box(
+                modifier = Modifier
+                    .size(52.dp)
+                    .clip(CircleShape)
+                    .then(
+                        if (canSend) {
+                            Modifier.background(EmberGradient, CircleShape)
+                        } else {
+                            Modifier.background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
+                        },
+                    )
+                    .then(
+                        if (canSend) {
+                            Modifier.clickable { onSend() }
+                        } else {
+                            Modifier
+                        },
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Filled.Send,
+                    contentDescription = "Отправить",
+                    tint = if (canSend) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }
 
 private fun formatTime(iso: String): String {
-    // Backend sends ISO-8601; show the HH:MM portion when present.
-    val t = iso.indexOf('T')
-    if (t < 0) return iso
-    val time = iso.substring(t + 1)
-    return if (time.length >= 5) time.substring(0, 5) else time
+    // The backend stamps UTC. Slicing the string showed server hours, not the
+    // user's, so a message written at 10:48 read as 03:48.
+    val sent = runCatching { OffsetDateTime.parse(iso).atZoneSameInstant(ZoneId.systemDefault()) }
+        .getOrNull() ?: return ""
+    val now = ZonedDateTime.now()
+    return if (sent.toLocalDate() == now.toLocalDate()) {
+        sent.format(DateTimeFormatter.ofPattern("HH:mm"))
+    } else {
+        sent.format(DateTimeFormatter.ofPattern("d MMM", Locale("ru")))
+    }
 }

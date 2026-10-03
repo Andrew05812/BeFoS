@@ -37,7 +37,8 @@ import app.befos.core.designsystem.EmberSoft
 import app.befos.core.designsystem.Elev
 import app.befos.core.designsystem.EmptyState
 import app.befos.core.designsystem.ErrorState
-import app.befos.core.designsystem.LoadingState
+import app.befos.core.designsystem.InlineNotice
+import app.befos.core.designsystem.ListSkeleton
 import app.befos.core.designsystem.Spacing
 import app.befos.core.designsystem.scoreColor
 import app.befos.core.di.beFosViewModel
@@ -45,17 +46,18 @@ import app.befos.domain.model.Recommendation
 
 @Composable
 fun RecommendationsScreen(matchId: String, onBack: () -> Unit) {
-    val vm: RecommendationsViewModel = beFosViewModel { RecommendationsViewModel(it.matchRepository, matchId) }
+    val vm: RecommendationsViewModel =
+        beFosViewModel { RecommendationsViewModel(it.matchRepository, it.chatRepository, matchId) }
     val state by vm.uiState.collectAsState()
 
     Scaffold(
         topBar = { AppTopBar(title = "Идеи для встречи", onBack = onBack) },
     ) { padding ->
         when {
-            state.loading -> LoadingState(Modifier.padding(padding))
+            state.loading -> ListSkeleton(Modifier.padding(padding), rows = 4)
             state.error != null && state.items.isEmpty() -> ErrorState(
-                message = state.error ?: "Ошибка",
-                title = "Нет рекомендаций",
+                message = state.error ?: "Проверьте подключение и попробуйте ещё раз.",
+                title = "Не удалось загрузить идеи",
                 onRetry = vm::load,
                 modifier = Modifier.padding(padding),
             )
@@ -72,6 +74,11 @@ fun RecommendationsScreen(matchId: String, onBack: () -> Unit) {
                 verticalArrangement = Arrangement.spacedBy(Spacing.lg),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = Spacing.lg),
             ) {
+                if (state.selectError != null) {
+                    item {
+                        InlineNotice("Не удалось отправить предложение. ${state.selectError}")
+                    }
+                }
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
                         Text(
@@ -90,7 +97,7 @@ fun RecommendationsScreen(matchId: String, onBack: () -> Unit) {
                     RecommendationCard(
                         rec = rec,
                         selected = state.selected.contains(rec.activity.id),
-                        onSelect = { vm.select(rec.activity.id) },
+                        onSelect = { vm.select(rec.activity.id, rec.activity.title) },
                     )
                 }
             }
@@ -174,7 +181,7 @@ private fun RecommendationCard(rec: Recommendation, selected: Boolean, onSelect:
                 ) {
                     Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                     Text(
-                        "Предложено — ждём ответ пары",
+                        "Отправлено в чат",
                         color = EmberDeep,
                         fontWeight = FontWeight.SemiBold,
                         style = MaterialTheme.typography.bodyMedium,
@@ -182,7 +189,7 @@ private fun RecommendationCard(rec: Recommendation, selected: Boolean, onSelect:
                 }
             } else {
                 AppButton(
-                    text = "Предложить это",
+                    text = "Предложить в чате",
                     onClick = onSelect,
                     variant = AppButtonVariant.Tonal,
                     modifier = Modifier.fillMaxWidth(),
