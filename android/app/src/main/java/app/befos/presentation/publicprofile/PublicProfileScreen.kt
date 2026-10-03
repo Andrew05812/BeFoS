@@ -1,9 +1,5 @@
 package app.befos.presentation.publicprofile
 
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -11,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -21,7 +18,6 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Block
@@ -43,9 +39,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -58,9 +55,11 @@ import app.befos.core.designsystem.AppTopBar
 import app.befos.core.designsystem.CompatibilityScore
 import app.befos.core.designsystem.Elev
 import app.befos.core.designsystem.ErrorState
+import app.befos.core.designsystem.InlineNotice
 import app.befos.core.designsystem.InterestChip
-import app.befos.core.designsystem.LoadingState
-import app.befos.core.designsystem.Motion
+import app.befos.core.designsystem.ProfileSkeleton
+import app.befos.core.designsystem.MatchMoment
+import app.befos.core.designsystem.MonogramFallback
 import app.befos.core.designsystem.Peach
 import app.befos.core.designsystem.SectionHeader
 import app.befos.core.designsystem.Spacing
@@ -73,7 +72,6 @@ import app.befos.presentation.common.CategoryScoreList
 import app.befos.presentation.common.goalLabel
 import app.befos.presentation.compatibility.prettifySlug
 import coil.compose.AsyncImage
-import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -86,19 +84,22 @@ fun PublicProfileScreen(
         PublicProfileViewModel(it.profileRepository, it.discoveryRepository, it.safetyRepository, userId)
     }
     val state by vm.uiState.collectAsState()
+    val haptics = LocalHapticFeedback.current
 
     LaunchedEffect(state.gone) { if (state.gone && state.match == null) onBack() }
 
     state.match?.let { outcome ->
         outcome.matchId?.let { matchId ->
-            MutualMatchEvent(
+            MatchMoment(
                 name = state.profile?.name,
+                photoUrl = state.profile?.photoUrls?.firstOrNull(),
                 compatibility = outcome.compatibility,
                 onOpenChat = {
-                    vm.dismissMatch()
+                    vm.openChat()
                     onOpenChat(matchId)
                 },
                 onDismiss = vm::dismissMatch,
+                secondaryLabel = "Позже",
             )
         }
     }
@@ -127,9 +128,9 @@ fun PublicProfileScreen(
         },
     ) { padding ->
         when {
-            state.loading -> LoadingState(Modifier.padding(padding))
+            state.loading -> ProfileSkeleton(Modifier.padding(padding))
             state.profile == null -> ErrorState(
-                message = state.error ?: "Ошибка",
+                message = state.error ?: "Проверьте подключение и попробуйте ещё раз.",
                 title = "Профиль недоступен",
                 onRetry = vm::load,
                 modifier = Modifier.padding(padding),
@@ -151,13 +152,8 @@ fun PublicProfileScreen(
                             .padding(horizontal = Spacing.gutter),
                         verticalArrangement = Arrangement.spacedBy(Spacing.xxl),
                     ) {
-                        if (!p.about.isNullOrBlank()) {
-                            Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
-                                SectionHeader("О себе")
-                                Text(p.about, style = MaterialTheme.typography.bodyLarge)
-                            }
-                        }
-
+                        // Reading order follows the product's own logic: why you fit,
+                        // what you share, then the person's words.
                         if (p.categories.isNotEmpty()) {
                             Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
                                 SectionHeader("Совместимость по категориям")
@@ -191,12 +187,19 @@ fun PublicProfileScreen(
                             }
                         }
 
+                        if (!p.about.isNullOrBlank()) {
+                            Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
+                                SectionHeader("О себе")
+                                Text(p.about, style = MaterialTheme.typography.bodyLarge)
+                            }
+                        }
+
                         state.notice?.let { notice ->
-                            Text(
-                                notice,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                style = MaterialTheme.typography.bodyMedium,
-                            )
+                            InlineNotice(notice, isError = false)
+                        }
+
+                        if (state.error != null) {
+                            InlineNotice(state.error!!)
                         }
 
                         Row(
@@ -205,14 +208,20 @@ fun PublicProfileScreen(
                         ) {
                             AppButton(
                                 text = "Пропустить",
-                                onClick = vm::pass,
+                                onClick = {
+                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    vm.pass()
+                                },
                                 enabled = !state.busy,
                                 variant = AppButtonVariant.Tonal,
                                 modifier = Modifier.weight(1f),
                             )
                             AppButton(
                                 text = "Нравится",
-                                onClick = vm::like,
+                                onClick = {
+                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    vm.like()
+                                },
                                 enabled = !state.busy,
                                 modifier = Modifier.weight(1f),
                             )
@@ -242,18 +251,12 @@ private fun ProfileHero(p: PublicProfile) {
                 HeroPhoto(photos[page], "Фото ${page + 1} из ${photos.size}", p.name)
             }
         } else {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Brush.linearGradient(listOf(IrisTint, EmberTint, Peach))),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    p.name.trim().firstOrNull()?.uppercase().toString(),
-                    style = MaterialTheme.typography.displayLarge,
-                    color = Color.White.copy(alpha = 0.9f),
-                )
-            }
+            MonogramFallback(
+                name = p.name,
+                modifier = Modifier.fillMaxSize(),
+                badgeSize = 96.dp,
+                contentPadding = PaddingValues(start = Spacing.lg, top = Spacing.lg, end = Spacing.lg, bottom = 132.dp),
+            )
         }
 
         // Identity block over the scrim.
@@ -316,87 +319,26 @@ private fun ProfileHero(p: PublicProfile) {
     }
 }
 
-/** Single hero photo page; falls back to the branded gradient when the image can't load. */
+/** Single hero photo page; the branded gradient underneath is both loader and fallback. */
 @Composable
 private fun HeroPhoto(url: String, description: String, name: String) {
     var failed by remember(url) { mutableStateOf(false) }
-    if (!failed) {
-        AsyncImage(
-            model = url,
-            contentDescription = description,
+    // The pager page is not a Box: without an explicit container the photo and its
+    // fallback become two stacked-less siblings and the image never gets drawn.
+    Box(modifier = Modifier.fillMaxSize()) {
+        MonogramFallback(
+            name = name,
             modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Crop,
-            onError = { failed = true },
+            badgeSize = 84.dp,
+            contentPadding = PaddingValues(bottom = 96.dp),
         )
-    } else {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Brush.linearGradient(listOf(IrisTint, EmberTint, Peach))),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                name.trim().firstOrNull()?.uppercase().toString(),
-                style = MaterialTheme.typography.displayLarge,
-                color = Color.White.copy(alpha = 0.9f),
-            )
-        }
-    }
-}
-
-/** Mutual-like moment — same event treatment as discovery, no confetti. */
-@Composable
-private fun MutualMatchEvent(name: String?, compatibility: Int?, onOpenChat: () -> Unit, onDismiss: () -> Unit) {
-    val scale = remember { Animatable(0.86f) }
-    val fade = remember { Animatable(0f) }
-    LaunchedEffect(Unit) {
-        launch { scale.animateTo(1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow)) }
-        launch { fade.animateTo(1f, tween(Motion.Base)) }
-    }
-    Dialog(onDismissRequest = onDismiss) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .graphicsLayer {
-                    scaleX = scale.value
-                    scaleY = scale.value
-                    alpha = fade.value
-                }
-                .clip(MaterialTheme.shapes.extraLarge)
-                .background(Brush.verticalGradient(listOf(Color(0xFF241B2E), Color(0xFF171222))))
-                .border(1.dp, Color.White.copy(alpha = 0.10f), MaterialTheme.shapes.extraLarge)
-                .padding(Spacing.huge),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(Spacing.lg),
-        ) {
-            Text(
-                "ВЗАИМНЫЙ ЛАЙК",
-                style = MaterialTheme.typography.labelSmall,
-                color = Color.White.copy(alpha = 0.6f),
-            )
-            Text(
-                if (name != null) "Это взаимно — вы и $name" else "Это взаимно!",
-                style = MaterialTheme.typography.headlineMedium,
-                color = Color.White,
-            )
-            if (compatibility != null) {
-                CompatibilityScore(percent = compatibility, size = 120.dp, strokeWidth = 10.dp)
-                Text(
-                    "Ваша совместимость $compatibility%",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Color.White.copy(alpha = 0.72f),
-                )
-            }
-            AppButton(
-                text = if (name != null) "Написать $name" else "Открыть чат",
-                onClick = onOpenChat,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            AppButton(
-                text = "Позже",
-                onClick = onDismiss,
-                variant = AppButtonVariant.Ghost,
-                modifier = Modifier.fillMaxWidth(),
+        if (!failed) {
+            AsyncImage(
+                model = url,
+                contentDescription = description,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+                onError = { failed = true },
             )
         }
     }

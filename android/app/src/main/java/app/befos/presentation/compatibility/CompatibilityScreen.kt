@@ -31,10 +31,10 @@ import androidx.compose.ui.unit.dp
 import app.befos.core.designsystem.AppCard
 import app.befos.core.designsystem.AppTopBar
 import app.befos.core.designsystem.CompatibilityScore
+import app.befos.core.designsystem.CompatibilitySkeleton
 import app.befos.core.designsystem.ErrorState
 import app.befos.core.designsystem.InterestChip
 import app.befos.core.designsystem.IrisSoft
-import app.befos.core.designsystem.LoadingState
 import app.befos.core.designsystem.Mint
 import app.befos.core.designsystem.SectionHeader
 import app.befos.core.designsystem.Spacing
@@ -54,9 +54,9 @@ fun CompatibilityScreen(matchId: String, onBack: () -> Unit) {
         topBar = { AppTopBar(title = "Совместимость", onBack = onBack) },
     ) { padding ->
         when {
-            state.loading -> LoadingState(Modifier.padding(padding))
+            state.loading -> CompatibilitySkeleton(Modifier.padding(padding))
             state.data == null -> ErrorState(
-                message = state.error ?: "Ошибка",
+                message = state.error ?: "Проверьте подключение и попробуйте ещё раз.",
                 title = "Не удалось рассчитать",
                 onRetry = vm::load,
                 modifier = Modifier.padding(padding),
@@ -110,6 +110,11 @@ fun CompatibilityScreen(matchId: String, onBack: () -> Unit) {
                         AppCard(modifier = Modifier.fillMaxWidth()) {
                             Column(modifier = Modifier.padding(Spacing.xl)) {
                                 CategoryScoreList(data.categories)
+                                Text(
+                                    "Итог — средневзвешенное: направление с бо́льшим весом влияет сильнее.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
                             }
                         }
                     }

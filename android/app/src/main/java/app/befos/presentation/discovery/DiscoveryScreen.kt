@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -54,18 +55,20 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
 import app.befos.core.designsystem.AppButton
 import app.befos.core.designsystem.AppButtonVariant
 import app.befos.core.designsystem.CompatibilityScore
 import app.befos.core.designsystem.DiscoveryCardData
+import app.befos.core.designsystem.DiscoverySkeleton
 import app.befos.core.designsystem.EmptyState
 import app.befos.core.designsystem.ErrorRed
 import app.befos.core.designsystem.ErrorState
 import app.befos.core.designsystem.Elev
+import app.befos.core.designsystem.InlineNotice
 import app.befos.core.designsystem.InterestChip
-import app.befos.core.designsystem.LoadingState
+import app.befos.core.designsystem.MatchMoment
+import app.befos.core.designsystem.MonogramFallback
 import app.befos.core.designsystem.Motion
 import app.befos.core.designsystem.Peach
 import app.befos.core.designsystem.OverlayIconButton
@@ -90,11 +93,11 @@ fun DiscoveryScreen(onOpenMatch: (String) -> Unit, onOpenProfile: (String) -> Un
 
     state.match?.let { outcome ->
         outcome.matchId?.let { matchId ->
-            MatchDialog(
-                compatibility = outcome.compatibility,
+            MatchMoment(
                 name = state.current?.name,
                 photoUrl = state.current?.photoUrl,
-                onOpen = {
+                compatibility = outcome.compatibility,
+                onOpenChat = {
                     vm.dismissMatch()
                     onOpenMatch(matchId)
                 },
@@ -104,9 +107,9 @@ fun DiscoveryScreen(onOpenMatch: (String) -> Unit, onOpenProfile: (String) -> Un
     }
 
     when {
-        state.loading -> LoadingState(message = "Ищем подходящие анкеты")
+        state.loading -> DiscoverySkeleton()
         state.error != null && state.cards.isEmpty() -> ErrorState(
-            message = state.error ?: "Ошибка",
+            message = state.error ?: "Проверьте подключение и попробуйте ещё раз.",
             title = "Не удалось загрузить анкеты",
             onRetry = vm::load,
         )
@@ -132,6 +135,7 @@ private fun DiscoveryContent(state: DiscoveryUiState, vm: DiscoveryViewModel, on
     val flyDistance = with(density) { 1000.dp.toPx() }
 
     fun fling(right: Boolean) {
+        if (state.busy) return
         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
         scope.launch {
             dragX.animateTo(
@@ -248,7 +252,7 @@ private fun DiscoveryContent(state: DiscoveryUiState, vm: DiscoveryViewModel, on
             modifier = Modifier.fillMaxWidth(),
         )
         if (state.error != null) {
-            Text(state.error!!, color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+            InlineNotice(state.error!!)
         }
     }
 }
@@ -268,6 +272,13 @@ private fun CardPhoto(
             .then(if (onOpenProfile != null) Modifier.clickable { onOpenProfile() } else Modifier),
     ) {
         var loadFailed by androidx.compose.runtime.remember(card.photoUrl) { androidx.compose.runtime.mutableStateOf(false) }
+        // Branded layer sits under the photo: it is both the loading state and the fallback.
+        MonogramFallback(
+            name = card.name,
+            modifier = Modifier.fillMaxSize(),
+            badgeSize = 96.dp,
+            contentPadding = PaddingValues(start = Spacing.lg, top = Spacing.lg, end = Spacing.lg, bottom = 168.dp),
+        )
         if (!card.photoUrl.isNullOrBlank() && !loadFailed) {
             AsyncImage(
                 model = card.photoUrl,
@@ -276,26 +287,6 @@ private fun CardPhoto(
                 contentScale = ContentScale.Crop,
                 onError = { loadFailed = true },
             )
-        } else {
-            // Branded fallback instead of a gray box; initial sits above the info overlay.
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Brush.linearGradient(listOf(IrisTint, EmberTint, Peach))),
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(start = Spacing.lg, top = Spacing.lg, end = Spacing.lg, bottom = 168.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = card.name.trim().firstOrNull()?.uppercase().toString(),
-                        style = MaterialTheme.typography.displayLarge,
-                        color = Color.White.copy(alpha = 0.9f),
-                    )
-                }
-            }
         }
         content()
         Box(
@@ -504,62 +495,6 @@ private fun Stamp(
             fontWeight = FontWeight.Black,
             letterSpacing = 2.sp,
         )
-    }
-}
-
-/** Mutual-like moment: minimal, scale-in, no confetti. */
-@Composable
-private fun MatchDialog(compatibility: Int?, name: String?, photoUrl: String?, onOpen: () -> Unit, onDismiss: () -> Unit) {
-    val scale = remember { Animatable(0.86f) }
-    val fade = remember { Animatable(0f) }
-    LaunchedEffect(Unit) {
-        launch { scale.animateTo(1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow)) }
-        launch { fade.animateTo(1f, tween(Motion.Base)) }
-    }
-    Dialog(onDismissRequest = onDismiss) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .graphicsLayer {
-                    scaleX = scale.value
-                    scaleY = scale.value
-                    alpha = fade.value
-                }
-                .clip(MaterialTheme.shapes.extraLarge)
-                .background(Brush.verticalGradient(listOf(Color(0xFF241B2E), Color(0xFF171222))))
-                .border(1.dp, Color.White.copy(alpha = 0.10f), MaterialTheme.shapes.extraLarge)
-                .padding(Spacing.huge),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(Spacing.lg),
-        ) {
-            Text(
-                text = "ВЗАИМНЫЙ ЛАЙК",
-                style = MaterialTheme.typography.labelSmall,
-                color = Color.White.copy(alpha = 0.6f),
-            )
-            name?.let {
-                Text("Это взаимно — вы и $it", style = MaterialTheme.typography.headlineMedium, color = Color.White)
-            } ?: Text("Это взаимно!", style = MaterialTheme.typography.headlineMedium, color = Color.White)
-            if (compatibility != null) {
-                CompatibilityScore(percent = compatibility, size = 132.dp, strokeWidth = 10.dp)
-                Text(
-                    "Ваша совместимость $compatibility%",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Color.White.copy(alpha = 0.72f),
-                )
-            }
-            AppButton(
-                text = if (name != null) "Написать $name" else "Открыть чат",
-                onClick = onOpen,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            AppButton(
-                text = "Продолжить просмотр",
-                onClick = onDismiss,
-                variant = AppButtonVariant.Ghost,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
     }
 }
 

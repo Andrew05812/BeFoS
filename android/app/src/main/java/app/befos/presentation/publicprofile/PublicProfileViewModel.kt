@@ -54,7 +54,7 @@ class PublicProfileViewModel(
 
     fun like() {
         if (_uiState.value.busy) return
-        _uiState.update { it.copy(busy = true) }
+        _uiState.update { it.copy(busy = true, error = null) }
         viewModelScope.launch {
             when (val result = discoveryRepository.like(userId)) {
                 is ApiResult.Success -> _uiState.update {
@@ -68,7 +68,7 @@ class PublicProfileViewModel(
 
     fun pass() {
         if (_uiState.value.busy) return
-        _uiState.update { it.copy(busy = true) }
+        _uiState.update { it.copy(busy = true, error = null) }
         viewModelScope.launch {
             when (val result = discoveryRepository.pass(userId)) {
                 is ApiResult.Success -> _uiState.update { it.copy(busy = false, gone = true) }
@@ -78,7 +78,7 @@ class PublicProfileViewModel(
     }
 
     fun block() {
-        _uiState.update { it.copy(busy = true) }
+        _uiState.update { it.copy(busy = true, error = null) }
         viewModelScope.launch {
             when (val result = safetyRepository.block(userId)) {
                 is ApiResult.Success -> _uiState.update { it.copy(busy = false, blocked = true, gone = true) }
@@ -107,4 +107,10 @@ class PublicProfileViewModel(
     }
 
     fun dismissMatch() = _uiState.update { it.copy(match = null, gone = true) }
+
+    /**
+     * Clears the match dialog for the "go to chat" path without flagging the screen as
+     * finished — otherwise the back effect fires right after the chat push and pops it.
+     */
+    fun openChat() = _uiState.update { it.copy(match = null) }
 }

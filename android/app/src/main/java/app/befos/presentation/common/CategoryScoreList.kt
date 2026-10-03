@@ -57,7 +57,13 @@ fun CategoryScoreRow(score: CategoryScore, modifier: Modifier = Modifier, delayM
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                score.label.uppercase(),
+                // Weight only exists in the pair-compatibility calculation; the
+                // personal test profile has none, so "вес 0%" would be a lie.
+                text = if (score.weight > 0f) {
+                    "${score.label.uppercase()} · вес ${Math.round(score.weight * 100)}%"
+                } else {
+                    score.label.uppercase()
+                },
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

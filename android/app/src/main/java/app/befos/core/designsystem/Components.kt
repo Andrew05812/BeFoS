@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -26,6 +27,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -33,6 +35,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.CircularProgressIndicator
@@ -61,6 +64,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -125,11 +129,11 @@ fun Avatar(
                 .background(Brush.linearGradient(listOf(Peach, Ember, Iris))),
             contentAlignment = Alignment.Center,
         ) {
-            Text(
-                text = initials?.trim()?.firstOrNull()?.uppercase()?.toString() ?: "?",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
+            MonogramLetter(
+                initials = initials,
                 color = Color.White,
+                textSize = if (size <= 44.dp) MaterialTheme.typography.titleSmall else MaterialTheme.typography.titleMedium,
+                iconSize = size / 2.6f,
             )
         }
     } else {
@@ -139,10 +143,71 @@ fun Avatar(
             modifier = modifier
                 .size(size)
                 .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.surfaceVariant),
+                .background(Brush.linearGradient(listOf(Peach, Ember, Iris))),
             contentScale = ContentScale.Crop,
             onError = { failed = true },
         )
+    }
+}
+
+/** Initial letter, or the brand spark when there is no name to take a letter from. */
+@Composable
+private fun MonogramLetter(
+    initials: String?,
+    color: Color,
+    textSize: TextStyle,
+    iconSize: Dp,
+) {
+    val letter = initials?.trim()?.firstOrNull()?.uppercase()?.toString()
+    if (letter.isNullOrEmpty()) {
+        Icon(
+            imageVector = Icons.Filled.AutoAwesome,
+            contentDescription = null,
+            tint = color,
+            modifier = Modifier.size(iconSize),
+        )
+    } else {
+        Text(
+            text = letter,
+            style = textSize,
+            fontWeight = FontWeight.Bold,
+            color = color,
+        )
+    }
+}
+
+/**
+ * Full-bleed placeholder for a missing or broken photo: duotone field with one
+ * restrained frosted monogram badge, so an empty card still looks composed.
+ */
+@Composable
+fun MonogramFallback(
+    name: String?,
+    modifier: Modifier = Modifier,
+    badgeSize: Dp = 88.dp,
+    contentPadding: PaddingValues = PaddingValues(0.dp),
+) {
+    Box(
+        modifier = modifier
+            .background(Brush.linearGradient(listOf(Iris, Ember, Peach))),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            modifier = Modifier
+                .padding(contentPadding)
+                .size(badgeSize)
+                .clip(CircleShape)
+                .background(Color.White.copy(alpha = 0.16f))
+                .border(Elev.hairlineWidth * 2f, Color.White.copy(alpha = 0.32f), CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            MonogramLetter(
+                initials = name,
+                color = Color.White.copy(alpha = 0.92f),
+                textSize = MaterialTheme.typography.headlineMedium,
+                iconSize = badgeSize / 2.4f,
+            )
+        }
     }
 }
 
@@ -291,6 +356,228 @@ fun LoadingState(modifier: Modifier = Modifier, message: String? = null) {
             }
         }
     }
+}
+
+// ---------- Skeletons ----------
+
+/** Soft pulsing placeholder block; alpha breathes between 0.45 and 0.9. */
+@Composable
+fun SkeletonBlock(
+    modifier: Modifier = Modifier,
+    shape: androidx.compose.ui.graphics.Shape = MaterialTheme.shapes.medium,
+) {
+    val pulse = remember { Animatable(0.45f) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            pulse.animateTo(0.9f, tween(Motion.Slow))
+            pulse.animateTo(0.45f, tween(Motion.Slow))
+        }
+    }
+    // surfaceVariant (#F4EDE7) on the cream background is a 6/255 delta — effectively
+    // invisible. Tinting onSurfaceVariant gives a readable warm-grey block in both themes.
+    val tone = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.18f)
+    Box(
+        modifier = modifier
+            .graphicsLayer { alpha = pulse.value }
+            .clip(shape)
+            .background(tone),
+    )
+}
+
+/** Loading composition mirroring the discovery card layout. */
+@Composable
+fun DiscoverySkeleton(modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .padding(horizontal = Spacing.gutter, vertical = Spacing.md),
+        verticalArrangement = Arrangement.spacedBy(Spacing.xl),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            SkeletonBlock(Modifier.width(64.dp).height(12.dp))
+            SkeletonBlock(Modifier.width(44.dp).height(12.dp))
+        }
+        SkeletonBlock(
+            Modifier
+                .fillMaxWidth()
+                .weight(1f),
+            shape = MaterialTheme.shapes.extraLarge,
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.xxl, Alignment.CenterHorizontally),
+        ) {
+            SkeletonBlock(Modifier.size(56.dp), shape = CircleShape)
+            SkeletonBlock(Modifier.size(72.dp), shape = CircleShape)
+            SkeletonBlock(Modifier.size(56.dp), shape = CircleShape)
+        }
+        SkeletonBlock(
+            Modifier
+                .fillMaxWidth(0.7f)
+                .height(12.dp)
+                .align(Alignment.CenterHorizontally),
+        )
+    }
+}
+
+/** Loading composition mirroring a row list (matches, recommendations, chat history). */
+@Composable
+fun ListSkeleton(modifier: Modifier = Modifier, rows: Int = 5) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .padding(horizontal = Spacing.gutter, vertical = Spacing.lg),
+        verticalArrangement = Arrangement.spacedBy(Spacing.lg),
+    ) {
+        repeat(rows) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(Spacing.lg),
+            ) {
+                SkeletonBlock(Modifier.size(56.dp), shape = CircleShape)
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+                ) {
+                    SkeletonBlock(Modifier.fillMaxWidth(0.55f).height(14.dp))
+                    SkeletonBlock(Modifier.fillMaxWidth(0.8f).height(12.dp))
+                }
+            }
+        }
+    }
+}
+
+/** Loading composition mirroring the profile content page. */
+@Composable
+fun ProfileSkeleton(modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .padding(horizontal = Spacing.gutter, vertical = Spacing.xl),
+        verticalArrangement = Arrangement.spacedBy(Spacing.lg),
+    ) {
+        SkeletonBlock(
+            Modifier
+                .fillMaxWidth()
+                .height(168.dp),
+            shape = MaterialTheme.shapes.large,
+        )
+        SkeletonBlock(
+            Modifier
+                .fillMaxWidth()
+                .height(148.dp),
+            shape = MaterialTheme.shapes.large,
+        )
+        SkeletonBlock(
+            Modifier
+                .fillMaxWidth()
+                .height(96.dp),
+            shape = MaterialTheme.shapes.large,
+        )
+    }
+}
+
+/** Loading composition mirroring the one-question test screen. */
+@Composable
+fun TestSkeleton(modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .padding(horizontal = Spacing.gutter, vertical = Spacing.xl),
+        verticalArrangement = Arrangement.spacedBy(Spacing.xl),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            SkeletonBlock(Modifier.width(72.dp).height(20.dp))
+            SkeletonBlock(Modifier.width(36.dp).height(14.dp))
+        }
+        SkeletonBlock(Modifier.fillMaxWidth().height(6.dp), shape = CircleShape)
+        Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+            SkeletonBlock(Modifier.fillMaxWidth(0.9f).height(18.dp))
+            SkeletonBlock(Modifier.fillMaxWidth(0.65f).height(18.dp))
+        }
+        repeat(4) {
+            SkeletonBlock(
+                Modifier
+                    .fillMaxWidth()
+                    .height(56.dp),
+                shape = MaterialTheme.shapes.medium,
+            )
+        }
+    }
+}
+
+/** Loading composition mirroring the compatibility story page. */
+@Composable
+fun CompatibilitySkeleton(modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .padding(horizontal = Spacing.gutter, vertical = Spacing.xl),
+        verticalArrangement = Arrangement.spacedBy(Spacing.lg),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(MaterialTheme.shapes.large)
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
+                .padding(vertical = Spacing.huge),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(Spacing.lg),
+        ) {
+            SkeletonBlock(Modifier.width(80.dp).height(12.dp))
+            SkeletonBlock(Modifier.size(160.dp), shape = CircleShape)
+            SkeletonBlock(Modifier.width(180.dp).height(20.dp))
+        }
+        SkeletonBlock(Modifier.fillMaxWidth(0.4f).height(12.dp))
+        SkeletonBlock(
+            Modifier
+                .fillMaxWidth()
+                .height(200.dp),
+            shape = MaterialTheme.shapes.large,
+        )
+        SkeletonBlock(Modifier.fillMaxWidth(0.4f).height(12.dp))
+        SkeletonBlock(
+            Modifier
+                .fillMaxWidth()
+                .height(140.dp),
+            shape = MaterialTheme.shapes.large,
+        )
+    }
+}
+
+/** Compact inline banner: error tone for failures, neutral for confirmations. */
+@Composable
+fun InlineNotice(
+    text: String,
+    modifier: Modifier = Modifier,
+    isError: Boolean = true,
+) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.bodySmall,
+        textAlign = TextAlign.Center,
+        color = if (isError) MaterialTheme.colorScheme.onErrorContainer
+        else MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(
+                if (isError) MaterialTheme.colorScheme.errorContainer
+                else MaterialTheme.colorScheme.surfaceVariant,
+            )
+            .padding(horizontal = Spacing.md, vertical = Spacing.sm),
+    )
 }
 
 @Composable
