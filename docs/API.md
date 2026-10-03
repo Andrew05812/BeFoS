@@ -184,7 +184,7 @@
 ```json
 {
   "activity": { "id": 3, "slug": "…", "title": "…", "description": "…", "category": "…", "energy": 0.6, "social": 0.8, "cost": 0.3 },
-  "score": 87, "position": 0, "reasons": ["Общий интерес: Походы", "…"]
+  "score": 87, "position": 0, "reasons": ["Общий интерес — Походы", "Проходит в вашем городе"]
 }
 ```
 

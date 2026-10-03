@@ -99,7 +99,7 @@ def _leisure_match(act: ActivitySignal, a: UserSignal, b: UserSignal) -> tuple[f
     score = _clamp01((sim_a + sim_b) / 2)
     reasons = []
     if score >= 0.7:
-        reasons.append("подходит вашему стилю досуга")
+        reasons.append("Подходит вашему стилю досуга")
     return score, reasons
 
 
@@ -111,12 +111,12 @@ def _lifestyle_match(a: UserSignal, b: UserSignal) -> tuple[float, list[str]]:
 
 def _location_match(act: ActivitySignal, a: UserSignal, b: UserSignal) -> tuple[float, list[str]]:
     if not act.cities:
-        return 1.0, ["доступно в вашем городе"]
+        return 1.0, ["Доступно в любом городе"]
     cities = {c.lower() for c in act.cities}
     a_ok = a.city.lower() in cities
     b_ok = b.city.lower() in cities
     score = 1.0 if (a_ok and b_ok) else (0.4 if (a_ok or b_ok) else 0.0)
-    reasons = ["проходит в вашем городе"] if (a_ok and b_ok) else []
+    reasons = ["Проходит в вашем городе"] if (a_ok and b_ok) else []
     return score, reasons
 
 

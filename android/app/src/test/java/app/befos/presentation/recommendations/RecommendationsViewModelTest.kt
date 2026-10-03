@@ -28,7 +28,7 @@ class RecommendationsViewModelTest {
     private val rec = Recommendation(activity = cinema, score = 63, position = 1, reasons = emptyList())
 
     private val proposal = Message(
-        id = "p1", matchId = "m1", senderId = "me", body = "Предлагаю сходить на: Поход в кино",
+        id = "p1", matchId = "m1", senderId = "me", body = "Идея для нас: Поход в кино. Что скажете?",
         createdAt = "2026-01-01T00:00:00", isRead = false, isOwn = true,
     )
 

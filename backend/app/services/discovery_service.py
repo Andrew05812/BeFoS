@@ -21,7 +21,9 @@ def _highlight(viewer_profile: Profile, profile: Profile, shared_slugs: set[str]
     if len(names) == 1:
         # Label form, not a sentence: "нравится" would disagree with a plural
         # interest name ("Иностранные языки"), and we cannot inflect for number here.
-        return f"Общий интерес: «{names[0]}»"
+        # No quotes either — the chips above render the same names bare, and the
+        # plural branch two lines up does too.
+        return f"Общий интерес: {names[0]}"
     viewer_city = (viewer_profile.city or "").strip().lower()
     if viewer_city and (profile.city or "").strip().lower() == viewer_city:
         return "Из вашего города"
