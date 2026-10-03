@@ -79,10 +79,12 @@ def _interest_match(act: ActivitySignal, a: UserSignal, b: UserSignal) -> tuple[
     shared_both = act_set & a.interests & b.interests
     shared_any = (act_set & a.interests) | (act_set & b.interests)
     score = _clamp01(0.6 * (len(shared_both) / len(act_set)) + 0.4 * (len(shared_any) / len(act_set)))
-    reasons = [
-        f"оба интересуются: {a.interest_titles.get(s, b.interest_titles.get(s, s))}"
-        for s in sorted(shared_both)[:3]
-    ]
+    titles = [a.interest_titles.get(s, b.interest_titles.get(s, s)) for s in sorted(shared_both)[:3]]
+    # One noun phrase rather than a verb template: it stays grammatical for one or for three.
+    reasons = []
+    if titles:
+        label = "Общий интерес" if len(titles) == 1 else "Общие интересы"
+        reasons.append(f"{label} — {', '.join(titles)}")
     return score, reasons
 
 
@@ -103,7 +105,7 @@ def _leisure_match(act: ActivitySignal, a: UserSignal, b: UserSignal) -> tuple[f
 
 def _lifestyle_match(a: UserSignal, b: UserSignal) -> tuple[float, list[str]]:
     sim = _trait_similarity(a.vector.get("lifestyle", {}), b.vector.get("lifestyle", {}))
-    reasons = ["совпадающий ритм жизни"] if sim >= 0.7 else []
+    reasons = ["У вас близкий ритм жизни"] if sim >= 0.7 else []
     return sim, reasons
 
 
@@ -120,7 +122,7 @@ def _location_match(act: ActivitySignal, a: UserSignal, b: UserSignal) -> tuple[
 
 def _goal_match(a: UserSignal, b: UserSignal) -> tuple[float, list[str]]:
     score = goal_compatibility(a.dating_goal, b.dating_goal)
-    reasons = ["совпадающие цели знакомства"] if score >= 0.8 else []
+    reasons = ["Цели знакомства совпадают"] if score >= 0.8 else []
     return score, reasons
 
 

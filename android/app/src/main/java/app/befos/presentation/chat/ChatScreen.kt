@@ -162,7 +162,14 @@ fun ChatScreen(
                     )
                     state.messages.isEmpty() -> EmptyState(
                         title = "Начните разговор",
-                        message = "Напишите первым — пара увидит сообщение, когда откроет приложение.",
+                        // "Пара увидит" is vague and slightly clinical; naming the person
+                        // is warmer, and the promise is honest — there is no push, so the
+                        // message really does wait for them to open the app.
+                        message = if (state.partnerName != null) {
+                            "Напишите первым — ${state.partnerName} увидит сообщение, когда откроет приложение."
+                        } else {
+                            "Напишите первым — собеседник увидит сообщение, когда откроет приложение."
+                        },
                         overline = "Переписка",
                     )
                     else -> LazyColumn(
