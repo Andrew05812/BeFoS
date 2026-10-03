@@ -33,6 +33,7 @@ sealed interface ChatEvent {
 interface AuthRepository {
     val authState: Flow<StoredAuth?>
     suspend fun current(): StoredAuth?
+    suspend fun lastEmail(): String?
     suspend fun register(email: String, password: String): ApiResult<String>
     suspend fun login(email: String, password: String): ApiResult<String>
     suspend fun logout()
@@ -62,6 +63,7 @@ interface DiscoveryRepository {
 
 interface MatchRepository {
     suspend fun matches(): ApiResult<List<MatchSummary>>
+    suspend fun partner(matchId: String): ApiResult<PublicProfile>
     suspend fun compatibility(matchId: String): ApiResult<Compatibility>
     suspend fun recommendations(matchId: String): ApiResult<List<Recommendation>>
     suspend fun selectRecommendation(matchId: String, activityId: Int): ApiResult<Unit>

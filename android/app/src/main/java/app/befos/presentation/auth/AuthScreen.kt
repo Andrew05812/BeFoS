@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import app.befos.core.designsystem.AppButton
 import app.befos.core.designsystem.AppTextField
 import app.befos.core.designsystem.EmberGradient
+import app.befos.core.designsystem.InlineNotice
 import app.befos.core.designsystem.Iris
 import app.befos.core.designsystem.Peach
 import app.befos.core.designsystem.Spacing
@@ -122,21 +123,7 @@ fun AuthScreen(onAuthed: () -> Unit) {
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
-            if (state.error != null) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(MaterialTheme.shapes.extraSmall)
-                        .background(MaterialTheme.colorScheme.errorContainer)
-                        .padding(horizontal = Spacing.md, vertical = Spacing.sm),
-                ) {
-                    Text(
-                        state.error!!,
-                        color = MaterialTheme.colorScheme.onErrorContainer,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-            }
+            state.error?.let { InlineNotice(it) }
             AppButton(
                 text = if (state.isRegister) "Создать аккаунт" else "Войти",
                 onClick = vm::submit,

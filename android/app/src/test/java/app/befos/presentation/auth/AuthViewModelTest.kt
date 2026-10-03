@@ -11,6 +11,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 
@@ -21,6 +22,28 @@ class AuthViewModelTest {
     val mainRule = MainDispatcherRule()
 
     private val repo: AuthRepository = mockk()
+
+    @Before
+    fun setUp() {
+        coEvery { repo.lastEmail() } returns null
+    }
+
+    @Test
+    fun `fresh device opens on registration`() = runTest {
+        val vm = AuthViewModel(repo)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        assertTrue(vm.uiState.value.isRegister)
+        assertEquals("", vm.uiState.value.email)
+    }
+
+    @Test
+    fun `remembered email prefills and keeps login mode`() = runTest {
+        coEvery { repo.lastEmail() } returns "a@b.co"
+        val vm = AuthViewModel(repo)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        assertFalse(vm.uiState.value.isRegister)
+        assertEquals("a@b.co", vm.uiState.value.email)
+    }
 
     @Test
     fun `invalid email produces error and no repo call`() = runTest {
@@ -47,7 +70,7 @@ class AuthViewModelTest {
     @Test
     fun `register password mismatch produces error`() = runTest {
         val vm = AuthViewModel(repo)
-        vm.toggleMode() // register
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
         vm.onEmailChange("a@b.co")
         vm.onPasswordChange("longenough")
         vm.onPasswordConfirmChange("different")
@@ -58,9 +81,10 @@ class AuthViewModelTest {
 
     @Test
     fun `successful login sets success and clears error`() = runTest {
+        coEvery { repo.lastEmail() } returns "a@b.co"
         coEvery { repo.login("a@b.co", "longenough") } returns ApiResult.Success("user-1")
         val vm = AuthViewModel(repo)
-        vm.onEmailChange("a@b.co")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
         vm.onPasswordChange("longenough")
         vm.submit()
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
@@ -71,9 +95,10 @@ class AuthViewModelTest {
 
     @Test
     fun `login failure surfaces backend message`() = runTest {
+        coEvery { repo.lastEmail() } returns "a@b.co"
         coEvery { repo.login(any(), any()) } returns ApiResult.Error(401, "Неверный пароль")
         val vm = AuthViewModel(repo)
-        vm.onEmailChange("a@b.co")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
         vm.onPasswordChange("longenough")
         vm.submit()
         mainRule.testDispatcher.scheduler.advanceUntilIdle()

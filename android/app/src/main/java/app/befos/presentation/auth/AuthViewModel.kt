@@ -25,6 +25,20 @@ class AuthViewModel(private val authRepository: AuthRepository) : ViewModel() {
     private val _uiState = MutableStateFlow(AuthUiState())
     val uiState: StateFlow<AuthUiState> = _uiState.asStateFlow()
 
+    init {
+        // A device that never signed in should open on registration, not "welcome back".
+        viewModelScope.launch {
+            val remembered = authRepository.lastEmail()
+            _uiState.update { s ->
+                when {
+                    s.email.isNotBlank() -> s
+                    remembered == null -> s.copy(isRegister = true)
+                    else -> s.copy(email = remembered)
+                }
+            }
+        }
+    }
+
     fun onEmailChange(v: String) = _uiState.update { it.copy(email = v, error = null) }
     fun onPasswordChange(v: String) = _uiState.update { it.copy(password = v, error = null) }
     fun onPasswordConfirmChange(v: String) = _uiState.update { it.copy(passwordConfirm = v, error = null) }
