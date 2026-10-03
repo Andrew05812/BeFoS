@@ -93,6 +93,7 @@ class ProfileOut(BaseModel):
     age_min: int
     age_max: int
     gender_preference: list[str] = []
+    is_hidden: bool = False
 
 
 class ProfileUpdate(BaseModel):

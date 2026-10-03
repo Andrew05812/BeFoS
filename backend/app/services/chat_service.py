@@ -32,7 +32,9 @@ class ChatService:
         msg = await self.repo.add_message(match_id, sender_id, body)
         await self.session.commit()
         tracker.track(Event.MESSAGE_SENT, str(sender_id), match=str(match_id))
-        return self._to_dto(msg, sender_id, read_by_self=True)
+        # The only read row on a brand-new message is the sender's implicit one, and
+        # `msg.reads` is not loaded here — state the known value instead of querying it.
+        return self._to_dto(msg, sender_id, is_read=False)
 
     async def history(
         self, match_id: uuid.UUID, user_id: uuid.UUID, *, limit: int = 50, before_id: uuid.UUID | None = None
@@ -54,11 +56,9 @@ class ChatService:
         await self.session.commit()
         return count
 
-    def _to_dto(self, msg, viewer_id: uuid.UUID, read_by_self: bool = False) -> dict:
+    def _to_dto(self, msg, viewer_id: uuid.UUID, *, is_read: bool | None = None) -> dict:
         is_own = msg.sender_id == viewer_id
-        if read_by_self:
-            is_read = True
-        else:
+        if is_read is None:
             is_read = any(r.reader_id != msg.sender_id for r in msg.reads)
         return {
             "id": str(msg.id),

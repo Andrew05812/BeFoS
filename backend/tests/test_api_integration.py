@@ -253,6 +253,9 @@ async def test_chat_send_and_history(client: AsyncClient):
     )
     assert sent.status_code == 201
     assert sent.json()["body"] == "Привет из интеграционного теста!"
+    # A receipt the partner never sent would tell A "прочитано" before anyone opened
+    # the chat — the send response must report the message as unread.
+    assert sent.json()["is_read"] is False
 
     history = await client.get(
         f"/api/v1/matches/{match_id}/messages", headers=auth_headers(b["token"])
@@ -261,14 +264,22 @@ async def test_chat_send_and_history(client: AsyncClient):
     messages = history.json()["messages"]
     assert any(m["body"] == "Привет из интеграционного теста!" for m in messages)
 
+    after_read = await client.get(
+        f"/api/v1/matches/{match_id}/messages", headers=auth_headers(a["token"])
+    )
+    own = [m for m in after_read.json()["messages"] if m["is_own"]]
+    assert own and all(m["is_read"] for m in own)
+
 
 async def test_chat_send_and_read_broadcast_to_match_socket(client: AsyncClient, monkeypatch):
     from app.api.v1 import chat as chat_api
 
     events: list[dict] = []
+    options: list[dict] = []
 
-    async def fake_broadcast(match_id: str, payload: dict) -> None:
+    async def fake_broadcast(match_id: str, payload: dict, **send_options: object) -> None:
         events.append(payload)
+        options.append(send_options)
 
     monkeypatch.setattr(chat_api.manager, "broadcast_to_match", fake_broadcast)
 
@@ -298,6 +309,9 @@ async def test_chat_send_and_read_broadcast_to_match_socket(client: AsyncClient,
     read_events = [p for p in events if p["type"] == "read"]
     assert len(read_events) == 1
     assert read_events[0]["user_id"] == b["user_id"]
+    # The REST receipt must skip the actor's own sockets, otherwise B's client marks
+    # B's messages read the moment B opens the chat.
+    assert str(options[-1]["exclude_user"]) == b["user_id"]
 
 
 async def test_chat_requires_membership(client: AsyncClient):

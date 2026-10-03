@@ -37,11 +37,25 @@ class ConnectionManager:
         logger.info("WS disconnected match=%s", match_id)
 
     async def broadcast_to_match(
-        self, match_id: uuid.UUID, payload: dict, *, exclude: WebSocket | None = None
+        self,
+        match_id: uuid.UUID,
+        payload: dict,
+        *,
+        exclude: WebSocket | None = None,
+        exclude_user: uuid.UUID | None = None,
     ) -> None:
+        """Fan out to a match room.
+
+        `exclude` drops one socket (the actor's own WS connection); `exclude_user`
+        drops every socket of a user, which is what a REST-triggered receipt needs —
+        the actor's REST call has no socket identity, but their own client must not
+        be told "read" about a read they just performed.
+        """
         room = list(self._rooms.get(match_id, []))
         for conn in room:
             if exclude is not None and conn.websocket is exclude:
+                continue
+            if exclude_user is not None and conn.user_id == exclude_user:
                 continue
             try:
                 await conn.websocket.send_json(payload)

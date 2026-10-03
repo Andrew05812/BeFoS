@@ -135,3 +135,24 @@ def test_explanation_uses_real_data():
     assert any("семь" in s.text.lower() or "Похожее" in s.text for s in explanation.strengths) or explanation.strengths
     # outdoor differs a lot -> should appear as a difference
     assert any("отдых" in d.text.lower() or "Разное" in d.text for d in explanation.differences)
+
+
+def test_explanation_lists_each_category_once():
+    # Leisure carries five traits; several of them can match at once. Repeating the
+    # same label made the list look broken and hid the other categories.
+    a = CompatibilityInput(
+        vector={"leisure": {"outdoor": 0.9, "creative": 0.9, "relaxation": 0.9}},
+        interests={"cinema"},
+        dating_goal="relationship",
+    )
+    b = CompatibilityInput(
+        vector={"leisure": {"outdoor": 0.92, "creative": 0.88, "relaxation": 0.91}},
+        interests={"cinema"},
+        dating_goal="relationship",
+    )
+    result = compute_compatibility(a, b)
+    explanation = build_explanation(a, b, result)
+    for items in (explanation.strengths, explanation.differences):
+        categories = [i.category for i in items]
+        assert len(categories) == len(set(categories))
+    assert sum(1 for s in explanation.strengths if s.category == "leisure") == 1

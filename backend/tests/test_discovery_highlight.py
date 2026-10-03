@@ -31,7 +31,15 @@ def test_two_shared_interests_lists_names():
 def test_one_shared_interest_uses_display_name():
     cand = _profile(interests=[_interest("running", "Бег")])
     hl = _highlight(_profile(), cand, {"running"}, _result())
-    assert hl == "Вам обоим нравится «Бег»"
+    assert hl == "Общий интерес: «Бег»"
+
+
+def test_one_shared_interest_reads_as_label_not_sentence():
+    # A plural interest name ("Иностранные языки") breaks any "нравится ..." sentence,
+    # which is why the single-match form is a label.
+    cand = _profile(interests=[_interest("languages", "Иностранные языки")])
+    hl = _highlight(_profile(), cand, {"languages"}, _result())
+    assert hl == "Общий интерес: «Иностранные языки»"
 
 
 def test_same_city_when_no_shared_interests():

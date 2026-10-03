@@ -53,6 +53,22 @@ def _describe_side(value: float, low_label: str, high_label: str) -> str:
     return "умеренно"
 
 
+def _one_per_category(items: list[ExplanationItem]) -> list[ExplanationItem]:
+    """Keep only the strongest item of each category, in the given order.
+
+    A category holds several traits, so the same label could repeat — "Досуг" twice
+    in one list reads as a glitch and pushes other categories out of the top six.
+    """
+    seen: set[str] = set()
+    kept: list[ExplanationItem] = []
+    for item in items:
+        if item.category in seen:
+            continue
+        seen.add(item.category)
+        kept.append(item)
+    return kept
+
+
 def build_explanation(
     a: CompatibilityInput,
     b: CompatibilityInput,
@@ -137,13 +153,13 @@ def build_explanation(
                     )
                 )
 
-    strengths.sort(key=lambda i: i.score, reverse=True)
-    differences.sort(key=lambda i: i.score)
+    strengths.sort(key=lambda i: (-i.score, i.category))
+    differences.sort(key=lambda i: (i.score, i.category))
 
     return CompatibilityExplanation(
         overall_percent=result.overall_percent,
-        strengths=strengths[:6],
-        differences=differences[:4],
+        strengths=_one_per_category(strengths)[:6],
+        differences=_one_per_category(differences)[:4],
         shared_interests=sorted(a.interests & b.interests),
     )
 

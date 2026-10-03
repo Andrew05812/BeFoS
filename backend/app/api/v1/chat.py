@@ -69,5 +69,6 @@ async def mark_read(
     if count:
         await manager.broadcast_to_match(
             match_id, {"type": "read", "user_id": str(current_user.id)},
+            exclude_user=current_user.id,
         )
     return {"marked_read": count}

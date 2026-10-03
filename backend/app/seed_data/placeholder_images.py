@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import os
 
 from PIL import Image, ImageDraw, ImageFont
@@ -40,47 +41,92 @@ def _mix(c1: tuple[int, int, int], c2: tuple[int, int, int], t: float) -> tuple[
     return (_lerp(c1[0], c2[0], t), _lerp(c1[1], c2[1], t), _lerp(c1[2], c2[2], t))
 
 
-# Curated duotone pairs — deterministic but intentional, never garish random RGB.
+# Curated duotone pairs — deterministic but intentional. Every pair runs deep at
+# the top into a saturated mid-tone, so the monogram keeps contrast and the field
+# never reads as grey or mud once the card's bottom scrim is layered over it.
 _PALETTES: list[tuple[tuple[int, int, int], tuple[int, int, int]]] = [
     ((0x2B, 0x1E, 0x4F), (0xC6, 0x3B, 0x44)),  # iris night -> ember deep
-    ((0x14, 0x32, 0x4A), (0x3E, 0x8E, 0x7E)),  # deep sea -> mint
+    ((0x1A, 0x14, 0x33), (0xFF, 0x9A, 0x62)),  # midnight -> peach
     ((0x3A, 0x1C, 0x71), (0xB8, 0x5D, 0x6E)),  # plum -> rose
+    ((0x38, 0x0F, 0x2A), (0xE0, 0x6A, 0x8E)),  # wine -> blush
     ((0x23, 0x25, 0x3A), (0x6C, 0x4C, 0xF1)),  # charcoal -> iris
-    ((0x42, 0x27, 0x5A), (0x73, 0x4B, 0x6D)),  # purple haze
+    ((0x18, 0x1B, 0x4B), (0x5A, 0x8F, 0xE0)),  # indigo -> steel blue
+    ((0x14, 0x32, 0x4A), (0x3E, 0x8E, 0x7E)),  # deep sea -> mint
     ((0x1F, 0x40, 0x37), (0x5F, 0xA8, 0x8B)),  # emerald
-    ((0x42, 0x27, 0x13), (0xA8, 0x8F, 0x79)),  # cocoa sand
-    ((0x35, 0x5C, 0x7D), (0x6C, 0x5B, 0x7B)),  # denim dusk
-    ((0x2A, 0x08, 0x45), (0x4E, 0x7D, 0xB5)),  # violet -> steel blue
-    ((0x0F, 0x20, 0x27), (0x3A, 0x5C, 0x66)),  # abyss
+    ((0x2A, 0x12, 0x18), (0xF0, 0x54, 0x4F)),  # espresso -> ember
+    ((0x10, 0x1B, 0x2E), (0x4E, 0x6D, 0xB5)),  # navy dusk
 ]
 
 
-def generate_avatar(seed_text: str, filename: str) -> str:
-    """Create a deterministic gradient avatar with a watermark initial.
+def _monogram(display_name: str) -> str:
+    """Up to two initials, so a two-word name still reads as a person, not a glyph."""
+    letters = [word[0] for word in display_name.split() if word[:1].isalpha()]
+    return ("".join(letters[:2]) or "B").upper()
+
+
+def _gradient(c1: tuple[int, int, int], c2: tuple[int, int, int]) -> Image.Image:
+    """Diagonal duotone ramp, rasterised on a coarse grid and upscaled.
+
+    Drawing one line per pixel row left visible steps in the ramp; a smooth
+    function sampled small and resampled with LANCZOS has no banding at all.
+    """
+    grid = 240
+    span = 2 * (grid - 1)
+    small = Image.new("RGB", (grid, grid))
+    px = small.load()
+    for row in range(grid):
+        for col in range(grid):
+            px[col, row] = _mix(c1, c2, ((col + row) / span) ** 1.12)
+    return small.resize((_SIZE, _SIZE), Image.LANCZOS)
+
+
+def _radial(cx: float, cy: float, radius: float, peak: int) -> Image.Image:
+    """Gaussian falloff mask. Stacked solid ellipses banded into visible rings."""
+    n = 150
+    step = _SIZE / n
+    small = Image.new("L", (n, n))
+    px = small.load()
+    for row in range(n):
+        dy = (row + 0.5) * step - cy
+        for col in range(n):
+            dx = (col + 0.5) * step - cx
+            d2 = (dx * dx + dy * dy) / (radius * radius)
+            px[col, row] = max(0, min(255, int(peak * math.exp(-d2 * 2.2))))
+    return small.resize((_SIZE, _SIZE), Image.BILINEAR)
+
+
+def generate_avatar(seed_text: str, filename: str, display_name: str = "") -> str:
+    """Create a deterministic duotone avatar carrying a restrained letter monogram.
 
     Returns /uploads path. Fully offline and safe: no external images, no real people.
     """
     os.makedirs(settings.upload_dir, exist_ok=True)
     h = sum(ord(c) for c in seed_text)
-    top, bottom = _PALETTES[h % len(_PALETTES)]
+    c1, c2 = _PALETTES[h % len(_PALETTES)]
 
-    img = Image.new("RGB", (_SIZE, _SIZE))
-    draw = ImageDraw.Draw(img, "RGBA")
-    for y in range(_SIZE):
-        t = (y / _SIZE) ** 1.25  # ease-in: darker band up top, colour pools low
-        draw.line([(0, y), (_SIZE, y)], fill=_mix(top, bottom, t))
+    img = _gradient(c1, c2)
+    img.paste(Image.new("RGB", (_SIZE, _SIZE), (255, 255, 255)), (0, 0),
+              _radial(_SIZE * 0.5, _SIZE * 0.32, _SIZE * 0.46, 40))
+    img.paste(Image.new("RGB", (_SIZE, _SIZE), (0, 0, 0)), (0, 0),
+              _radial(_SIZE * 0.5, _SIZE * 1.1, _SIZE * 0.9, 52))
 
-    # Soft halo behind the initial for depth.
-    cx, cy = _SIZE * 0.5, _SIZE * 0.44
-    for r, a in ((250, 14), (190, 16), (135, 18)):
-        draw.ellipse([cx - r, cy - r * 1.12, cx + r, cy + r * 1.12], fill=(255, 255, 255, a))
-
-    # PIL ignores text alpha on RGB canvases — pre-blend the watermark colour
+    # PIL ignores text alpha on RGB canvases — pre-blend the monogram colour
     # with the local background instead.
-    local_bg = _mix(top, bottom, (cy / _SIZE) ** 1.25)
-    initial = (seed_text[:1] or "B").upper()
+    # The glyph rides in the upper third: portrait cards crop the square's sides, so a
+    # centred letter would sit straight under the name and chips of the discovery card.
+    # It is a watermark, not the subject — full-strength white at this size read as a
+    # giant initial tile once the card scaled the square up.
+    text = _monogram(display_name or seed_text)
+    local_bg = _mix(c1, c2, 0.34 ** 1.12)
+    draw = ImageDraw.Draw(img, "RGBA")
     try:
-        draw.text((cx, cy), initial, fill=_mix(local_bg, (255, 255, 255), 0.24), anchor="mm", font=_font(340))
+        draw.text(
+            (_SIZE * 0.5, _SIZE * 0.3),
+            text,
+            fill=_mix(local_bg, (255, 255, 255), 0.55),
+            anchor="mm",
+            font=_font(124 if len(text) < 2 else 96),
+        )
     except Exception:
         pass
 

@@ -178,7 +178,7 @@ async def _create_user(
     await session.flush()
 
     # Photo (generated placeholder)
-    url = generate_avatar(name + email, avatar_name)
+    url = generate_avatar(name + email, avatar_name, name)
     session.add(Photo(user_id=user.id, url=url, is_primary=True, position=0))
 
     # Interests
