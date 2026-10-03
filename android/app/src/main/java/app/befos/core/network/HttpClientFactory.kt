@@ -78,17 +78,28 @@ fun createHttpClient(tokenStore: TokenStore): HttpClient = HttpClient(OkHttp) {
             }
             refreshTokens {
                 val current = tokenStore.current() ?: return@refreshTokens null
-                val response = client.post("${ApiConfig.BASE_URL}${ApiConfig.API_PREFIX}/auth/refresh") {
-                    contentType(ContentType.Application.Json)
-                    setBody(RefreshRequest(current.refreshToken))
-                    markAsRefreshTokenRequest()
+                // A refresh fails for reasons that say nothing about the session: the backend is
+                // restarting, the network dropped, the auth limiter tripped. Erasing the stored
+                // tokens on any of those logs a signed-in user out over a transient hiccup, so
+                // only an explicit authorization rejection is allowed to end the session.
+                val response = try {
+                    client.post("${ApiConfig.BASE_URL}${ApiConfig.API_PREFIX}/auth/refresh") {
+                        contentType(ContentType.Application.Json)
+                        setBody(RefreshRequest(current.refreshToken))
+                        markAsRefreshTokenRequest()
+                    }
+                } catch (_: Exception) {
+                    return@refreshTokens null
                 }
-                if (response.status.value !in 200..299) {
+                val status = response.status.value
+                if (status == 401 || status == 403) {
                     tokenStore.clear()
                     return@refreshTokens null
                 }
-                // /auth/refresh returns a flat TokenPair (not the AuthResponse envelope).
-                val tokens = response.body<TokenPairDto>()
+                if (status !in 200..299) return@refreshTokens null
+                // A proxy or a half-broken server can answer with HTML where a TokenPair is due.
+                val tokens = runCatching { response.body<TokenPairDto>() }.getOrNull()
+                    ?: return@refreshTokens null
                 tokenStore.updateTokens(tokens.accessToken, tokens.refreshToken)
                 BearerTokens(tokens.accessToken, tokens.refreshToken)
             }
