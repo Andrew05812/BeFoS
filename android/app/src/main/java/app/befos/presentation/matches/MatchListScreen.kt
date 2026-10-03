@@ -41,7 +41,7 @@ fun MatchListScreen(onOpenChat: (String) -> Unit, onGoDiscover: () -> Unit) {
         )
         state.matches.isEmpty() -> EmptyState(
             title = "Пар пока нет",
-            message = "Когда вы и другой человек поставите друг другу «Нравится», здесь появится пара и чат откроется сам.",
+            message = "Пара появится здесь, когда вы и другой человек поставите друг другу «Нравится». Тогда вы сможете написать первым.",
             overline = "Пары",
             // An empty list explains the mechanic; the CTA is what the user can do now.
             actionLabel = "Смотреть анкеты",
@@ -73,7 +73,7 @@ fun MatchListScreen(onOpenChat: (String) -> Unit, onGoDiscover: () -> Unit) {
                 MatchCard(
                     photoUrl = match.photoUrl,
                     name = "${match.name}, ${match.age}",
-                    subtitle = match.lastMessage ?: "Начните общение",
+                    subtitle = match.lastMessage ?: "Напишите первым",
                     compatibility = match.compatibility,
                     unread = match.unread,
                     onClick = { onOpenChat(match.matchId) },

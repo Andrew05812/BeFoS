@@ -51,7 +51,8 @@ class RecommendationsViewModel(
         viewModelScope.launch {
             // The proposal only exists once the pair can read it; the recorded choice
             // is a side effect for the next recommendation pass.
-            when (val result = chatRepository.send(matchId, "Предлагаю сходить на: $title")) {
+            // Titles are noun phrases ("Вечер настольных игр"), so the frame must not add a verb.
+            when (val result = chatRepository.send(matchId, "Идея для нас: $title. Что скажете?")) {
                 is ApiResult.Success -> matchRepository.selectRecommendation(matchId, activityId)
                 is ApiResult.Error -> _uiState.update {
                     it.copy(selected = it.selected - activityId, selectError = result.message)

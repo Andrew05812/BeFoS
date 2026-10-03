@@ -42,6 +42,7 @@ import app.befos.core.designsystem.Elev
 import app.befos.core.designsystem.InlineNotice
 import app.befos.core.designsystem.ErrorRed
 import app.befos.core.designsystem.SectionHeader
+import app.befos.core.designsystem.Motion
 import app.befos.core.designsystem.Spacing
 import app.befos.core.di.beFosViewModel
 
@@ -56,7 +57,7 @@ fun SettingsScreen(onBack: () -> Unit, onLoggedOut: () -> Unit) {
 
     LaunchedEffect(state.message) {
         if (state.message != null) {
-            kotlinx.coroutines.delay(3500)
+            kotlinx.coroutines.delay(Motion.Notice.toLong())
             vm.clearMessage()
         }
     }
@@ -65,7 +66,7 @@ fun SettingsScreen(onBack: () -> Unit, onLoggedOut: () -> Unit) {
         AlertDialog(
             onDismissRequest = vm::cancelDelete,
             title = { Text("Удалить аккаунт?") },
-            text = { Text("Это действие необратимо: профиль, пары и сообщения будут удалены.") },
+            text = { Text("Аккаунт удалится сразу. Восстановить его не получится.") },
             confirmButton = { TextButton(onClick = vm::deleteAccount) { Text("Удалить", color = MaterialTheme.colorScheme.error) } },
             dismissButton = { TextButton(onClick = vm::cancelDelete) { Text("Отмена") } },
         )
@@ -162,7 +163,7 @@ fun SettingsScreen(onBack: () -> Unit, onLoggedOut: () -> Unit) {
             Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                 SectionHeader("О приложении")
                 Text(
-                    "BeFoS · совместимость по семи категориям. Расчёт детерминированный — по анкетам и тесту, это не психологический диагноз.",
+                    "BeFoS · совместимость по семи категориям. Мы считаем её по анкетам и тесту — это не психологический диагноз.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

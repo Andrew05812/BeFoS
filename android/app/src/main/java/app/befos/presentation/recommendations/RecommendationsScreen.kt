@@ -41,6 +41,7 @@ import app.befos.core.designsystem.InlineNotice
 import app.befos.core.designsystem.ListSkeleton
 import app.befos.core.designsystem.Spacing
 import app.befos.core.designsystem.scoreColor
+import app.befos.core.designsystem.tabularDigits
 import app.befos.core.di.beFosViewModel
 import app.befos.domain.model.Recommendation
 
@@ -82,12 +83,12 @@ fun RecommendationsScreen(matchId: String, onBack: () -> Unit) {
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
                         Text(
-                            "ПОДОБРАНО АЛГОРИТМОМ",
+                            "ПОДОБРАНО ДЛЯ ВАС ДВОИХ",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Text(
-                            "Активности, выбранные по пересечению ваших анкет и теста",
+                            "Идеи выросли из ваших анкет и ответов в тесте — под каждой указано, почему она подходит.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -134,7 +135,7 @@ private fun RecommendationCard(rec: Recommendation, selected: Boolean, onSelect:
                     Text(
                         "${rec.score}%",
                         color = accent,
-                        style = MaterialTheme.typography.labelLarge,
+                        style = MaterialTheme.typography.labelLarge.tabularDigits(),
                         fontWeight = FontWeight.Bold,
                     )
                 }

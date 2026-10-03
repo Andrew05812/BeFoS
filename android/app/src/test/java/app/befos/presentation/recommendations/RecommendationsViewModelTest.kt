@@ -59,7 +59,7 @@ class RecommendationsViewModelTest {
         vm.select(7, cinema.title)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
 
-        coVerify { chat.send("m1", "Предлагаю сходить на: Поход в кино") }
+        coVerify { chat.send("m1", "Идея для нас: Поход в кино. Что скажете?") }
         coVerify { match.selectRecommendation("m1", 7) }
         assertTrue(vm.uiState.value.selected.contains(7))
         assertNull(vm.uiState.value.selectError)

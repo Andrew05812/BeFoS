@@ -17,3 +17,13 @@ val DatingGoalLabels = linkedMapOf(
 
 fun genderLabel(code: String): String = GenderLabels[code] ?: code
 fun goalLabel(code: String): String = DatingGoalLabels[code] ?: code
+
+// Mirrors backend VALID_REASONS in safety_service.py: the API accepts only these slugs.
+val ReportReasonLabels = linkedMapOf(
+    "spam" to "Спам",
+    "harassment" to "Оскорбления",
+    "inappropriate" to "Неподходящие фото",
+    "fake" to "Ненастоящая анкета",
+    "minor" to "Анкета несовершеннолетнего",
+    "other" to "Другое",
+)

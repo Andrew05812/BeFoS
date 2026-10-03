@@ -92,9 +92,8 @@ class EditProfileViewModel(private val profileRepository: ProfileRepository) : V
 
     fun save() {
         val s = _uiState.value
-        if (s.name.isBlank()) return _uiState.update { it.copy(error = "Имя не может быть пустым.") }
+        if (s.name.isBlank()) return _uiState.update { it.copy(error = "Укажите имя.") }
         if (s.city.isBlank()) return _uiState.update { it.copy(error = "Укажите город.") }
-        if (s.ageMin > s.ageMax) return _uiState.update { it.copy(error = "Некорректный возрастной диапазон.") }
         _uiState.update { it.copy(saving = true, error = null) }
         viewModelScope.launch {
             val data = ProfileUpdateData(

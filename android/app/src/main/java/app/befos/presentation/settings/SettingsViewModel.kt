@@ -46,6 +46,7 @@ class SettingsViewModel(
     }
 
     fun setHidden(hidden: Boolean) {
+        if (_uiState.value.busy) return
         _uiState.update { it.copy(busy = true, message = null) }
         viewModelScope.launch {
             when (val result = safetyRepository.setVisibility(hidden)) {

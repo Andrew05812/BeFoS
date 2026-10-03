@@ -39,11 +39,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -61,17 +59,19 @@ import app.befos.core.designsystem.ProfileSkeleton
 import app.befos.core.designsystem.MatchMoment
 import app.befos.core.designsystem.MonogramFallback
 import app.befos.core.designsystem.Peach
+import app.befos.core.designsystem.RemotePhoto
 import app.befos.core.designsystem.SectionHeader
 import app.befos.core.designsystem.Spacing
 import app.befos.core.designsystem.SuccessGreen
 import app.befos.core.designsystem.glassSurface
 import app.befos.core.designsystem.photoScrim
+import app.befos.core.designsystem.rememberHaptics
 import app.befos.core.di.beFosViewModel
 import app.befos.domain.model.PublicProfile
 import app.befos.presentation.common.CategoryScoreList
+import app.befos.presentation.common.ReportReasonLabels
 import app.befos.presentation.common.goalLabel
 import app.befos.presentation.compatibility.prettifySlug
-import coil.compose.AsyncImage
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -84,7 +84,7 @@ fun PublicProfileScreen(
         PublicProfileViewModel(it.profileRepository, it.discoveryRepository, it.safetyRepository, userId)
     }
     val state by vm.uiState.collectAsState()
-    val haptics = LocalHapticFeedback.current
+    val haptics = rememberHaptics()
 
     LaunchedEffect(state.gone) { if (state.gone && state.match == null) onBack() }
 
@@ -108,7 +108,9 @@ fun PublicProfileScreen(
         ReportDialog(
             reason = state.reportReason,
             details = state.reportDetails,
-            onReason = vm::onReportReason,
+            error = state.reportError,
+            sending = state.busy,
+            onReason = vm::setReportReason,
             onDetails = vm::onReportDetails,
             onSubmit = vm::submitReport,
             onDismiss = vm::closeReport,
@@ -194,12 +196,8 @@ fun PublicProfileScreen(
                             }
                         }
 
-                        state.notice?.let { notice ->
-                            InlineNotice(notice, isError = false)
-                        }
-
-                        if (state.error != null) {
-                            InlineNotice(state.error!!)
+                        state.error?.let { message ->
+                            InlineNotice(message)
                         }
 
                         Row(
@@ -209,7 +207,7 @@ fun PublicProfileScreen(
                             AppButton(
                                 text = "Пропустить",
                                 onClick = {
-                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    haptics.medium()
                                     vm.pass()
                                 },
                                 enabled = !state.busy,
@@ -219,7 +217,7 @@ fun PublicProfileScreen(
                             AppButton(
                                 text = "Нравится",
                                 onClick = {
-                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    haptics.medium()
                                     vm.like()
                                 },
                                 enabled = !state.busy,
@@ -333,21 +331,23 @@ private fun HeroPhoto(url: String, description: String, name: String) {
             contentPadding = PaddingValues(bottom = 96.dp),
         )
         if (!failed) {
-            AsyncImage(
-                model = url,
+            RemotePhoto(
+                url = url,
                 contentDescription = description,
                 modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop,
                 onError = { failed = true },
             )
         }
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ReportDialog(
     reason: String,
     details: String,
+    error: String?,
+    sending: Boolean,
     onReason: (String) -> Unit,
     onDetails: (String) -> Unit,
     onSubmit: () -> Unit,
@@ -357,12 +357,32 @@ private fun ReportDialog(
         onDismissRequest = onDismiss,
         title = { Text("Пожаловаться") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
-                AppTextField(reason, onReason, label = "Причина", modifier = Modifier.fillMaxWidth())
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(Spacing.md),
+            ) {
+                Text(
+                    "Что не так с анкетой?",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+                ) {
+                    ReportReasonLabels.forEach { (slug, label) ->
+                        InterestChip(
+                            label = label,
+                            selected = reason == slug,
+                            onClick = { onReason(slug) },
+                        )
+                    }
+                }
                 AppTextField(
-                    details,
-                    onDetails,
+                    value = details,
+                    onValueChange = onDetails,
                     label = "Подробности (необязательно)",
+                    error = error,
                     singleLine = false,
                     minLines = 2,
                     maxLines = 4,
@@ -370,8 +390,12 @@ private fun ReportDialog(
                 )
             }
         },
-        confirmButton = { TextButton(onClick = onSubmit) { Text("Отправить") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
+        confirmButton = {
+            TextButton(onClick = onSubmit, enabled = !sending) {
+                Text(if (sending) "Отправляем…" else "Отправить")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss, enabled = !sending) { Text("Отмена") } },
     )
 }
 

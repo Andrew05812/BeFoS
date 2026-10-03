@@ -49,6 +49,7 @@ import app.befos.core.designsystem.ProfileSkeleton
 import app.befos.core.designsystem.Motion
 import app.befos.core.designsystem.SectionHeader
 import app.befos.core.designsystem.Spacing
+import app.befos.core.designsystem.tabularDigits
 import app.befos.core.di.beFosViewModel
 import app.befos.presentation.common.goalLabel
 
@@ -206,7 +207,7 @@ private fun TestProgressCard(percent: Int, completed: Boolean, failed: Boolean, 
                 }
                 Text(
                     if (failed) "—" else "$percent%",
-                    style = MaterialTheme.typography.headlineSmall,
+                    style = MaterialTheme.typography.headlineSmall.tabularDigits(),
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary,
                 )
@@ -228,7 +229,7 @@ private fun TestProgressCard(percent: Int, completed: Boolean, failed: Boolean, 
             }
             Text(
                 when {
-                    failed -> "Обновите экран, чтобы получить данные теста."
+                    failed -> "Данные теста не загрузились — попробуйте обновить."
                     completed -> "Вы можете пройти тест заново, чтобы уточнить ответы."
                     else -> "Пройдите тест — без него совместимость считается неточно."
                 },
