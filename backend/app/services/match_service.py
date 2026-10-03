@@ -41,26 +41,28 @@ class MatchService:
 
         mutual = await self.social.has_liked_back(viewer_id, target_id)
         match_id: uuid.UUID | None = None
+        created_match = False
         if mutual:
-            match = await self.social.get_match_between(viewer_id, target_id)
-            if match is None:
-                match = await self.social.add_match(viewer_id, target_id, score)
-            match_id = match.id
-            tracker.track(Event.MATCH, str(viewer_id), match=str(match_id), with_user=str(target_id))
+            match_id, created_match = await self.social.ensure_match(viewer_id, target_id, score)
+            if created_match:
+                tracker.track(
+                    Event.MATCH, str(viewer_id), match=str(match_id), with_user=str(target_id)
+                )
 
         await self.session.commit()
-        tracker.track(Event.LIKE, str(viewer_id), target=str(target_id), matched=mutual)
+        tracker.track(Event.LIKE, str(viewer_id), target=str(target_id), matched=created_match)
         return {
             "liked": True,
-            "match": mutual,
+            # Only the like that actually formed the pair reports a match, so a second
+            # tap cannot fire the «это взаимно» moment twice.
+            "match": created_match,
             "match_id": str(match_id) if match_id else None,
             "compatibility": int(round(score * 100)),
         }
 
     async def pass_user(self, viewer_id: uuid.UUID, target_id: uuid.UUID) -> dict:
         await self._ensure_target(viewer_id, target_id)
-        if await self.social.get_pass(viewer_id, target_id) is None:
-            await self.social.add_pass(viewer_id, target_id)
+        await self.social.add_pass(viewer_id, target_id)
         await self.session.commit()
         tracker.track(Event.PASS, str(viewer_id), target=str(target_id))
         return {"passed": True}

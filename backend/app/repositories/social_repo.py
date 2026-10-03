@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 
 from sqlalchemy import and_, or_, select, func, delete
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Block, Like, Match, Pass, Report, User, Profile
@@ -18,25 +19,32 @@ class SocialRepository:
         self.session = session
 
     # --- Likes / Passes ---
+    # Every "has it already?" check below is advisory: two requests for the same gesture
+    # (a double tap, a retry after a dropped connection) can both pass it and then both
+    # try to insert. The writes therefore go through ON CONFLICT DO NOTHING against the
+    # same unique constraint the schema already enforces, so the second one is a no-op
+    # instead of an IntegrityError that surfaces to the user as a failed action.
     async def get_like(self, from_id: uuid.UUID, to_id: uuid.UUID) -> Like | None:
         stmt = select(Like).where(Like.from_user_id == from_id, Like.to_user_id == to_id)
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
-    async def add_like(self, from_id: uuid.UUID, to_id: uuid.UUID, score: float | None) -> Like:
-        like = Like(from_user_id=from_id, to_user_id=to_id, compatibility_score=score)
-        self.session.add(like)
-        await self.session.flush()
-        return like
+    async def add_like(self, from_id: uuid.UUID, to_id: uuid.UUID, score: float | None) -> None:
+        await self.session.execute(
+            pg_insert(Like)
+            .values(from_user_id=from_id, to_user_id=to_id, compatibility_score=score)
+            .on_conflict_do_nothing(constraint="uq_like_pair")
+        )
 
     async def get_pass(self, from_id: uuid.UUID, to_id: uuid.UUID) -> Pass | None:
         stmt = select(Pass).where(Pass.from_user_id == from_id, Pass.to_user_id == to_id)
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
-    async def add_pass(self, from_id: uuid.UUID, to_id: uuid.UUID) -> Pass:
-        p = Pass(from_user_id=from_id, to_user_id=to_id)
-        self.session.add(p)
-        await self.session.flush()
-        return p
+    async def add_pass(self, from_id: uuid.UUID, to_id: uuid.UUID) -> None:
+        await self.session.execute(
+            pg_insert(Pass)
+            .values(from_user_id=from_id, to_user_id=to_id)
+            .on_conflict_do_nothing(constraint="uq_pass_pair")
+        )
 
     async def delete_pass(self, from_id: uuid.UUID, to_id: uuid.UUID) -> None:
         await self.session.execute(
@@ -57,12 +65,21 @@ class SocialRepository:
         stmt = select(Match).where(Match.user_a_id == ua, Match.user_b_id == ub)
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
-    async def add_match(self, a: uuid.UUID, b: uuid.UUID, score: float) -> Match:
+    async def ensure_match(self, a: uuid.UUID, b: uuid.UUID, score: float) -> tuple[uuid.UUID, bool]:
+        """Return (match_id, created_now) for the pair, creating it only once."""
         ua, ub = ordered_pair(a, b)
-        match = Match(user_a_id=ua, user_b_id=ub, compatibility_score=score)
-        self.session.add(match)
-        await self.session.flush()
-        return match
+        stmt = (
+            pg_insert(Match)
+            .values(user_a_id=ua, user_b_id=ub, compatibility_score=score)
+            .on_conflict_do_nothing(constraint="uq_match_pair")
+            .returning(Match.id)
+        )
+        created = (await self.session.execute(stmt)).scalar()
+        if created is not None:
+            return created, True
+        existing = await self.get_match_between(a, b)
+        # The conflict can only have come from a concurrent like, whose row is now visible.
+        return existing.id, False
 
     async def list_match_ids_for_user(self, user_id: uuid.UUID) -> list[uuid.UUID]:
         stmt = select(Match.id).where(
@@ -80,17 +97,17 @@ class SocialRepository:
         )
         return (await self.session.execute(stmt)).first() is not None
 
-    async def add_block(self, blocker_id: uuid.UUID, blocked_id: uuid.UUID) -> Block:
-        block = Block(blocker_id=blocker_id, blocked_id=blocked_id)
-        self.session.add(block)
-        await self.session.flush()
+    async def add_block(self, blocker_id: uuid.UUID, blocked_id: uuid.UUID) -> None:
+        await self.session.execute(
+            pg_insert(Block)
+            .values(blocker_id=blocker_id, blocked_id=blocked_id)
+            .on_conflict_do_nothing(constraint="uq_block_pair")
+        )
         # Blocking dissolves any existing match between the two users.
         ua, ub = ordered_pair(blocker_id, blocked_id)
         await self.session.execute(
             delete(Match).where(Match.user_a_id == ua, Match.user_b_id == ub)
         )
-        await self.session.flush()
-        return block
 
     async def list_blocked_ids(self, user_id: uuid.UUID) -> set[uuid.UUID]:
         stmt = select(Block.blocked_id).where(Block.blocker_id == user_id)
@@ -99,24 +116,40 @@ class SocialRepository:
         ids |= {row[0] for row in (await self.session.execute(stmt2)).all()}
         return ids
 
+    async def purge_social_graph(self, user_id: uuid.UUID) -> None:
+        """Delete every edge that points at an account which no longer represents a person.
+
+        Deletion is a soft delete of the user row, so the database cascade never fires.
+        Without this the ex-partner keeps a match whose chat still accepts messages, and a
+        leftover like can turn into a match with an account that has already been deleted.
+        Matches take their messages, read receipts and recommendations with them via the
+        schema's ON DELETE CASCADE.
+        """
+        match_ids = await self.list_match_ids_for_user(user_id)
+        if match_ids:
+            await self.session.execute(delete(Match).where(Match.id.in_(match_ids)))
+        pair = or_(Like.from_user_id == user_id, Like.to_user_id == user_id)
+        await self.session.execute(delete(Like).where(pair))
+        await self.session.execute(
+            delete(Pass).where(or_(Pass.from_user_id == user_id, Pass.to_user_id == user_id))
+        )
+        await self.session.execute(
+            delete(Block).where(or_(Block.blocker_id == user_id, Block.blocked_id == user_id))
+        )
+
     # --- Reports ---
     async def add_report(
         self, reporter_id: uuid.UUID, reported_id: uuid.UUID, reason: str, details: str | None
-    ) -> Report:
-        report = Report(
-            reporter_id=reporter_id, reported_id=reported_id, reason=reason, details=details
+    ) -> bool:
+        """Insert a report; False means an identical report already exists."""
+        stmt = (
+            pg_insert(Report)
+            .values(reporter_id=reporter_id, reported_id=reported_id, reason=reason, details=details)
+            .on_conflict_do_nothing(constraint="uq_report")
+            .returning(Report.id)
         )
-        self.session.add(report)
-        await self.session.flush()
-        return report
+        return (await self.session.execute(stmt)).scalar() is not None
 
-    async def has_reported(self, reporter_id: uuid.UUID, reported_id: uuid.UUID, reason: str) -> bool:
-        stmt = select(Report.id).where(
-            Report.reporter_id == reporter_id,
-            Report.reported_id == reported_id,
-            Report.reason == reason,
-        )
-        return (await self.session.execute(stmt)).first() is not None
 
 
 class DiscoveryRepository:
