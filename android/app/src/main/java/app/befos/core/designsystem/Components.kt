@@ -2,6 +2,7 @@ package app.befos.core.designsystem
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -10,6 +11,7 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -50,7 +52,6 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -64,6 +65,12 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -73,7 +80,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
+import coil.compose.AsyncImagePainter
+import coil.compose.rememberAsyncImagePainter
+import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 
 /** Interpolates the brand score gradient for a 0..100 compatibility percent. */
@@ -84,6 +93,27 @@ fun scoreColor(percent: Int): Color {
     } else {
         lerp(ScoreMid, ScoreHigh, (p - 0.5f) / 0.5f)
     }
+}
+
+/**
+ * The score in words — same bands the compatibility page uses, so «92%» always
+ * reads as the same claim wherever it appears (card, badge, match moment, story).
+ */
+fun compatibilityVerdict(percent: Int): String = when (percent.coerceIn(0, 100)) {
+    in 85..100 -> "Вы очень хорошо подходите"
+    in 70..84 -> "Вы хорошо подходите"
+    in 55..69 -> "Есть перспектива"
+    in 40..54 -> "Стоит узнать друг друга"
+    else -> "Вы довольно разные"
+}
+
+/** Short adjective for the same bands — for tight slots next to the ring. */
+fun compatibilityLevel(percent: Int): String = when (percent.coerceIn(0, 100)) {
+    in 85..100 -> "Очень высокая"
+    in 70..84 -> "Высокая"
+    in 55..69 -> "Хорошая"
+    in 40..54 -> "Средняя"
+    else -> "Низкая"
 }
 
 private fun lerp(a: Color, b: Color, t: Float): Color {
@@ -111,6 +141,39 @@ private fun pressModifier(interaction: MutableInteractionSource): Modifier {
 
 // ---------- Avatar ----------
 
+/**
+ * The app's only remote-image primitive. It fades in over whatever sits behind it
+ * (a gradient, a monogram), so a photo arriving never pops and a card swap never
+ * flashes blank — the old AsyncImage cut straight from placeholder to image.
+ * [onError] lets the caller fall back to its branded placeholder.
+ */
+@Composable
+fun RemotePhoto(
+    url: String?,
+    contentDescription: String?,
+    modifier: Modifier = Modifier,
+    contentScale: ContentScale = ContentScale.Crop,
+    onError: (() -> Unit)? = null,
+) {
+    val painter = rememberAsyncImagePainter(model = url)
+    val state = painter.state
+    val loaded = state is AsyncImagePainter.State.Success
+    val alpha by animateFloatAsState(
+        targetValue = if (loaded) 1f else 0f,
+        animationSpec = tween(Motion.Base),
+        label = "photoFade",
+    )
+    LaunchedEffect(state) {
+        if (state is AsyncImagePainter.State.Error) onError?.invoke()
+    }
+    Image(
+        painter = painter,
+        contentDescription = contentDescription,
+        modifier = modifier.graphicsLayer { this.alpha = alpha },
+        contentScale = contentScale,
+    )
+}
+
 @Composable
 fun Avatar(
     url: String?,
@@ -137,15 +200,14 @@ fun Avatar(
             )
         }
     } else {
-        AsyncImage(
-            model = url,
+        RemotePhoto(
+            url = url,
             contentDescription = contentDescription,
+            onError = { failed = true },
             modifier = modifier
                 .size(size)
                 .clip(CircleShape)
                 .background(Brush.linearGradient(listOf(Peach, Ember, Iris))),
-            contentScale = ContentScale.Crop,
-            onError = { failed = true },
         )
     }
 }
@@ -213,31 +275,36 @@ fun MonogramFallback(
 
 // ---------- Compatibility ----------
 
-/** Gradient compatibility ring with a count-up animation. */
+/**
+ * Gradient compatibility ring with a count-up animation.
+ *
+ * One Animatable drives both the arc and the number, on a single Motion.Slow tween:
+ * the ring and the digits always land together, on any frame rate, and the value is
+ * settled before the next card can take focus.
+ */
 @Composable
 fun CompatibilityScore(
     percent: Int,
     modifier: Modifier = Modifier,
     size: Dp = 92.dp,
     strokeWidth: Dp = 8.dp,
-    label: String = "$percent%",
 ) {
-    val animated by animateFloatAsState(targetValue = percent.coerceIn(0, 100) / 100f, label = "ring")
-    var shown by remember { mutableIntStateOf(0) }
+    val target = percent.coerceIn(0, 100) / 100f
+    val sweep = remember { Animatable(0f) }
     LaunchedEffect(percent) {
-        val from = shown
-        val steps = 20
-        for (i in 1..steps) {
-            val t = i / steps.toFloat()
-            val eased = 1f - (1f - t) * (1f - t)
-            shown = (from + (percent - from) * eased).toInt()
-            delay(16)
-        }
-        shown = percent.coerceIn(0, 100)
+        sweep.animateTo(target, tween(Motion.Slow, easing = FastOutSlowInEasing))
     }
+    val animated = sweep.value
+    val shown = (sweep.value * 100).roundToInt()
     val color = scoreColor(percent)
     val track = MaterialTheme.colorScheme.surfaceVariant
-    Box(modifier = modifier.size(size), contentAlignment = Alignment.Center) {
+    Box(
+        modifier = modifier
+            .size(size)
+            // TalkBack would otherwise read the bare digits mid-animation ("37%… 61%…").
+            .clearAndSetSemantics { contentDescription = "Совместимость $percent процентов" },
+        contentAlignment = Alignment.Center,
+    ) {
         Canvas(Modifier.fillMaxSize()) {
             val stroke = strokeWidth.toPx()
             val diameter = this.size.minDimension - stroke
@@ -276,7 +343,7 @@ fun CompatibilityScore(
         }
         Text(
             text = "$shown%",
-            style = MaterialTheme.typography.titleLarge,
+            style = MaterialTheme.typography.titleLarge.tabularDigits(),
             fontWeight = FontWeight.Bold,
             color = color,
         )
@@ -302,7 +369,7 @@ fun CompatibilityBadge(percent: Int, modifier: Modifier = Modifier, compact: Boo
             Box(Modifier.size(7.dp).clip(CircleShape).background(color))
             Text(
                 text = if (compact) "$percent%" else "Совместимость $percent%",
-                style = MaterialTheme.typography.labelLarge,
+                style = MaterialTheme.typography.labelLarge.tabularDigits(),
                 fontWeight = FontWeight.SemiBold,
             )
         }
@@ -708,6 +775,15 @@ fun AppButton(
     Surface(
         modifier = modifier
             .then(pressModifier(interaction))
+            // Custom-drawn control: TalkBack must still announce it as a button
+            // and read «загружается» instead of silently accepting a tap.
+            .semantics {
+                role = Role.Button
+                when {
+                    loading -> stateDescription = "Загружается"
+                    !enabled -> stateDescription = "Недоступно"
+                }
+            }
             .heightIn(min = 52.dp),
         shape = MaterialTheme.shapes.small,
         color = Color.Transparent,
@@ -798,7 +874,7 @@ fun OverlayIconButton(
     modifier: Modifier = Modifier,
     containerColor: Color = Color.White.copy(alpha = 0.14f),
     contentColor: Color = Color.White,
-    size: Dp = 44.dp,
+    size: Dp = 48.dp,
     content: @Composable () -> Unit,
 ) {
     val interaction = remember { MutableInteractionSource() }
@@ -809,6 +885,7 @@ fun OverlayIconButton(
             .clip(CircleShape)
             .background(containerColor)
             .border(1.dp, Color.White.copy(alpha = 0.25f), CircleShape)
+            .semantics { role = Role.Button }
             .clickable(interactionSource = interaction, indication = null, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
@@ -830,6 +907,7 @@ fun AppTextField(
     isPassword: Boolean = false,
     error: String? = null,
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+    visualTransformation: VisualTransformation = VisualTransformation.None,
     onImeAction: (() -> Unit)? = null,
 ) {
     var focused by remember { mutableStateOf(false) }
@@ -869,7 +947,7 @@ fun AppTextField(
                     minLines = minLines,
                     maxLines = maxLines,
                     visualTransformation =
-                        if (isPassword && !revealed) PasswordVisualTransformation() else VisualTransformation.None,
+                        if (isPassword && !revealed) PasswordVisualTransformation() else visualTransformation,
                     keyboardOptions =
                         if (isPassword) keyboardOptions.copy(keyboardType = KeyboardType.Password) else keyboardOptions,
                     keyboardActions =
@@ -1014,8 +1092,20 @@ fun InterestChip(
     }
     val border = if (selected) BorderStroke(1.dp, Ember.copy(alpha = 0.45f)) else null
     val interaction = remember { MutableInteractionSource() }
+    val haptics = rememberHaptics()
     Surface(
-        modifier = modifier.then(if (onClick != null) Modifier.then(pressModifier(interaction)) else Modifier),
+        modifier = modifier.then(
+            if (onClick != null) {
+                Modifier
+                    .then(pressModifier(interaction))
+                    .semantics {
+                        role = Role.Button
+                        stateDescription = if (selected) "Выбрано" else "Не выбрано"
+                    }
+            } else {
+                Modifier
+            },
+        ),
         shape = shape,
         color = bg,
         contentColor = fg,
@@ -1024,7 +1114,11 @@ fun InterestChip(
         val inner = Modifier.padding(horizontal = Spacing.lg, vertical = Spacing.sm)
         if (onClick != null) {
             Row(
-                modifier = inner.clickable(interactionSource = interaction, indication = null, onClick = onClick),
+                modifier = inner.clickable(
+                    interactionSource = interaction,
+                    indication = null,
+                    onClick = { haptics.light(); onClick() },
+                ),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
             ) {
@@ -1076,7 +1170,10 @@ fun MessageBubble(
         )
         Column(
             modifier = Modifier
-                .widthIn(max = 300.dp)
+                // 86% of the thread keeps short replies tight and stays readable on a
+                // 320dp screen, where a fixed 300dp bubble used to fill edge to edge.
+                .fillMaxWidth(0.86f)
+                .widthIn(max = 340.dp)
                 .then(
                     if (isOwn) {
                         Modifier.background(ownBrush, cornerShape)
@@ -1095,7 +1192,7 @@ fun MessageBubble(
             )
             Text(
                 footer,
-                style = MaterialTheme.typography.labelSmall,
+                style = MaterialTheme.typography.labelSmall.tabularDigits(),
                 color = if (isOwn) Color.White.copy(alpha = 0.72f) else MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.align(Alignment.End),
             )
@@ -1152,7 +1249,7 @@ fun MatchCard(
                             .background(EmberGradient, CircleShape),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text("$unread", style = MaterialTheme.typography.labelSmall, color = Color.White, fontWeight = FontWeight.Bold)
+                        Text("$unread", style = MaterialTheme.typography.labelSmall.tabularDigits(), color = Color.White, fontWeight = FontWeight.Bold)
                     }
                 }
             }

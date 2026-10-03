@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import app.befos.core.designsystem.Ember
 import app.befos.core.designsystem.Peach
 import app.befos.core.designsystem.Iris
+import app.befos.core.designsystem.Motion
 import app.befos.core.di.beFosViewModel
 import kotlinx.coroutines.launch
 
@@ -41,11 +42,11 @@ fun SplashScreen(
     val text = remember { Animatable(0f) }
 
     LaunchedEffect(Unit) {
-        launch { logo.animateTo(1f, tween(durationMillis = 650, easing = FastOutSlowInEasing)) }
+        launch { logo.animateTo(1f, tween(durationMillis = Motion.Hero, easing = FastOutSlowInEasing)) }
         launch {
             text.animateTo(
                 1f,
-                tween(durationMillis = 550, delayMillis = 220, easing = FastOutSlowInEasing),
+                tween(durationMillis = Motion.Reveal, delayMillis = Motion.Base, easing = FastOutSlowInEasing),
             )
         }
     }

@@ -16,6 +16,13 @@ private val Overline = TextStyle(
     letterSpacing = 1.4.sp,
 )
 
+/**
+ * Fixed-width digits. Scores count up and unread badges change, so without this the
+ * whole line shivers a pixel or two per frame. Apply to every number that animates
+ * or repeats (percentages, counters, timestamps).
+ */
+fun TextStyle.tabularDigits(): TextStyle = copy(fontFeatureSettings = "tnum")
+
 val BeFosTypography = Typography(
     displayLarge = TextStyle(
         fontFamily = FontFamily.Default,

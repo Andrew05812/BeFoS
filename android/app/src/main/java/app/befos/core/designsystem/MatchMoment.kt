@@ -21,9 +21,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -47,10 +46,10 @@ fun MatchMoment(
     val fade = remember { Animatable(0f) }
     val avatarPop = remember { Animatable(0.7f) }
     val reveal = remember { Animatable(0f) }
-    val haptics = LocalHapticFeedback.current
+    val haptics = rememberHaptics()
 
     LaunchedEffect(Unit) {
-        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+        haptics.success()
         launch { shell.animateTo(1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow)) }
         launch { fade.animateTo(1f, tween(Motion.Base)) }
         launch {
@@ -109,9 +108,12 @@ fun MatchMoment(
                 ) {
                     CompatibilityScore(percent = compatibility, size = 132.dp, strokeWidth = 10.dp)
                     Text(
-                        text = "Ваша совместимость $compatibility%",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color.White.copy(alpha = 0.72f),
+                        // The ring already carries the number; repeating «75%» here would
+                        // only add noise. Say what the number means instead.
+                        text = compatibilityVerdict(compatibility),
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = Color.White.copy(alpha = 0.86f),
+                        textAlign = TextAlign.Center,
                     )
                 }
             }

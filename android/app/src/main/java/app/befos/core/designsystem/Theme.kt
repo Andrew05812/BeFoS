@@ -40,11 +40,18 @@ object Elev {
     val hairlineWidth = 1.dp
 }
 
-/** Motion system — fast, smooth, purposeful. */
+/** Motion system — fast, smooth, purposeful. Every duration lives here, not in screens. */
 object Motion {
     const val Fast = 140
     const val Base = 240
     const val Slow = 360
+
+    /** Brand tempo: the splash logo and its wordmark land slower than UI content. */
+    const val Hero = 650
+    const val Reveal = 550
+
+    /** How long an inline notice stays before it dismisses itself. */
+    const val Notice = 3500
 
     fun <T> pressSpring() = spring<T>(
         dampingRatio = Spring.DampingRatioMediumBouncy,
