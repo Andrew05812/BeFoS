@@ -8,7 +8,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_session
-from app.core.exceptions import ForbiddenError, UnauthorizedError
+from app.core.exceptions import UnauthorizedError
 from app.core.logging import get_logger
 from app.core.security import decode_token
 from app.repositories.user_repo import UserRepository
@@ -42,10 +42,10 @@ async def get_current_user(
 
     repo = UserRepository(session)
     user = await repo.get_by_id(user_id)
-    if user is None:
+    if user is None or user.is_deleted:
         raise UnauthorizedError("User no longer exists.")
-    if not user.is_active or user.is_deleted:
-        raise ForbiddenError("Account is disabled.")
+    if not user.is_active:
+        raise UnauthorizedError("Account is disabled.")
     return user
 
 

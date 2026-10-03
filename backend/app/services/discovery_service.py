@@ -137,6 +137,10 @@ class DiscoveryService:
         profile = await self.users.get_profile_with_user(target_id)
         if profile is None:
             raise NotFoundError("User not found.")
+        # Hiding the profile is a request to disappear, and a user id learned earlier —
+        # from a card that was already on screen, or a shared link — must not keep working.
+        if profile.is_hidden and viewer_id != target_id:
+            raise NotFoundError("User not found.")
         if await self.social.is_blocked_either(viewer_id, target_id):
             raise NotFoundError("User not found.")
         tracker.track(Event.PROFILE_VIEWED, str(viewer_id), target=str(target_id))

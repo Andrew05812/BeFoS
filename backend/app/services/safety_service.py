@@ -40,9 +40,11 @@ class SafetyService:
         target = await self.users.get_by_id(reported_id)
         if target is None or target.is_deleted:
             raise NotFoundError("User not found.")
-        if await self.social.has_reported(reporter_id, reported_id, reason):
+        # The unique (reporter, reported, reason) constraint decides duplicates: a second
+        # tap of «Пожаловаться» arrives before the first has committed, so a prior read
+        # cannot be the gate.
+        if not await self.social.add_report(reporter_id, reported_id, reason, (details or None)):
             raise ConflictError("You have already reported this user for the same reason.")
-        await self.social.add_report(reporter_id, reported_id, reason, (details or None))
         await self.session.commit()
         return {"reported": True, "reason": reason}
 
@@ -69,6 +71,7 @@ class SafetyService:
         user.email = f"deleted_{user.id}@deleted.befos.local"
         user.password_hash = "!deleted"
         await self.tokens.revoke_all_for_user(user_id)
+        await self.social.purge_social_graph(user_id)
         await self.session.commit()
         return {"deleted": True}
 
