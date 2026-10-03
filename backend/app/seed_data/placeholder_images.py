@@ -110,22 +110,34 @@ def generate_avatar(seed_text: str, filename: str, display_name: str = "") -> st
     img.paste(Image.new("RGB", (_SIZE, _SIZE), (0, 0, 0)), (0, 0),
               _radial(_SIZE * 0.5, _SIZE * 1.1, _SIZE * 0.9, 52))
 
-    # PIL ignores text alpha on RGB canvases — pre-blend the monogram colour
-    # with the local background instead.
-    # The glyph rides in the upper third: portrait cards crop the square's sides, so a
-    # centred letter would sit straight under the name and chips of the discovery card.
-    # It is a watermark, not the subject — full-strength white at this size read as a
-    # giant initial tile once the card scaled the square up.
     text = _monogram(display_name or seed_text)
-    local_bg = _mix(c1, c2, 0.34 ** 1.12)
+    # The mark sits at 40% of the frame, inside a frosted disc — the same shape the
+    # app draws when a user has no photo at all, so a seeded card and an empty one
+    # read as one design system. The radius is what keeps it out of the way: on the
+    # discovery card the score badge owns everything above a quarter of the frame
+    # and the name plus interest chips own everything below its middle.
+    cx, cy, radius = _SIZE * 0.5, _SIZE * 0.40, _SIZE * 0.105
+    overlay = Image.new("RGBA", (_SIZE, _SIZE), (0, 0, 0, 0))
+    mark = ImageDraw.Draw(overlay)
+    mark.ellipse(
+        (cx - radius, cy - radius, cx + radius, cy + radius),
+        fill=(255, 255, 255, 30),
+        outline=(255, 255, 255, 64),
+        width=3,
+    )
+    img = Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
+
+    # PIL ignores alpha on an RGB canvas, so the glyph colour is pre-blended with the
+    # local background washed by the disc instead of being painted translucent.
+    local_bg = _mix(_mix(c1, c2, ((cx + cy) / (2 * _SIZE)) ** 1.12), (255, 255, 255), 30 / 255)
     draw = ImageDraw.Draw(img, "RGBA")
     try:
         draw.text(
-            (_SIZE * 0.5, _SIZE * 0.3),
+            (cx, cy),
             text,
-            fill=_mix(local_bg, (255, 255, 255), 0.55),
+            fill=_mix(local_bg, (255, 255, 255), 0.72),
             anchor="mm",
-            font=_font(124 if len(text) < 2 else 96),
+            font=_font(78 if len(text) < 2 else 60),
         )
     except Exception:
         pass
