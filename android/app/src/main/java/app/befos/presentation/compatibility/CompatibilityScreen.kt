@@ -1,6 +1,5 @@
 package app.befos.presentation.compatibility
 
-import androidx.compose.animation.core.animateIntAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -36,6 +35,7 @@ import app.befos.core.designsystem.ErrorState
 import app.befos.core.designsystem.InterestChip
 import app.befos.core.designsystem.IrisSoft
 import app.befos.core.designsystem.Mint
+import app.befos.core.designsystem.compatibilityVerdict
 import app.befos.core.designsystem.SectionHeader
 import app.befos.core.designsystem.Spacing
 import app.befos.core.designsystem.WarningAmber
@@ -63,7 +63,6 @@ fun CompatibilityScreen(matchId: String, onBack: () -> Unit) {
             )
             else -> {
                 val data = state.data!!
-                val animatedScore by animateIntAsState(targetValue = data.overall, label = "score")
                 Column(
                     modifier = Modifier
                         .padding(padding)
@@ -90,15 +89,15 @@ fun CompatibilityScreen(matchId: String, onBack: () -> Unit) {
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
-                            CompatibilityScore(percent = data.overall, size = 160.dp, strokeWidth = 12.dp, label = "$animatedScore%")
+                            CompatibilityScore(percent = data.overall, size = 160.dp, strokeWidth = 12.dp)
                             Text(
-                                verdictFor(data.overall),
+                                compatibilityVerdict(data.overall),
                                 style = MaterialTheme.typography.headlineMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = scoreColor(data.overall),
                             )
                             Text(
-                                "Детерминированный расчёт по анкетам и тесту, а не психологический диагноз.",
+                                "Совпадения считаны по анкетам и тесту — это не психологический диагноз.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -111,7 +110,7 @@ fun CompatibilityScreen(matchId: String, onBack: () -> Unit) {
                             Column(modifier = Modifier.padding(Spacing.xl)) {
                                 CategoryScoreList(data.categories)
                                 Text(
-                                    "Итог — средневзвешенное: направление с бо́льшим весом влияет сильнее.",
+                                    "Итог — среднее по категориям: то, что важнее для знакомства, влияет сильнее.",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
@@ -183,12 +182,3 @@ private fun ExplanationBlock(items: List<Explanation>, accent: Color) {
 
 internal fun prettifySlug(slug: String): String =
     slug.replace('_', ' ').replace('-', ' ').replaceFirstChar { it.uppercase() }
-
-/** Human verdict for the overall compatibility percentage. */
-internal fun verdictFor(overall: Int): String = when {
-    overall >= 85 -> "Вы очень хорошо подходите"
-    overall >= 70 -> "Вы хорошо подходите"
-    overall >= 55 -> "Есть перспектива"
-    overall >= 40 -> "Стоит узнать друг друга"
-    else -> "Вы довольно разные"
-}

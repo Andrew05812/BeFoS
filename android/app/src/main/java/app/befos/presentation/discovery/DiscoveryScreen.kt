@@ -3,8 +3,6 @@ package app.befos.presentation.discovery
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -22,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -35,6 +34,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -44,18 +44,17 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.AsyncImage
 import app.befos.core.designsystem.AppButton
 import app.befos.core.designsystem.AppButtonVariant
 import app.befos.core.designsystem.CompatibilityScore
@@ -72,10 +71,13 @@ import app.befos.core.designsystem.MonogramFallback
 import app.befos.core.designsystem.Motion
 import app.befos.core.designsystem.Peach
 import app.befos.core.designsystem.OverlayIconButton
+import app.befos.core.designsystem.RemotePhoto
 import app.befos.core.designsystem.Spacing
 import app.befos.core.designsystem.SuccessGreen
+import app.befos.core.designsystem.compatibilityLevel
 import app.befos.core.designsystem.glassSurface
 import app.befos.core.designsystem.photoScrim
+import app.befos.core.designsystem.rememberHaptics
 import app.befos.core.designsystem.scoreColor
 import app.befos.core.di.beFosViewModel
 import app.befos.domain.model.DiscoveryCard
@@ -83,8 +85,14 @@ import app.befos.domain.model.LikeOutcome
 import app.befos.presentation.common.goalLabel
 import kotlinx.coroutines.launch
 
-/** Horizontal drag distance (px) past which a released card counts as like/pass. */
-private const val SWIPE_THRESHOLD_PX = 280f
+/** Fraction of the card width past which a released card counts as like/pass. */
+private const val SWIPE_THRESHOLD_FRACTION = 0.28f
+
+/** A short but fast flick commits too — that is how a real swipe feels. */
+private const val FLICK_VELOCITY_DP_PER_S = 1400f
+
+/** Drag beyond the commit point meets resistance instead of sliding freely. */
+private const val DRAG_RESISTANCE = 0.35f
 
 @Composable
 fun DiscoveryScreen(onOpenMatch: (String) -> Unit, onOpenProfile: (String) -> Unit) {
@@ -114,10 +122,12 @@ fun DiscoveryScreen(onOpenMatch: (String) -> Unit, onOpenProfile: (String) -> Un
             onRetry = vm::load,
         )
         state.isEmpty || state.current == null -> EmptyState(
-            title = "Пока никого нет",
-            message = "Новые анкеты закончились. Загляните позже — или расширите параметры поиска в профиле.",
+            title = "Анкеты закончились",
+            // No search filters exist in this product, so the next step is the honest
+            // one: the pool refreshes as people register, not by tweaking settings.
+            message = "Мы показали всех, кто подходит вам сейчас. Новые анкеты появляются со временем — попробуйте обновить подбор позже.",
             overline = "Подбор",
-            actionLabel = "Обновить",
+            actionLabel = "Обновить подбор",
             onAction = vm::load,
         )
         else -> DiscoveryContent(state, vm, onOpenProfile)
@@ -129,18 +139,24 @@ fun DiscoveryScreen(onOpenMatch: (String) -> Unit, onOpenProfile: (String) -> Un
 private fun DiscoveryContent(state: DiscoveryUiState, vm: DiscoveryViewModel, onOpenProfile: (String) -> Unit) {
     val card = state.current ?: return
     val scope = rememberCoroutineScope()
-    val haptics = LocalHapticFeedback.current
+    val haptics = rememberHaptics()
     val dragX = remember(card.userId) { Animatable(0f) }
     val density = LocalDensity.current
     val flyDistance = with(density) { 1000.dp.toPx() }
+    var cardWidthPx by remember { mutableFloatStateOf(0f) }
+    // Threshold follows the card, not a hardcoded pixel count: on a 320dp screen the
+    // old 280px value was nearly half the card, so a swipe felt like it never landed.
+    val thresholdPx = (cardWidthPx * SWIPE_THRESHOLD_FRACTION)
+        .coerceAtLeast(with(density) { 96.dp.toPx() })
+    val flickVelocityPx = with(density) { FLICK_VELOCITY_DP_PER_S.dp.toPx() }
 
     fun fling(right: Boolean) {
         if (state.busy) return
-        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+        haptics.medium()
         scope.launch {
             dragX.animateTo(
                 targetValue = if (right) flyDistance else -flyDistance,
-                animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing),
+                animationSpec = tween(Motion.Base, easing = FastOutSlowInEasing),
             )
             if (right) vm.like() else vm.pass()
         }
@@ -175,29 +191,63 @@ private fun DiscoveryContent(state: DiscoveryUiState, vm: DiscoveryViewModel, on
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
+                .onSizeChanged { cardWidthPx = it.width.toFloat() }
                 .graphicsLayer {
+                    val progress = (dragX.value / thresholdPx).coerceIn(-1.6f, 1.6f)
                     translationX = dragX.value
-                    rotationZ = dragX.value / 22f
-                    val p = (dragX.value / flyDistance).coerceIn(-1f, 1f)
-                    scaleX = 1f - 0.06f * kotlin.math.abs(p)
-                    scaleY = 1f - 0.06f * kotlin.math.abs(p)
-                    alpha = 1f - 0.35f * kotlin.math.abs(p)
+                    // Tilt follows the commit point and tops out at 10°, so the card
+                    // leans like paper instead of rotating further the harder you pull.
+                    rotationZ = 10f * progress.coerceIn(-1f, 1f)
+                    val lean = kotlin.math.abs(progress)
+                    scaleX = 1f - 0.05f * lean
+                    scaleY = 1f - 0.05f * lean
+                    alpha = 1f - 0.22f * lean
                 }
-                .pointerInput(card.userId) {
+                .pointerInput(card.userId, thresholdPx) {
+                    var crossed = false
+                    // This Compose version hands onDragEnd no velocity, so track it from
+                    // the drag events: a paused finger reports zero, which must not throw.
+                    var lastMoveNanos = 0L
+                    var velocityPxPerS = 0f
                     detectHorizontalDragGestures(
                         onDragEnd = {
+                            val past = kotlin.math.abs(dragX.value) >= thresholdPx
+                            val thrown = kotlin.math.abs(velocityPxPerS) >= flickVelocityPx &&
+                                kotlin.math.abs(dragX.value) >= thresholdPx * 0.4f
                             when {
-                                dragX.value > SWIPE_THRESHOLD_PX -> fling(right = true)
-                                dragX.value < -SWIPE_THRESHOLD_PX -> fling(right = false)
-                                else -> scope.launch {
-                                    dragX.animateTo(0f, spring(dampingRatio = Spring.DampingRatioMediumBouncy))
-                                }
+                                past || thrown -> fling(right = dragX.value > 0)
+                                else -> scope.launch { dragX.animateTo(0f, Motion.enterSpring()) }
                             }
+                            crossed = false
                         },
-                        onDragCancel = { scope.launch { dragX.animateTo(0f, spring()) } },
+                        onDragCancel = {
+                            crossed = false
+                            velocityPxPerS = 0f
+                            scope.launch { dragX.animateTo(0f, Motion.enterSpring()) }
+                        },
                     ) { change, amount ->
                         change.consume()
-                        scope.launch { dragX.snapTo(dragX.value + amount) }
+                        val now = System.nanoTime()
+                        val deltaSeconds = (now - lastMoveNanos) / 1_000_000_000f
+                        velocityPxPerS = when {
+                            deltaSeconds <= 0f || deltaSeconds > 0.05f -> 0f
+                            else -> amount / deltaSeconds
+                        }
+                        lastMoveNanos = now
+                        val raw = dragX.value + amount
+                        // Rubber band past the commit point: the card slows down rather
+                        // than sliding an endless distance with the finger.
+                        val next = when {
+                            raw > thresholdPx -> thresholdPx + (raw - thresholdPx) * DRAG_RESISTANCE
+                            raw < -thresholdPx -> -thresholdPx + (raw + thresholdPx) * DRAG_RESISTANCE
+                            else -> raw
+                        }
+                        scope.launch { dragX.snapTo(next) }
+                        val nowCrossed = kotlin.math.abs(next) >= thresholdPx * 0.98f
+                        if (nowCrossed != crossed) {
+                            crossed = nowCrossed
+                            if (nowCrossed) haptics.light()
+                        }
                     }
                 },
         ) {
@@ -220,7 +270,7 @@ private fun DiscoveryContent(state: DiscoveryUiState, vm: DiscoveryViewModel, on
                 onOpenProfile = { onOpenProfile(card.userId) },
                 content = { CardOverlay(card, onOpenProfile = { onOpenProfile(card.userId) }) },
             )
-            SwipeOverlay(dragX = dragX.value, modifier = Modifier.matchParentSize())
+            SwipeOverlay(dragX = dragX.value, thresholdPx = thresholdPx, modifier = Modifier.matchParentSize())
         }
 
         // Action cluster: pass / like / open profile.
@@ -280,11 +330,10 @@ private fun CardPhoto(
             contentPadding = PaddingValues(start = Spacing.lg, top = Spacing.lg, end = Spacing.lg, bottom = 168.dp),
         )
         if (!card.photoUrl.isNullOrBlank() && !loadFailed) {
-            AsyncImage(
-                model = card.photoUrl,
+            RemotePhoto(
+                url = card.photoUrl,
                 contentDescription = card.name,
                 modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop,
                 onError = { loadFailed = true },
             )
         }
@@ -301,14 +350,26 @@ private fun CardPhoto(
 @Composable
 private fun CardOverlay(card: DiscoveryCard, onOpenProfile: () -> Unit) {
     Box(Modifier.fillMaxSize()) {
-        // Compatibility ring on frosted glass, top-right.
-        Box(
+        // Score reads as a claim, not a decoration: the number plus what it means.
+        Column(
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .padding(Spacing.lg)
-                .glassSurface(CircleShape),
+                .glassSurface(RoundedCornerShape(20.dp))
+                .padding(horizontal = Spacing.md, vertical = Spacing.sm),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            CompatibilityScore(percent = card.compatibility, size = 66.dp, strokeWidth = 6.dp)
+            CompatibilityScore(percent = card.compatibility, size = 62.dp, strokeWidth = 6.dp)
+            Text(
+                text = "${compatibilityLevel(card.compatibility)} совместимость",
+                style = MaterialTheme.typography.labelSmall,
+                color = Color.White.copy(alpha = 0.86f),
+                textAlign = TextAlign.Center,
+                lineHeight = 13.sp,
+                maxLines = 2,
+                modifier = Modifier.widthIn(max = 124.dp),
+            )
         }
         // Detail shortcut, top-left.
         OverlayIconButton(
@@ -350,6 +411,33 @@ private fun CardOverlay(card: DiscoveryCard, onOpenProfile: () -> Unit) {
                     style = MaterialTheme.typography.titleMedium,
                 )
             }
+            // Hierarchy: person → compatibility → identity → interests → explanation.
+            // The chips used to sit under the explanation sentence, which buried the
+            // concrete shared ground under a summary of it.
+            if (card.interests.isNotEmpty()) {
+                val shown = card.interests.take(4)
+                val hidden = card.interests.size - shown.size
+                FlowRow(
+                    modifier = Modifier.padding(top = Spacing.xs),
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+                ) {
+                    shown.forEach { name ->
+                        InterestChip(
+                            label = name,
+                            contentColor = Color.White,
+                            containerColor = Color(0x3DFFFFFF),
+                        )
+                    }
+                    if (hidden > 0) {
+                        InterestChip(
+                            label = "+$hidden",
+                            contentColor = Color.White.copy(alpha = 0.85f),
+                            containerColor = Color(0x29FFFFFF),
+                        )
+                    }
+                }
+            }
             card.highlight?.let { reason ->
                 Row(
                     modifier = Modifier
@@ -368,28 +456,6 @@ private fun CardOverlay(card: DiscoveryCard, onOpenProfile: () -> Unit) {
                     )
                 }
             }
-            if (card.interests.isNotEmpty()) {
-                FlowRow(
-                    modifier = Modifier.padding(top = Spacing.xs),
-                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
-                    verticalArrangement = Arrangement.spacedBy(Spacing.sm),
-                ) {
-                    card.interests.take(4).forEach { name ->
-                        InterestChip(
-                            label = name,
-                            contentColor = Color.White,
-                            containerColor = Color(0x3DFFFFFF),
-                        )
-                    }
-                    if (card.sharedInterestsCount > card.interests.take(4).size) {
-                        InterestChip(
-                            label = "+${card.sharedInterestsCount}",
-                            contentColor = Color.White.copy(alpha = 0.85f),
-                            containerColor = Color(0x29FFFFFF),
-                        )
-                    }
-                }
-            }
         }
     }
 }
@@ -404,7 +470,6 @@ private fun ActionRing(
     big: Boolean = false,
     content: @Composable () -> Unit,
 ) {
-    val haptics = LocalHapticFeedback.current
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val scale by animateFloatAsState(
@@ -427,11 +492,11 @@ private fun ActionRing(
                 if (primary) Color.White.copy(alpha = 0.35f) else MaterialTheme.colorScheme.outlineVariant,
                 CircleShape,
             )
-            .clickable(interactionSource = interaction, indication = null) {
-                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                onClick()
-            }
-            .semantics { contentDescription = label },
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+            .semantics {
+                role = Role.Button
+                contentDescription = label
+            },
         contentAlignment = Alignment.Center,
     ) {
         content()
@@ -440,8 +505,8 @@ private fun ActionRing(
 
 /** Directional LIKE / NOPE stamp that fades in as the card is dragged past its threshold. */
 @Composable
-private fun SwipeOverlay(dragX: Float, modifier: Modifier = Modifier) {
-    val progress = (dragX / SWIPE_THRESHOLD_PX).coerceIn(-1.6f, 1.6f)
+private fun SwipeOverlay(dragX: Float, thresholdPx: Float, modifier: Modifier = Modifier) {
+    val progress = (dragX / thresholdPx).coerceIn(-1.6f, 1.6f)
     val likeAlpha = progress.coerceIn(0f, 1f)
     val nopeAlpha = (-progress).coerceIn(0f, 1f)
     Box(modifier = modifier) {
@@ -456,7 +521,7 @@ private fun SwipeOverlay(dragX: Float, modifier: Modifier = Modifier) {
         }
         if (nopeAlpha > 0.01f) {
             Stamp(
-                text = "НЕ СЕЙЧАС",
+                text = "ПРОПУСТИТЬ",
                 color = ErrorRed,
                 alpha = nopeAlpha,
                 rotation = 12f,
@@ -499,5 +564,3 @@ private fun Stamp(
 }
 
 private val EmberFill: Color get() = Color(0xFFF0544F)
-private val EmberTint: Color get() = Color(0xFFF0544F)
-private val IrisTint: Color get() = Color(0xFF6C4CF1)

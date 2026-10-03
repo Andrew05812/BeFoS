@@ -21,15 +21,18 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Insights
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -38,13 +41,19 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import app.befos.core.designsystem.AppTopBar
 import app.befos.core.designsystem.EmberGradient
@@ -54,8 +63,10 @@ import app.befos.core.designsystem.ErrorState
 import app.befos.core.designsystem.InlineNotice
 import app.befos.core.designsystem.ListSkeleton
 import app.befos.core.designsystem.MessageBubble
+import app.befos.core.designsystem.Motion
 import app.befos.core.designsystem.Spacing
 import app.befos.core.designsystem.WarningAmber
+import app.befos.core.designsystem.rememberHaptics
 import app.befos.core.di.beFosViewModel
 import kotlinx.coroutines.delay
 import java.time.OffsetDateTime
@@ -74,9 +85,20 @@ fun ChatScreen(
     val vm: ChatViewModel = beFosViewModel { ChatViewModel(it.chatRepository, it.matchRepository, matchId) }
     val state by vm.uiState.collectAsState()
     val listState = rememberLazyListState()
+    // Following every incoming message would yank the reader back down while they are
+    // still looking at older parts of the conversation.
+    val atBottom by remember {
+        derivedStateOf {
+            val info = listState.layoutInfo
+            val lastVisible = info.visibleItemsInfo.lastOrNull()
+            lastVisible == null || lastVisible.index >= info.totalItemsCount - 1
+        }
+    }
 
     LaunchedEffect(state.messages.size) {
-        if (state.messages.isNotEmpty()) listState.animateScrollToItem(state.messages.lastIndex)
+        if (state.messages.isNotEmpty() && atBottom) {
+            listState.animateScrollToItem(state.messages.lastIndex)
+        }
     }
 
     Scaffold(
@@ -100,6 +122,7 @@ fun ChatScreen(
                 onDraftChange = vm::onDraftChange,
                 onSend = vm::send,
                 enabled = !state.sending,
+                sending = state.sending,
                 sendError = state.sendError,
                 onDismissError = vm::dismissSendError,
             )
@@ -145,22 +168,27 @@ fun ChatScreen(
                     else -> LazyColumn(
                         state = listState,
                         modifier = Modifier.fillMaxSize().padding(horizontal = Spacing.gutter),
-                        verticalArrangement = Arrangement.spacedBy(Spacing.xs),
                         contentPadding = androidx.compose.foundation.layout.PaddingValues(
                             top = Spacing.lg,
                             bottom = Spacing.xl,
                         ),
                     ) {
-                        items(state.messages, key = { it.id }) { message ->
-                            MessageBubble(
-                                body = message.body,
-                                isOwn = message.isOwn,
-                                footer = if (message.isOwn && message.isRead) {
-                                    "прочитано"
-                                } else {
-                                    formatTime(message.createdAt)
-                                },
-                            )
+                        itemsIndexed(state.messages, key = { _, message -> message.id }) { index, message ->
+                            val previous = state.messages.getOrNull(index - 1)
+                            // Consecutive messages from one person read as one block:
+                            // tight inside, clear air when the speaker changes.
+                            val continues = previous != null && previous.isOwn == message.isOwn
+                            Column(modifier = Modifier.padding(top = if (continues) Spacing.xs else Spacing.lg)) {
+                                MessageBubble(
+                                    body = message.body,
+                                    isOwn = message.isOwn,
+                                    footer = if (message.isOwn && message.isRead) {
+                                        "прочитано"
+                                    } else {
+                                        formatTime(message.createdAt)
+                                    },
+                                )
+                            }
                         }
                     }
                 }
@@ -213,9 +241,11 @@ private fun ChatInputBar(
     onDraftChange: (String) -> Unit,
     onSend: () -> Unit,
     enabled: Boolean,
+    sending: Boolean,
     sendError: String?,
     onDismissError: () -> Unit,
 ) {
+    val haptics = rememberHaptics()
     val canSend = enabled && draft.isNotBlank()
     Column(
         modifier = Modifier
@@ -226,7 +256,7 @@ private fun ChatInputBar(
     ) {
         if (sendError != null) {
             LaunchedEffect(sendError) {
-                delay(4000)
+                delay(Motion.Notice.toLong())
                 onDismissError()
             }
             InlineNotice(
@@ -261,6 +291,15 @@ private fun ChatInputBar(
                     maxLines = 4,
                     textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
                     cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                    keyboardActions = KeyboardActions(
+                        onSend = {
+                            if (canSend) {
+                                haptics.medium()
+                                onSend()
+                            }
+                        },
+                    ),
                     modifier = Modifier.weight(1f),
                     decorationBox = { inner ->
                         Box {
@@ -287,20 +326,29 @@ private fun ChatInputBar(
                             Modifier.background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
                         },
                     )
+                    .semantics { role = Role.Button }
                     .then(
                         if (canSend) {
-                            Modifier.clickable { onSend() }
+                            Modifier.clickable {
+                                haptics.medium()
+                                onSend()
+                            }
                         } else {
                             Modifier
                         },
                     ),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(
-                    Icons.AutoMirrored.Filled.Send,
-                    contentDescription = "Отправить",
-                    tint = if (canSend) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                if (sending) {
+                    // The draft is already cleared, so without this the tap looks lost.
+                    CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.5.dp)
+                } else {
+                    Icon(
+                        Icons.AutoMirrored.Filled.Send,
+                        contentDescription = "Отправить",
+                        tint = if (canSend) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
     }

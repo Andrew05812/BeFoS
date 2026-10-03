@@ -34,8 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.befos.core.designsystem.AppButton
@@ -43,8 +42,10 @@ import app.befos.core.designsystem.AppCard
 import app.befos.core.designsystem.EmberGradient
 import app.befos.core.designsystem.ErrorState
 import app.befos.core.designsystem.InlineNotice
+import app.befos.core.designsystem.Motion
 import app.befos.core.designsystem.Spacing
 import app.befos.core.designsystem.TestSkeleton
+import app.befos.core.designsystem.rememberHaptics
 import app.befos.core.di.beFosViewModel
 import app.befos.presentation.common.CategoryScoreList
 
@@ -62,7 +63,7 @@ fun TestScreen(onFinished: () -> Unit) {
         )
         state.result != null -> TestResultView(state, onFinished)
         state.questions.isEmpty() -> ErrorState(
-            message = "Список вопросов пуст. Попробуйте загрузить тест заново.",
+            message = "Мы не получили вопросы для теста. Попробуйте обновить — обычно помогает с первого раза.",
             title = "Тест временно недоступен",
             onRetry = vm::load,
         )
@@ -73,8 +74,8 @@ fun TestScreen(onFinished: () -> Unit) {
 @Composable
 private fun TestQuestionView(state: TestUiState, vm: TestViewModel) {
     val question = state.current ?: return
-    val haptics = LocalHapticFeedback.current
-    val animatedProgress by animateFloatAsState(state.progress, tween(400), label = "testProgress")
+    val haptics = rememberHaptics()
+    val animatedProgress by animateFloatAsState(state.progress, tween(Motion.Slow), label = "testProgress")
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -135,8 +136,8 @@ private fun TestQuestionView(state: TestUiState, vm: TestViewModel) {
         AnimatedContent(
             targetState = question.id,
             transitionSpec = {
-                (slideInHorizontally { it / 4 } + fadeIn(tween(240))) togetherWith
-                    (slideOutHorizontally { -it / 4 } + fadeOut(tween(140)))
+                (slideInHorizontally { it / 4 } + fadeIn(tween(Motion.Base))) togetherWith
+                    (slideOutHorizontally { -it / 4 } + fadeOut(tween(Motion.Fast)))
             },
             label = "questionTransition",
         ) { targetId ->
@@ -155,7 +156,7 @@ private fun TestQuestionView(state: TestUiState, vm: TestViewModel) {
                                 .fillMaxWidth()
                                 .heightIn(min = 64.dp),
                             onClick = {
-                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                haptics.light()
                                 vm.select(option.id)
                             },
                         ) {
@@ -235,7 +236,7 @@ private fun TestResultView(state: TestUiState, onFinished: () -> Unit) {
             }
         }
         Text(
-            text = "Детерминированный расчёт: одинаковые ответы дают одинаковый результат.",
+            text = "Расчёт прозрачный: те же ответы всегда дают тот же профиль.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

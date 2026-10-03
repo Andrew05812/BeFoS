@@ -11,12 +11,15 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.time.LocalDate
+import java.time.Period
 
 data class OnboardingUiState(
     val step: Int = 0,
     val interests: List<Interest> = emptyList(),
     val interestsLoading: Boolean = true,
     val name: String = "",
+    // Digits only (YYYYMMDD); the field renders them with separators via a visual transformation.
     val birthDate: String = "",
     val city: String = "",
     val gender: String = "male",
@@ -54,7 +57,9 @@ class OnboardingViewModel(private val profileRepository: ProfileRepository) : Vi
     }
 
     fun onNameChange(v: String) = _uiState.update { it.copy(name = v, error = null) }
-    fun onBirthDateChange(v: String) = _uiState.update { it.copy(birthDate = v, error = null) }
+    fun onBirthDateChange(v: String) = _uiState.update {
+        it.copy(birthDate = v.filter(Char::isDigit).take(8), error = null)
+    }
     fun onCityChange(v: String) = _uiState.update { it.copy(city = v, error = null) }
     fun onAboutChange(v: String) = _uiState.update { it.copy(about = v, error = null) }
     fun setGender(v: String) = _uiState.update { it.copy(gender = v) }
@@ -78,14 +83,11 @@ class OnboardingViewModel(private val profileRepository: ProfileRepository) : Vi
         when (s.step) {
             0 -> {
                 if (s.name.isBlank()) return fail("Укажите имя.")
-                if (!isValidDate(s.birthDate)) return fail("Дата рождения в формате ГГГГ-ММ-ДД.")
+                birthDateError(s.birthDate)?.let { return fail(it) }
                 if (s.city.isBlank()) return fail("Укажите город.")
                 _uiState.update { it.copy(step = 1, error = null) }
             }
-            1 -> {
-                if (s.ageMin > s.ageMax) return fail("Минимальный возраст больше максимального.")
-                _uiState.update { it.copy(step = 2, error = null) }
-            }
+            1 -> _uiState.update { it.copy(step = 2, error = null) }
             2 -> {
                 if (s.selectedInterests.size < 3) return fail("Выберите минимум 3 интереса.")
                 submit()
@@ -97,24 +99,13 @@ class OnboardingViewModel(private val profileRepository: ProfileRepository) : Vi
 
     private fun fail(msg: String) = _uiState.update { it.copy(error = msg) }
 
-    private fun isValidDate(v: String): Boolean {
-        val parts = v.split("-")
-        if (parts.size != 3) return false
-        val (y, m, d) = parts
-        if (y.length != 4) return false
-        val year = y.toIntOrNull() ?: return false
-        val month = m.toIntOrNull() ?: return false
-        val day = d.toIntOrNull() ?: return false
-        return year in 1900..2100 && month in 1..12 && day in 1..31
-    }
-
     private fun submit() {
         val s = _uiState.value
         _uiState.update { it.copy(submitting = true, error = null) }
         viewModelScope.launch {
             val data = OnboardingData(
                 name = s.name.trim(),
-                birthDate = s.birthDate.trim(),
+                birthDate = isoBirthDate(s.birthDate) ?: s.birthDate,
                 city = s.city.trim(),
                 gender = s.gender,
                 about = s.about.trim().ifBlank { null },
@@ -131,4 +122,23 @@ class OnboardingViewModel(private val profileRepository: ProfileRepository) : Vi
             }
         }
     }
+}
+
+/** ISO date built from the 8 digits typed in the birth-date field, or null if no such day exists. */
+fun isoBirthDate(digits: String): String? {
+    if (digits.length != 8) return null
+    val iso = "${digits.take(4)}-${digits.substring(4, 6)}-${digits.substring(6)}"
+    return runCatching { LocalDate.parse(iso).toString() }.getOrNull()
+}
+
+/** Why the typed birth date cannot be accepted yet, or null when it can. */
+fun birthDateError(digits: String): String? {
+    if (digits.isBlank()) return "Укажите дату рождения."
+    if (digits.length < 8) return "Введите дату рождения целиком — 8 цифр."
+    val iso = isoBirthDate(digits) ?: return "Такой даты не бывает."
+    val today = LocalDate.now()
+    val date = LocalDate.parse(iso)
+    if (date.isAfter(today)) return "Такой даты не бывает."
+    if (Period.between(date, today).years < 18) return "BeFoS доступен с 18 лет."
+    return null
 }

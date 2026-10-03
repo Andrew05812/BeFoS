@@ -38,9 +38,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.OffsetMapping
+import androidx.compose.ui.text.input.TransformedText
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import app.befos.core.designsystem.AppButton
 import app.befos.core.designsystem.AppTextField
@@ -50,7 +54,9 @@ import app.befos.core.designsystem.EmberSoft
 import app.befos.core.designsystem.Elev
 import app.befos.core.designsystem.InlineNotice
 import app.befos.core.designsystem.InterestChip
+import app.befos.core.designsystem.Motion
 import app.befos.core.designsystem.Spacing
+import app.befos.core.designsystem.tabularDigits
 import app.befos.core.di.beFosViewModel
 import app.befos.presentation.common.DatingGoalLabels
 import app.befos.presentation.common.GenderLabels
@@ -63,7 +69,7 @@ fun OnboardingScreen(onDone: () -> Unit) {
 
     LaunchedEffect(state.done) { if (state.done) onDone() }
 
-    val animatedProgress by animateFloatAsState((state.step + 1) / 3f, tween(350), label = "onboardingProgress")
+    val animatedProgress by animateFloatAsState((state.step + 1) / 3f, tween(Motion.Slow), label = "onboardingProgress")
 
     Column(
         modifier = Modifier
@@ -103,9 +109,9 @@ fun OnboardingScreen(onDone: () -> Unit) {
                 transitionSpec = {
                     val forward = targetState > initialState
                     val enter = slideInHorizontally { if (forward) it / 4 else -it / 4 } +
-                        androidx.compose.animation.fadeIn(tween(220))
+                        androidx.compose.animation.fadeIn(tween(Motion.Base))
                     val exit = slideOutHorizontally { if (forward) -it / 4 else it / 4 } +
-                        androidx.compose.animation.fadeOut(tween(140))
+                        androidx.compose.animation.fadeOut(tween(Motion.Fast))
                     enter togetherWith exit
                 },
                 label = "onboardingStep",
@@ -182,6 +188,7 @@ private fun StepAbout(state: OnboardingUiState, vm: OnboardingViewModel) {
             label = "Дата рождения",
             placeholder = "ГГГГ-ММ-ДД",
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+            visualTransformation = BirthDateMask,
             modifier = Modifier.fillMaxWidth(),
         )
         AppTextField(
@@ -280,7 +287,7 @@ private fun StepInterests(state: OnboardingUiState, vm: OnboardingViewModel) {
                     } else {
                         "${state.selectedInterests.size} / 3"
                     },
-                    style = MaterialTheme.typography.labelLarge,
+                    style = MaterialTheme.typography.labelLarge.tabularDigits(),
                     color = if (state.selectedInterests.size >= 3) {
                         EmberDeep
                     } else {
@@ -355,5 +362,38 @@ private fun SingleChoiceRow(
                 )
             }
         }
+    }
+}
+
+/**
+ * The field stores digits only, so a numeric keyboard is enough to enter a date:
+ * separators are drawn on top of the text and never become part of the value.
+ */
+private object BirthDateMask : VisualTransformation {
+    override fun filter(text: AnnotatedString): TransformedText {
+        val digits = text.text
+        val shown = StringBuilder()
+        val caretToDisplay = IntArray(digits.length + 1)
+        digits.forEachIndexed { index, digit ->
+            if ((index == 4 || index == 6) && digits.length > index) shown.append('-')
+            caretToDisplay[index] = shown.length
+            shown.append(digit)
+        }
+        caretToDisplay[digits.length] = shown.length
+        val display = shown.toString()
+        return TransformedText(
+            AnnotatedString(display),
+            object : OffsetMapping {
+                override fun originalToTransformed(offset: Int) = caretToDisplay[offset.coerceIn(0, digits.length)]
+                override fun transformedToOriginal(offset: Int): Int {
+                    val position = offset.coerceIn(0, display.length)
+                    var best = 0
+                    for (index in caretToDisplay.indices) {
+                        if (caretToDisplay[index] <= position) best = index else break
+                    }
+                    return best
+                }
+            },
+        )
     }
 }
