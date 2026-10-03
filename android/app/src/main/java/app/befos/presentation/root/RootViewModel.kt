@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 enum class RootDestination { LOADING, AUTH, ONBOARDING, MAIN }
 
@@ -27,30 +28,38 @@ class RootViewModel(
     fun resolve() {
         _destination.value = RootDestination.LOADING
         viewModelScope.launch {
-            val auth = authRepository.current()
-            if (auth == null) {
-                _destination.value = RootDestination.AUTH
-                return@launch
+            // A suspended backend answers the handshake but never replies, and the connect
+            // timeout cannot catch that. Without a ceiling the launch splash holds forever
+            // with no way out, so an unresolved gate falls through to MAIN, where the
+            // screens own the failure and offer a retry.
+            val destination = withTimeoutOrNull(GATE_TIMEOUT_MS) { route() } ?: RootDestination.MAIN
+            _destination.value = destination
+        }
+    }
+
+    private suspend fun route(): RootDestination {
+        val auth = authRepository.current() ?: return RootDestination.AUTH
+        return when (val result = profileRepository.me()) {
+            is ApiResult.Success -> {
+                val profile = result.data
+                val onboarded = profile.name.isNotBlank() &&
+                    profile.interests.isNotEmpty() &&
+                    profile.datingGoal.isNotBlank()
+                if (onboarded) RootDestination.MAIN else RootDestination.ONBOARDING
             }
-            when (val result = profileRepository.me()) {
-                is ApiResult.Success -> {
-                    val profile = result.data
-                    val onboarded = profile.name.isNotBlank() &&
-                        profile.interests.isNotEmpty() &&
-                        profile.datingGoal.isNotBlank()
-                    _destination.value =
-                        if (onboarded) RootDestination.MAIN else RootDestination.ONBOARDING
-                }
-                is ApiResult.Error -> {
-                    // A 401 means the stored session is no longer valid.
-                    if (result.code == 401) {
-                        authRepository.logout()
-                        _destination.value = RootDestination.AUTH
-                    } else {
-                        _destination.value = RootDestination.MAIN
-                    }
+            is ApiResult.Error -> {
+                // A 401 means the stored session is no longer valid.
+                if (result.code == 401) {
+                    authRepository.logout()
+                    RootDestination.AUTH
+                } else {
+                    RootDestination.MAIN
                 }
             }
         }
+    }
+
+    private companion object {
+        const val GATE_TIMEOUT_MS = 10_000L
     }
 }
