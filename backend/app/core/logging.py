@@ -1,25 +1,42 @@
 from __future__ import annotations
 
 import logging
+import re
 import sys
 
 from app.core.config import settings
 
 _CONFIGURED = False
 
+# The socket handshake authorises with ?token=<jwt>, so uvicorn's own connection line
+# echoes a live access token. A record of the request is useful; the credential is not.
+_REDACT = re.compile(
+    r"""(?i)
+    (?P<q>\b(?:access_token|refresh_token|token|password|secret|authorization)=)(?P<qv>[^\s&"']+)
+    | "(?P<k>access_token|refresh_token|token|password|secret|authorization)"\s*:\s*"(?P<kv>[^"]*)"
+    """,
+    re.VERBOSE,
+)
+
+
+def redact(text: str) -> str:
+    def swap(match: re.Match[str]) -> str:
+        if match.group("q"):
+            return match.group("q") + "[redacted]"
+        return '"%s": "[redacted]"' % match.group("k")
+
+    return _REDACT.sub(swap, text)
+
 
 class SensitiveFilter(logging.Filter):
-    """Redact secrets/tokens that must never reach the logs."""
-
-    _KEYS = ("password", "token", "access_token", "refresh_token", "authorization", "secret")
+    """Redacts secrets/tokens that must never reach the logs, keeping the rest of the line."""
 
     def filter(self, record: logging.LogRecord) -> bool:
-        msg = record.getMessage().lower()
-        for key in self._KEYS:
-            if f"{key}=" in msg or f'"{key}"' in msg:
-                record.msg = "[redacted sensitive log]"
-                record.args = ()
-                break
+        text = record.getMessage()
+        scrubbed = redact(text)
+        if scrubbed != text:
+            record.msg = scrubbed
+            record.args = ()
         return True
 
 
@@ -43,7 +60,13 @@ def setup_logging() -> None:
     root.addHandler(handler)
     root.setLevel(level)
 
-    logging.getLogger("uvicorn.access").setLevel(logging.INFO)
+    # uvicorn installs handlers on its own loggers and does not propagate, which is how
+    # its lines escaped the filter above.
+    for name in ("uvicorn", "uvicorn.access", "uvicorn.error"):
+        uvicorn_logger = logging.getLogger(name)
+        uvicorn_logger.handlers.clear()
+        uvicorn_logger.propagate = True
+
     _CONFIGURED = True
 
 

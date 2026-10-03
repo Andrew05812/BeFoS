@@ -14,7 +14,9 @@ from httpx import AsyncClient
 from starlette.requests import Request
 
 from app.core.exceptions import RateLimitedError
+from app.core.logging import redact
 from app.core.rate_limit import _MAX_KEYS, SlidingWindowRateLimiter, _client_key
+from app.websocket.chat_ws import parse_client_frame
 from .conftest import (
     answer_all_questions,
     auth_headers,
@@ -288,4 +290,33 @@ async def test_concurrent_read_receipts_are_recorded_once(client: AsyncClient) -
     assert [r.status_code for r in responses] == [200] * 4, [r.text for r in responses if r.status_code != 200]
     history = await client.get(f"/api/v1/matches/{match_id}/messages", headers=auth_headers(b["token"]))
     assert all(m["is_read"] for m in history.json()["messages"]), history.json()
+
+
+@pytest.mark.parametrize(
+    "raw",
+    ["", "{not json", "[1, 2, 3]", '"just a string"', "null", "3", None, b"message"],
+)
+def test_a_malformed_socket_frame_is_rejected_without_a_crash(raw) -> None:
+    """One bad frame is a bad message, not a reason to drop the connection."""
+    assert parse_client_frame(raw) is None
+
+
+def test_a_wellformed_socket_frame_keeps_its_fields() -> None:
+    assert parse_client_frame('{"type": "typing", "typing": true}') == {"type": "typing", "typing": True}
+
+
+def test_the_access_log_never_carries_the_socket_token() -> None:
+    """The handshake puts the access token in the query string; the log must not keep it."""
+    line = ('WebSocket /ws/chat/6c352984?token=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxODRkNyJ9.abc123 [accepted]')
+    scrubbed = redact(line)
+    assert "eyJhbGciOiJIUzI1NiJ9" not in scrubbed
+    assert "token=[redacted]" in scrubbed
+    assert "/ws/chat/6c352984" in scrubbed, "the request itself still has to be readable"
+
+
+def test_a_logged_body_never_carries_a_password() -> None:
+    scrubbed = redact('incoming {"email": "demo@befos.app", "password": "Demo12345"}')
+    assert "Demo12345" not in scrubbed
+    assert '"password": "[redacted]"' in scrubbed
+    assert "demo@befos.app" in scrubbed
 
