@@ -45,6 +45,7 @@ private val translated: Map<String, String> = mapOf(
     "unsupported image type. use jpeg, png or webp." to "Поддерживаются JPEG, PNG и WEBP.",
     "empty file." to "Файл пуст. Выберите другое фото.",
     "file is not a valid image." to "Не удалось прочитать фото. Выберите другое.",
+    "image dimensions are too large." to "Фото слишком большое. Выберите снимок поменьше.",
 
     // chat
     "message cannot be empty." to "Напишите сообщение.",
