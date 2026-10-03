@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 
 from sqlalchemy import select, delete
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Activity, ActivityPreference, Recommendation
@@ -30,39 +31,38 @@ class ActivityRepository:
         lowered = {c.lower() for c in cities}
         return [a for a in rows if not a.cities or any(c.lower() in lowered for c in a.cities)]
 
-    async def get_preference(self, user_id: uuid.UUID, activity_id: int) -> ActivityPreference | None:
-        stmt = select(ActivityPreference).where(
-            ActivityPreference.user_id == user_id, ActivityPreference.activity_id == activity_id
-        )
-        return (await self.session.execute(stmt)).scalar_one_or_none()
-
     async def set_preference(self, user_id: uuid.UUID, activity_id: int, score: float) -> None:
-        pref = await self.get_preference(user_id, activity_id)
-        if pref is None:
-            self.session.add(
-                ActivityPreference(user_id=user_id, activity_id=activity_id, score=score)
-            )
-        else:
-            pref.score = score
-        await self.session.flush()
+        # Constraint-decided write: tapping the same activity twice reaches the server
+        # before the first insert commits.
+        await self.session.execute(
+            pg_insert(ActivityPreference)
+            .values(user_id=user_id, activity_id=activity_id, score=score)
+            .on_conflict_do_update(constraint="uq_activity_pref", set_={"score": score})
+        )
 
     async def replace_recommendations(
         self, match_id: uuid.UUID, recs: list[dict]
-    ) -> list[Recommendation]:
+    ) -> None:
         await self.session.execute(delete(Recommendation).where(Recommendation.match_id == match_id))
-        created: list[Recommendation] = []
         for position, item in enumerate(recs):
-            rec = Recommendation(
-                match_id=match_id,
-                activity_id=item["activity_id"],
-                score=item["score"],
-                explanation=item["explanation"],
-                position=position,
+            await self.session.execute(
+                pg_insert(Recommendation)
+                .values(
+                    match_id=match_id,
+                    activity_id=item["activity_id"],
+                    score=item["score"],
+                    explanation=item["explanation"],
+                    position=position,
+                )
+                .on_conflict_do_update(
+                    constraint="uq_match_activity_rec",
+                    set_={
+                        "score": item["score"],
+                        "explanation": item["explanation"],
+                        "position": position,
+                    },
+                )
             )
-            self.session.add(rec)
-            created.append(rec)
-        await self.session.flush()
-        return created
 
     async def list_recommendations(self, match_id: uuid.UUID) -> list[Recommendation]:
         stmt = (

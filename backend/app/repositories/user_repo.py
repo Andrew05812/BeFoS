@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 
 from sqlalchemy import select, func
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -95,8 +96,13 @@ class UserRepository:
             UserInterest.__table__.delete().where(UserInterest.profile_id == profile_id)
         )
         for interest in interests:
-            self.session.add(UserInterest(profile_id=profile_id, interest_id=interest.id))
-        await self.session.flush()
+            # A second onboarding submit can land while the first is still in flight;
+            # both delete and both insert the same pairs, so the constraint decides.
+            await self.session.execute(
+                pg_insert(UserInterest)
+                .values(profile_id=profile_id, interest_id=interest.id)
+                .on_conflict_do_nothing(constraint="uq_user_interest")
+            )
 
     async def list_all_interests(self) -> list[Interest]:
         stmt = select(Interest).order_by(Interest.name)

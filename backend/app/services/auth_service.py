@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -32,8 +33,15 @@ class AuthService:
             raise ValidationError("Passwords do not match.")
         if await self.users.email_exists(email):
             raise ConflictError("An account with this email already exists.")
-        user = User(email=email.lower(), password_hash=hash_password(password), is_active=True)
-        await self.users.create(user)
+        # A double tap posts the same email twice before either insert has committed, so the
+        # read above cannot be the only gate: the unique index decides, and the loser hears
+        # the same answer it would have heard from a serial retry.
+        try:
+            user = User(email=email.lower(), password_hash=hash_password(password), is_active=True)
+            await self.users.create(user)
+        except IntegrityError:
+            await self.session.rollback()
+            raise ConflictError("An account with this email already exists.")
         # Create an empty profile shell so downstream code always has one.
         profile = Profile(
             user_id=user.id,

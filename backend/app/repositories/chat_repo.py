@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import select, func, and_, or_
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -62,15 +63,22 @@ class ChatRepository:
             MessageRead.reader_id == reader_id, MessageRead.message_id.in_(message_ids)
         )
         existing = {row[0] for row in (await self.session.execute(already)).all()}
+        pending = [mid for mid in message_ids if mid not in existing]
+        if not pending:
+            return 0
         now = datetime.now(timezone.utc)
-        count = 0
-        for mid in message_ids:
-            if mid not in existing:
-                self.session.add(MessageRead(message_id=mid, reader_id=reader_id, read_at=now))
-                count += 1
-        if count:
-            await self.session.flush()
-        return count
+        # Two devices (or the REST call and the socket) can mark the same message read at
+        # once; the constraint decides which one recorded it, and RETURNING counts the rows
+        # this call actually inserted so the receipt is broadcast only for those.
+        inserted = (
+            await self.session.execute(
+                pg_insert(MessageRead)
+                .values([{"message_id": mid, "reader_id": reader_id, "read_at": now} for mid in pending])
+                .on_conflict_do_nothing(constraint="uq_message_read")
+                .returning(MessageRead.id)
+            )
+        ).all()
+        return len(inserted)
 
     async def last_message(self, match_id: uuid.UUID) -> Message | None:
         stmt = (
