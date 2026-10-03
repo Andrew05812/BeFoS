@@ -35,4 +35,15 @@ class MatchesViewModel(private val matchRepository: MatchRepository) : ViewModel
             }
         }
     }
+
+    /** Re-fetch without flashing the skeleton; used when the tab is re-opened. */
+    fun refreshSilently() {
+        if (_uiState.value.loading) return
+        viewModelScope.launch {
+            when (val result = matchRepository.matches()) {
+                is ApiResult.Success -> _uiState.update { it.copy(loading = false, matches = result.data, error = null) }
+                is ApiResult.Error -> Unit
+            }
+        }
+    }
 }

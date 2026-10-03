@@ -27,7 +27,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -61,7 +61,10 @@ fun MainScreen(
     onOpenTest: () -> Unit,
     onLoggedOut: () -> Unit,
 ) {
-    var tab by remember { mutableIntStateOf(0) }
+    // Saveable, not plain remember: NavHost disposes MAIN when the user opens a chat,
+    // the editor or settings, and returning to Discovery after editing one's own
+    // profile reads as "your place was lost".
+    var tab by rememberSaveable { mutableIntStateOf(0) }
     val tabs = Tab.entries
 
     Scaffold(
@@ -94,7 +97,7 @@ fun MainScreen(
                 DiscoveryScreen(onOpenMatch = onOpenChat, onOpenProfile = onOpenProfile)
             }
             1 -> androidx.compose.foundation.layout.Box(contentModifier) {
-                MatchListScreen(onOpenChat = onOpenChat)
+                MatchListScreen(onOpenChat = onOpenChat, onGoDiscover = { tab = 0 })
             }
             else -> androidx.compose.foundation.layout.Box(contentModifier) {
                 ProfileScreen(
