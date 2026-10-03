@@ -271,6 +271,39 @@ async def test_chat_send_and_history(client: AsyncClient):
     assert own and all(m["is_read"] for m in own)
 
 
+async def test_a_message_past_the_limit_is_refused_with_a_reason(client: AsyncClient):
+    """The client shows this sentence verbatim to someone whose text was too long, so a
+    generic payload error is the difference between advice and a dead end."""
+    a = await _make_ready_user(client, "long_a@befos.app", "Лена", "female")
+    b = await _make_ready_user(client, "long_b@befos.app", "Лёва", "male")
+    await client.post(f"/api/v1/users/{b['user_id']}/like", json={}, headers=auth_headers(a["token"]))
+    mutual = await client.post(
+        f"/api/v1/users/{a['user_id']}/like", json={}, headers=auth_headers(b["token"])
+    )
+    match_id = mutual.json()["match_id"]
+
+    longest = await client.post(
+        f"/api/v1/matches/{match_id}/messages",
+        json={"body": "а" * 4000},
+        headers=auth_headers(a["token"]),
+    )
+    assert longest.status_code == 201, longest.text
+
+    too_long = await client.post(
+        f"/api/v1/matches/{match_id}/messages",
+        json={"body": "а" * 4001},
+        headers=auth_headers(a["token"]),
+    )
+    assert too_long.status_code == 422
+    assert too_long.json()["error"]["message"] == "Message is too long."
+
+    history = await client.get(
+        f"/api/v1/matches/{match_id}/messages", headers=auth_headers(b["token"])
+    )
+    bodies = [m["body"] for m in history.json()["messages"]]
+    assert all(len(x) <= 4000 for x in bodies), "the refused message must not be stored"
+
+
 async def test_chat_send_and_read_broadcast_to_match_socket(client: AsyncClient, monkeypatch):
     from app.api.v1 import chat as chat_api
 

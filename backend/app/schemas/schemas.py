@@ -254,7 +254,10 @@ class MessageOut(BaseModel):
 
 
 class MessageIn(BaseModel):
-    body: str = Field(min_length=1, max_length=4000)
+    # The envelope a schema violation produces names no field and no limit, which is
+    # useless to someone whose message was simply too long, so the length rule lives in
+    # ChatService.send with its own message; this bound only stops an absurd payload.
+    body: str = Field(min_length=1, max_length=20_000)
 
 
 class MessagePage(BaseModel):
