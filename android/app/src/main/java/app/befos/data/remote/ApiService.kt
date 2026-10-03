@@ -48,7 +48,7 @@ import java.io.InputStream
  */
 class ApiService(private val client: HttpClient) {
 
-    private fun endpoint(path: String): String = "${ApiConfig.BASE_URL}${ApiConfig.API_PREFIX}/$path"
+    private fun endpoint(path: String): String = ApiConfig.api(path)
 
     // ---------- Auth ----------
     suspend fun register(email: String, password: String): ApiResult<AuthResponseDto> =

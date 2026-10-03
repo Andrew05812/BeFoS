@@ -27,15 +27,20 @@ class AppContainer(context: Context) {
     val appScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     val tokenStore: TokenStore = TokenStore(context.applicationContext)
-    val httpClient: HttpClient = createHttpClient(tokenStore)
-    private val api: ApiService = ApiService(httpClient)
 
-    val authRepository: AuthRepository = AuthRepositoryImpl(api, tokenStore)
-    val profileRepository: ProfileRepository = ProfileRepositoryImpl(api)
-    val testRepository: TestRepository = TestRepositoryImpl(api)
-    val discoveryRepository: DiscoveryRepository = DiscoveryRepositoryImpl(api)
-    val matchRepository: MatchRepository = MatchRepositoryImpl(api)
-    val safetyRepository: SafetyRepository = SafetyRepositoryImpl(api)
-    val chatRepository: ChatRepository =
+    // Building the HTTP stack costs well over a second (engine discovery, TLS
+    // providers, coroutine dispatchers). Nothing is requested before the splash
+    // frame, so keep it off Application.onCreate and pay it on first use.
+    val httpClient: HttpClient by lazy { createHttpClient(tokenStore) }
+    private val api: ApiService by lazy { ApiService(httpClient) }
+
+    val authRepository: AuthRepository by lazy { AuthRepositoryImpl(api, tokenStore) }
+    val profileRepository: ProfileRepository by lazy { ProfileRepositoryImpl(api) }
+    val testRepository: TestRepository by lazy { TestRepositoryImpl(api) }
+    val discoveryRepository: DiscoveryRepository by lazy { DiscoveryRepositoryImpl(api) }
+    val matchRepository: MatchRepository by lazy { MatchRepositoryImpl(api) }
+    val safetyRepository: SafetyRepository by lazy { SafetyRepositoryImpl(api) }
+    val chatRepository: ChatRepository by lazy {
         ChatRepositoryImpl(api, httpClient, tokenStore, appScope)
+    }
 }

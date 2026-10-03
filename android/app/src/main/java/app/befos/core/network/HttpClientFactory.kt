@@ -6,6 +6,7 @@ import app.befos.data.model.TokenPairDto
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.engine.okhttp.OkHttp
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.auth.Auth
 import io.ktor.client.plugins.auth.providers.BearerTokens
 import io.ktor.client.plugins.auth.providers.bearer
@@ -24,6 +25,9 @@ object ApiConfig {
     const val BASE_URL: String = BuildConfig.API_BASE_URL
     const val WS_BASE_URL: String = BuildConfig.WS_BASE_URL
     const val API_PREFIX: String = "api/v1"
+
+    /** Full URL of an API route, e.g. ``api("users/me")``. */
+    fun api(path: String): String = "${BASE_URL.trimEnd('/')}/$API_PREFIX/$path"
 
     /** Resolves a backend-relative path (e.g. ``/uploads/x.png``) to an absolute URL. */
     fun absolute(url: String?): String? {
@@ -50,6 +54,12 @@ val befosJson = Json {
 
 fun createHttpClient(tokenStore: TokenStore): HttpClient = HttpClient(OkHttp) {
     expectSuccess = false
+
+    // Fail fast when the backend is unreachable; the socket defaults hang for ~10s each,
+    // which turns a cold start without network into a minute of blank splash.
+    install(HttpTimeout) {
+        connectTimeoutMillis = 5_000
+    }
 
     install(ContentNegotiation) {
         json(befosJson)
