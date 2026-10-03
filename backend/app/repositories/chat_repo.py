@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import select, func, and_, or_
+from sqlalchemy import select, func, and_, exists, or_
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -52,18 +52,17 @@ class ChatRepository:
 
     async def mark_read(self, match_id: uuid.UUID, reader_id: uuid.UUID) -> int:
         """Mark all messages in a match not sent by reader as read. Returns count."""
-        stmt = select(Message.id).where(
+        # The already-read test runs in SQL: this fires on every chat open, and reading
+        # the whole history into Python to drop it again made the cost grow with the
+        # length of the conversation instead of the number of unread messages.
+        unread = select(Message.id).where(
             Message.match_id == match_id,
             Message.sender_id != reader_id,
+            ~exists()
+            .where(MessageRead.message_id == Message.id, MessageRead.reader_id == reader_id)
+            .correlate(Message),
         )
-        message_ids = [row[0] for row in (await self.session.execute(stmt)).all()]
-        if not message_ids:
-            return 0
-        already = select(MessageRead.message_id).where(
-            MessageRead.reader_id == reader_id, MessageRead.message_id.in_(message_ids)
-        )
-        existing = {row[0] for row in (await self.session.execute(already)).all()}
-        pending = [mid for mid in message_ids if mid not in existing]
+        pending = [row[0] for row in (await self.session.execute(unread)).all()]
         if not pending:
             return 0
         now = datetime.now(timezone.utc)

@@ -83,9 +83,12 @@ class RecommendationService:
         return await self._hydrate(stored)
 
     async def _hydrate(self, stored: list) -> list[dict]:
+        # The catalogue rows are read once for the whole page: one round trip per card
+        # made opening the tab cost eight queries to fetch eight rows of the same table.
+        by_id = await self.activities.get_by_ids([rec.activity_id for rec in stored])
         out: list[dict] = []
         for rec in stored:
-            act = await self.activities.get(rec.activity_id)
+            act = by_id.get(rec.activity_id)
             if act is None:
                 continue
             reasons = rec.explanation.get("reasons", []) if isinstance(rec.explanation, dict) else []

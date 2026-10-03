@@ -17,8 +17,12 @@ class ActivityRepository:
         stmt = select(Activity).order_by(Activity.id)
         return list((await self.session.execute(stmt)).scalars().all())
 
-    async def get(self, activity_id: int) -> Activity | None:
-        return await self.session.get(Activity, activity_id)
+    async def get_by_ids(self, activity_ids: list[int]) -> dict[int, Activity]:
+        """One read for a page of ids, keyed so the caller keeps its own order."""
+        if not activity_ids:
+            return {}
+        stmt = select(Activity).where(Activity.id.in_(activity_ids))
+        return {a.id: a for a in (await self.session.execute(stmt)).scalars().all()}
 
     async def get_by_slug(self, slug: str) -> Activity | None:
         stmt = select(Activity).where(Activity.slug == slug)
