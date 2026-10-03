@@ -20,6 +20,7 @@ import app.befos.core.designsystem.ErrorState
 import app.befos.core.designsystem.ListSkeleton
 import app.befos.core.designsystem.MatchCard
 import app.befos.core.designsystem.Spacing
+import app.befos.core.designsystem.tabularDigits
 import app.befos.core.di.beFosViewModel
 
 @Composable
@@ -63,8 +64,8 @@ fun MatchListScreen(onOpenChat: (String) -> Unit, onGoDiscover: () -> Unit) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Text(
-                        "${state.matches.size}",
-                        style = MaterialTheme.typography.headlineMedium,
+                        text = "${state.matches.size}",
+                        style = MaterialTheme.typography.headlineMedium.tabularDigits(),
                         color = MaterialTheme.colorScheme.onBackground,
                     )
                 }

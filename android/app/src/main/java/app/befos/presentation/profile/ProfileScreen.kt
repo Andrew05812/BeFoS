@@ -194,7 +194,7 @@ private fun TestProgressCard(percent: Int, completed: Boolean, failed: Boolean, 
         ) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-                    Text("ПРОФИЛЬ СОВМЕСТИМОСТИ", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("ТЕСТ СОВМЕСТИМОСТИ", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(
                         when {
                             failed -> "Прогресс теста не загрузился"
@@ -205,12 +205,21 @@ private fun TestProgressCard(percent: Int, completed: Boolean, failed: Boolean, 
                         fontWeight = FontWeight.SemiBold,
                     )
                 }
-                Text(
-                    if (failed) "—" else "$percent%",
-                    style = MaterialTheme.typography.headlineSmall.tabularDigits(),
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary,
-                )
+                // The bare number used to sit under "Профиль совместимости" and read as a
+                // compatibility score of 100%. It is answer coverage — so it says so.
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        if (failed) "—" else "$percent%",
+                        style = MaterialTheme.typography.headlineSmall.tabularDigits(),
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Text(
+                        "отвечено",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
             Box(
                 Modifier

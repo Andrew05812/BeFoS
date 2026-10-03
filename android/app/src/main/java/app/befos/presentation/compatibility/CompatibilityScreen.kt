@@ -107,7 +107,10 @@ fun CompatibilityScreen(matchId: String, onBack: () -> Unit) {
                     Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
                         SectionHeader("По категориям")
                         AppCard(modifier = Modifier.fillMaxWidth()) {
-                            Column(modifier = Modifier.padding(Spacing.xl)) {
+                            Column(
+                                modifier = Modifier.padding(Spacing.xl),
+                                verticalArrangement = Arrangement.spacedBy(Spacing.lg),
+                            ) {
                                 CategoryScoreList(data.categories)
                                 Text(
                                     "Итог — среднее по категориям: то, что важнее для знакомства, влияет сильнее.",

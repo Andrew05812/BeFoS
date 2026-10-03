@@ -50,12 +50,12 @@ import app.befos.core.designsystem.AppButtonVariant
 import app.befos.core.designsystem.AppCard
 import app.befos.core.designsystem.AppTextField
 import app.befos.core.designsystem.AppTopBar
-import app.befos.core.designsystem.CompatibilityScore
 import app.befos.core.designsystem.Elev
+import app.befos.core.designsystem.GlassScoreBadge
 import app.befos.core.designsystem.ErrorState
 import app.befos.core.designsystem.InlineNotice
 import app.befos.core.designsystem.InterestChip
-import app.befos.core.designsystem.ProfileSkeleton
+import app.befos.core.designsystem.PublicProfileSkeleton
 import app.befos.core.designsystem.MatchMoment
 import app.befos.core.designsystem.MonogramFallback
 import app.befos.core.designsystem.Peach
@@ -63,7 +63,6 @@ import app.befos.core.designsystem.RemotePhoto
 import app.befos.core.designsystem.SectionHeader
 import app.befos.core.designsystem.Spacing
 import app.befos.core.designsystem.SuccessGreen
-import app.befos.core.designsystem.glassSurface
 import app.befos.core.designsystem.photoScrim
 import app.befos.core.designsystem.rememberHaptics
 import app.befos.core.di.beFosViewModel
@@ -130,7 +129,7 @@ fun PublicProfileScreen(
         },
     ) { padding ->
         when {
-            state.loading -> ProfileSkeleton(Modifier.padding(padding))
+            state.loading -> PublicProfileSkeleton(Modifier.padding(padding))
             state.profile == null -> ErrorState(
                 message = state.error ?: "Проверьте подключение и попробуйте ещё раз.",
                 title = "Профиль недоступен",
@@ -160,7 +159,9 @@ fun PublicProfileScreen(
                             Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
                                 SectionHeader("Совместимость по категориям")
                                 AppCard(modifier = Modifier.fillMaxWidth()) {
-                                    CategoryScoreList(p.categories)
+                                    Column(modifier = Modifier.padding(Spacing.xl)) {
+                                        CategoryScoreList(p.categories)
+                                    }
                                 }
                             }
                         }
@@ -172,19 +173,33 @@ fun PublicProfileScreen(
                                     horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
                                     verticalArrangement = Arrangement.spacedBy(Spacing.sm),
                                 ) {
-                                    p.sharedInterests.forEach { slug -> InterestChip(label = prettifySlug(slug)) }
+                                    // Same ember accent the Discovery card puts on the
+                                    // shared-interests pill: what connects the pair is not
+                                    // just another item in her list.
+                                    p.sharedInterests.forEach { slug ->
+                                        InterestChip(
+                                            label = prettifySlug(slug),
+                                            containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        )
+                                    }
                                 }
                             }
                         }
 
-                        if (p.interests.isNotEmpty()) {
+                        // The shared ones already had their moment above; repeating them
+                        // under a second heading reads as a bug, not as a fuller picture.
+                        val rest = p.interests.filter { name ->
+                            p.sharedInterests.none { prettifySlug(it).equals(name, ignoreCase = true) }
+                        }
+                        if (rest.isNotEmpty()) {
                             Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
-                                SectionHeader("Интересы")
+                                SectionHeader(if (p.sharedInterests.isNotEmpty()) "Другие интересы" else "Интересы")
                                 FlowRow(
                                     horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
                                     verticalArrangement = Arrangement.spacedBy(Spacing.sm),
                                 ) {
-                                    p.interests.forEach { name -> InterestChip(label = name) }
+                                    rest.forEach { name -> InterestChip(label = name) }
                                 }
                             }
                         }
@@ -286,15 +301,13 @@ private fun ProfileHero(p: PublicProfile) {
             }
         }
 
-        // Compatibility on frosted glass, top-right.
-        Box(
+        // Compatibility on frosted glass, top-right: the number plus what it claims.
+        GlassScoreBadge(
+            percent = p.compatibility,
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .padding(Spacing.lg)
-                .glassSurface(CircleShape),
-        ) {
-            CompatibilityScore(percent = p.compatibility, size = 66.dp, strokeWidth = 6.dp)
-        }
+                .padding(Spacing.lg),
+        )
 
         // Page dots.
         if (photos.size > 1) {

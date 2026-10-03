@@ -12,15 +12,16 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.FlowRowOverflow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -53,11 +54,11 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.befos.core.designsystem.AppButton
 import app.befos.core.designsystem.AppButtonVariant
-import app.befos.core.designsystem.CompatibilityScore
 import app.befos.core.designsystem.DiscoveryCardData
 import app.befos.core.designsystem.DiscoverySkeleton
 import app.befos.core.designsystem.EmptyState
@@ -74,8 +75,9 @@ import app.befos.core.designsystem.OverlayIconButton
 import app.befos.core.designsystem.RemotePhoto
 import app.befos.core.designsystem.Spacing
 import app.befos.core.designsystem.SuccessGreen
-import app.befos.core.designsystem.compatibilityLevel
 import app.befos.core.designsystem.glassSurface
+import app.befos.core.designsystem.GlassScoreBadge
+import app.befos.core.designsystem.tabularDigits
 import app.befos.core.designsystem.photoScrim
 import app.befos.core.designsystem.rememberHaptics
 import app.befos.core.designsystem.scoreColor
@@ -182,7 +184,7 @@ private fun DiscoveryContent(state: DiscoveryUiState, vm: DiscoveryViewModel, on
             )
             Text(
                 text = "${state.index + 1} / ${state.cards.size}",
-                style = MaterialTheme.typography.labelLarge,
+                style = MaterialTheme.typography.labelLarge.tabularDigits(),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -349,28 +351,26 @@ private fun CardPhoto(
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun CardOverlay(card: DiscoveryCard, onOpenProfile: () -> Unit) {
-    Box(Modifier.fillMaxSize()) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        // Four chips fit on a 392dp phone at normal text size but stack into four rows
+        // on a 320dp one, and the bottom block then grows up into the score badge.
+        // Large system text does the same to a wide screen, so both fold the list down
+        // to one chip plus the counter — the counter is what tells the user there is
+        // more, so it must never be the item that falls off the edge.
+        val cramped = maxWidth < 300.dp || LocalDensity.current.fontScale > 1.2f
+        val chipLimit = when {
+            cramped -> 1
+            maxWidth < 340.dp -> 3
+            else -> 4
+        }
         // Score reads as a claim, not a decoration: the number plus what it means.
-        Column(
+        GlassScoreBadge(
+            percent = card.compatibility,
+            size = if (cramped) 48.dp else 62.dp,
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .padding(Spacing.lg)
-                .glassSurface(RoundedCornerShape(20.dp))
-                .padding(horizontal = Spacing.md, vertical = Spacing.sm),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
-            CompatibilityScore(percent = card.compatibility, size = 62.dp, strokeWidth = 6.dp)
-            Text(
-                text = "${compatibilityLevel(card.compatibility)} совместимость",
-                style = MaterialTheme.typography.labelSmall,
-                color = Color.White.copy(alpha = 0.86f),
-                textAlign = TextAlign.Center,
-                lineHeight = 13.sp,
-                maxLines = 2,
-                modifier = Modifier.widthIn(max = 124.dp),
-            )
-        }
+                .padding(Spacing.lg),
+        )
         // Detail shortcut, top-left.
         OverlayIconButton(
             onClick = onOpenProfile,
@@ -386,7 +386,14 @@ private fun CardOverlay(card: DiscoveryCard, onOpenProfile: () -> Unit) {
                 .align(Alignment.BottomStart)
                 .fillMaxWidth()
                 .background(photoScrim())
-                .padding(start = Spacing.xl, end = Spacing.xl, bottom = Spacing.xxl, top = Spacing.huge),
+                .padding(
+                    start = Spacing.xl,
+                    end = Spacing.xl,
+                    bottom = Spacing.xxl,
+                    // The scrim needs less air on a short card: every dp here is a dp
+                    // the editorial block climbs toward the score badge.
+                    top = if (cramped) Spacing.xxl else Spacing.huge,
+                ),
             verticalArrangement = Arrangement.spacedBy(Spacing.sm),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -395,7 +402,10 @@ private fun CardOverlay(card: DiscoveryCard, onOpenProfile: () -> Unit) {
                     color = Color.White,
                     style = MaterialTheme.typography.displaySmall,
                     fontWeight = FontWeight.Bold,
+                    // A long name must not push the age off the card.
+                    modifier = Modifier.weight(1f, fill = false),
                     maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     text = ", ${card.age}",
@@ -409,18 +419,22 @@ private fun CardOverlay(card: DiscoveryCard, onOpenProfile: () -> Unit) {
                     text = "${card.city} · ${goalLabel(card.datingGoal)}",
                     color = Color.White.copy(alpha = 0.82f),
                     style = MaterialTheme.typography.titleMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
             // Hierarchy: person → compatibility → identity → interests → explanation.
             // The chips used to sit under the explanation sentence, which buried the
             // concrete shared ground under a summary of it.
             if (card.interests.isNotEmpty()) {
-                val shown = card.interests.take(4)
+                val shown = card.interests.take(chipLimit)
                 val hidden = card.interests.size - shown.size
                 FlowRow(
                     modifier = Modifier.padding(top = Spacing.xs),
                     horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
                     verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+                    maxLines = 2,
+                    overflow = FlowRowOverflow.Clip,
                 ) {
                     shown.forEach { name ->
                         InterestChip(
@@ -453,6 +467,9 @@ private fun CardOverlay(card: DiscoveryCard, onOpenProfile: () -> Unit) {
                         color = Color.White,
                         style = MaterialTheme.typography.bodyMedium,
                         maxLines = 2,
+                        // Without this the line is cut at the box edge, and a reason
+                        // ending in a bare comma reads as a rendering bug.
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }

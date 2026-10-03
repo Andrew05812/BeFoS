@@ -29,6 +29,7 @@ import app.befos.core.designsystem.Motion
 import app.befos.core.designsystem.ScoreLow
 import app.befos.core.designsystem.Spacing
 import app.befos.core.designsystem.scoreColor
+import app.befos.core.designsystem.tabularDigits
 import app.befos.domain.model.CategoryScore
 
 /**
@@ -58,18 +59,19 @@ fun CategoryScoreRow(score: CategoryScore, modifier: Modifier = Modifier, delayM
         ) {
             Text(
                 // Weight only exists in the pair-compatibility calculation; the
-                // personal test profile has none, so "вес 0%" would be a lie.
+                // personal test profile has none, so "важность 0%" would be a lie.
+                // "Вес" is engine vocabulary — the user reads how much a category mattered.
                 text = if (score.weight > 0f) {
-                    "${score.label.uppercase()} · вес ${Math.round(score.weight * 100)}%"
+                    "${score.label.uppercase()} · важность ${Math.round(score.weight * 100)}%"
                 } else {
                     score.label.uppercase()
                 },
-                style = MaterialTheme.typography.labelSmall,
+                style = MaterialTheme.typography.labelSmall.tabularDigits(),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
-                "${score.score}%",
-                style = MaterialTheme.typography.titleMedium,
+                text = "${score.score}%",
+                style = MaterialTheme.typography.titleMedium.tabularDigits(),
                 fontWeight = FontWeight.Bold,
                 color = color,
             )

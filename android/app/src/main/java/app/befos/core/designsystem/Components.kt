@@ -19,10 +19,12 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -80,6 +82,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImagePainter
 import coil.compose.rememberAsyncImagePainter
 import kotlin.math.roundToInt
@@ -288,6 +291,7 @@ fun CompatibilityScore(
     modifier: Modifier = Modifier,
     size: Dp = 92.dp,
     strokeWidth: Dp = 8.dp,
+    onDark: Boolean = false,
 ) {
     val target = percent.coerceIn(0, 100) / 100f
     val sweep = remember { Animatable(0f) }
@@ -296,8 +300,10 @@ fun CompatibilityScore(
     }
     val animated = sweep.value
     val shown = (sweep.value * 100).roundToInt()
-    val color = scoreColor(percent)
-    val track = MaterialTheme.colorScheme.surfaceVariant
+    // High scores are iris-purple, which disappears on a photo or the night scrim,
+    // so on imagery the whole ring lifts toward white and the digits turn pure white.
+    val color = if (onDark) lerp(scoreColor(percent), Color.White, 0.45f) else scoreColor(percent)
+    val track = if (onDark) Color.White.copy(alpha = 0.26f) else MaterialTheme.colorScheme.surfaceVariant
     Box(
         modifier = modifier
             .size(size)
@@ -345,7 +351,36 @@ fun CompatibilityScore(
             text = "$shown%",
             style = MaterialTheme.typography.titleLarge.tabularDigits(),
             fontWeight = FontWeight.Bold,
-            color = color,
+            color = if (onDark) Color.White else color,
+        )
+    }
+}
+
+/**
+ * Frosted score badge for imagery: the ring plus the verdict it claims, on one glass
+ * surface. Shared by the Discovery card and the public profile hero so both read alike.
+ */
+@Composable
+fun GlassScoreBadge(percent: Int, modifier: Modifier = Modifier, size: Dp = 62.dp) {
+    Column(
+        modifier = modifier
+            .glassSurface(RoundedCornerShape(20.dp))
+            .padding(Spacing.md),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+    ) {
+        CompatibilityScore(percent = percent, size = size, strokeWidth = 6.dp, onDark = true)
+        Text(
+            text = "${compatibilityLevel(percent)} совместимость",
+            style = MaterialTheme.typography.labelSmall,
+            color = Color.White.copy(alpha = 0.86f),
+            textAlign = TextAlign.Center,
+            lineHeight = 14.sp,
+            maxLines = 2,
+            // No width cap: a fixed 124dp fitted the phrase at default text size and
+            // cut the last letters off at 1.3. The badge is TopEnd-anchored, so letting
+            // it grow is what keeps the words whole.
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }
@@ -547,6 +582,47 @@ fun ProfileSkeleton(modifier: Modifier = Modifier) {
                 .height(96.dp),
             shape = MaterialTheme.shapes.large,
         )
+    }
+}
+
+/** Loading composition mirroring the public profile: tall hero, then the category card. */
+@Composable
+fun PublicProfileSkeleton(modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background),
+        verticalArrangement = Arrangement.spacedBy(Spacing.xxl),
+    ) {
+        SkeletonBlock(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = Spacing.gutter)
+                .aspectRatio(0.82f),
+            shape = MaterialTheme.shapes.extraLarge,
+        )
+        Column(
+            modifier = Modifier.padding(horizontal = Spacing.gutter),
+            verticalArrangement = Arrangement.spacedBy(Spacing.md),
+        ) {
+            SkeletonBlock(Modifier.width(196.dp).height(12.dp))
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(236.dp)
+                    .clip(MaterialTheme.shapes.large)
+                    .background(MaterialTheme.colorScheme.surface)
+                    .padding(Spacing.lg),
+                verticalArrangement = Arrangement.spacedBy(Spacing.lg),
+            ) {
+                repeat(3) {
+                    Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                        SkeletonBlock(Modifier.fillMaxWidth(0.5f).height(12.dp))
+                        SkeletonBlock(Modifier.fillMaxWidth().height(10.dp), shape = CircleShape)
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -1151,7 +1227,7 @@ fun MessageBubble(
     val appear = remember { Animatable(0f) }
     LaunchedEffect(Unit) { appear.animateTo(1f, Motion.enterSpring()) }
     val ownBrush = EmberGradient
-    Row(
+    BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
             .graphicsLayer {
@@ -1160,7 +1236,7 @@ fun MessageBubble(
                 scaleX = 0.96f + 0.04f * appear.value
                 scaleY = 0.96f + 0.04f * appear.value
             },
-        horizontalArrangement = if (isOwn) Arrangement.End else Arrangement.Start,
+        contentAlignment = if (isOwn) Alignment.CenterEnd else Alignment.CenterStart,
     ) {
         val cornerShape = RoundedCornerShape(
             topStart = 20.dp,
@@ -1170,10 +1246,10 @@ fun MessageBubble(
         )
         Column(
             modifier = Modifier
-                // 86% of the thread keeps short replies tight and stays readable on a
-                // 320dp screen, where a fixed 300dp bubble used to fill edge to edge.
-                .fillMaxWidth(0.86f)
-                .widthIn(max = 340.dp)
+                // A bubble is as wide as its message, capped at 86% of the thread and
+                // 340dp: a one-word reply must not stretch into a full-width banner, and
+                // a long one stays inside a readable measure on any screen.
+                .widthIn(max = minOf(maxWidth * 0.86f, 340.dp))
                 .then(
                     if (isOwn) {
                         Modifier.background(ownBrush, cornerShape)
@@ -1184,6 +1260,7 @@ fun MessageBubble(
                     }
                 )
                 .padding(horizontal = Spacing.lg, vertical = Spacing.md),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             Text(
                 body,

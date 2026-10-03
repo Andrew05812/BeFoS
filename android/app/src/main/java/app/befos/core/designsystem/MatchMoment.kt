@@ -106,7 +106,7 @@ fun MatchMoment(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(Spacing.sm),
                 ) {
-                    CompatibilityScore(percent = compatibility, size = 132.dp, strokeWidth = 10.dp)
+                    CompatibilityScore(percent = compatibility, size = 132.dp, strokeWidth = 10.dp, onDark = true)
                     Text(
                         // The ring already carries the number; repeating «75%» here would
                         // only add noise. Say what the number means instead.
