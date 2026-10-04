@@ -1,6 +1,6 @@
 # База данных BeFoS
 
-PostgreSQL 16, SQLAlchemy 2.0 (async) + asyncpg. Миграции — Alembic (`backend/alembic/versions/`). Первичная миграция `03f0ea587029_initial_schema` создаёт 21 таблицу, `4f2a1c9d7b30_discovery_deck_and_indexes` добавляет колоду подбора и индексы, нужные горячим чтением.
+PostgreSQL 16, SQLAlchemy 2.0 (async) + asyncpg. Миграции — Alembic (`backend/alembic/versions/`). Первичная миграция `03f0ea587029_initial_schema` создаёт 21 таблицу, `4f2a1c9d7b30_discovery_deck_and_indexes` добавляет колоду подбора и индексы, нужные горячим чтением, `9c1f5b7d2a40_message_idempotency_key` — ключ повторяемости отправки в `messages`.
 
 Все таблицы наследуют `TimestampMixin` (`created_at`, `updated_at`), кроме чисто справочных. Первичные ключи пользователей и связанных сущностей — `UUID`; справочники — `INTEGER` (autoincrement). Внешние ключи на `users.id` используют `ON DELETE CASCADE`.
 
@@ -91,7 +91,13 @@ users ─1:1─ profiles ─M:N─ interests   (через user_interests)
 ## Чат
 
 ### `messages`
-`id` (UUID PK), `match_id` (FK matches, cascade, index), `sender_id` (FK users, cascade, index), `body` (Text), `is_deleted` (Boolean). Индекс `ix_message_match_created (match_id, created_at)` — для пагинации истории.
+`id` (UUID PK), `match_id` (FK matches, cascade, index), `sender_id` (FK users, cascade, index), `body` (Text), `is_deleted` (Boolean), `client_msg_id` (String 64, null). Индекс `ix_message_match_created (match_id, created_at)` — для пагинации истории.
+
+`client_msg_id` — имя отправки, данное клиентом; оно уникально в пределах `(match_id, sender_id)`
+и поэтому повтор уснувшего запроса находит уже сохранённую строку вместо второй копии. Индекс
+`uq_message_sender_client_id (match_id, sender_id, client_msg_id) UNIQUE WHERE client_msg_id IS NOT NULL`
+частичный: у сообщений, записанных до этой ревизии, и у отправок без имени ключа нет, и NULL не
+должен сталкиваться с NULL. Миграция `9c1f5b7d2a40`.
 
 ### `message_reads`
 `id` (UUID PK), `message_id` (FK messages, cascade), `reader_id` (FK users, cascade), `read_at` (timestamptz). `uq_message_read (message_id, reader_id)`. Индекс `ix_message_reads_reader_message (reader_id, message_id)` — счётчик непрочитанных фильтрует `reader_id` один, а ни один ключ этой таблицы с него не начинался. Непрочитанные = сообщения другого отправителя без записи о прочтении читателем.

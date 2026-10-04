@@ -10,8 +10,8 @@ Docker, один узел); команды — однострочные и ра�
 
 | Что | Где лежит | Имя тома | Измеренный объём |
 |-----|-----------|----------|------------------|
-| Данные (аккаунты, тесты, совместимость, чаты, колода подбора) | `/var/lib/postgresql/data` | `myapp_befos_pgdata` | 231 МБ на диске, база 11 МБ |
-| Загруженные пользователями фото | `/app/uploads` | `myapp_befos_uploads` | 3.8 МБ, 126 файлов (58 из них имеют строку в `photos`) |
+| Данные (аккаунты, тесты, совместимость, чаты, колода подбора) | `/var/lib/postgresql/data` | `myapp_befos_pgdata` | 158 МБ на диске (кластер целиком: `befos` 12 МБ + тестовая `befos_test` 11 МБ + WAL) |
+| Загруженные пользователями фото | `/app/uploads` | `myapp_befos_uploads` | 3.9 МБ, 131 файл (58 из них имеют строку в `photos`) |
 
 **Том Docker — не резервная копия.** Это рабочая directory того же диска того же хоста:
 она переживает перезапуск контейнера и не переживает `docker volume rm`, переустановку
@@ -34,7 +34,7 @@ docker exec befos_postgres sh -c "pg_dump -U befos -d befos --format=custom --co
 docker cp befos_postgres:/tmp/befos.dump "C:/backups/befos-$(Get-Date -Format yyyyMMdd-HHmmss).dump"
 ```
 
-Измерено: 1.0 с, 292 КБ на выходе (база 11 МБ, 23 таблицы, 74 индекса).
+Измерено: 0.9 с, 310 КБ на выходе (база 12 МБ, 23 таблицы, 75 индексов).
 
 Фотки — архивом тома, на снимке только для чтения, чтобы записи во время копирования не
 дали смешанный набор файлов:
@@ -43,7 +43,7 @@ docker cp befos_postgres:/tmp/befos.dump "C:/backups/befos-$(Get-Date -Format yy
 docker run --rm -v myapp_befos_uploads:/data:ro -v C:/backups:/out alpine tar czf /out/uploads-$(date +%Y%m%d-%H%M%S).tgz -C /data .
 ```
 
-Измерено: 2.6 МБ, 112 файла.
+Измерено: 2.6 МБ, 131 файл.
 
 Дамп — это персональные данные: тексты чатов, адреса, ссылки на фотографии, хэши паролей.
 Файл не кладётся в git (проверка: `git status` после снятия копии должен быть чистым —
@@ -77,19 +77,31 @@ Compare-Object (Get-Content source.txt) (Get-Content restored.txt)
 (`psql` есть только в контейнике базы, файл надо положить туда — в образ backend он не
 копируется, хотя `ops/backup_fingerprint.sql` в нём лежит.)
 
-Пройденный drill 2026-10-04: вывод совпал целиком — 23 таблицы построчно (`users=171`,
-`profiles=171`, `messages=50`, `test_answers=2544`, `refresh_tokens=323`,
-`discovery_queue=365`), `alembic=4f2a1c9d7b30`, 74 индекса, 4 sequence.
+Пройденный drill 2026-10-04 (после миграции `9c1f5b7d2a40`): вывод совпал целиком — 23
+таблицы построчно (`users=198`, `profiles=198`, `messages=47`, `message_reads=64`,
+`test_answers=2838`, `discovery_queue=986`, `refresh_tokens=408`),
+`alembic=9c1f5b7d2a40`, 75 индексов, 4 sequence. Дамп снимался в 0.9 с, восстановление —
+1.9 с.
 
-Индексы проверяются не количеством, а планом: функциональный `lower(city)` пережил копию,
-и горячее чтение подбора на восстановленной базе использует его, а не sequential scan —
+Индексы проверяются не количеством, а тем, что копия остаётся пригодной для чтения:
+`pg_restore --exit-on-error` проходит целиком (то есть восстановлены и частичный уникальный
+индекс `uq_message_sender_client_id`, и `ix_profiles_city_lower_birth`), и план горячего
+чтения подбора на восстановленной базе использует функциональный индекс, когда planner его
+вообще рассматривает —
 
 ```
-Bitmap Index Scan on ix_profiles_city_lower_birth  (actual rows=75 loops=1)
-Execution Time: 1.098 ms
+->  Bitmap Index Scan on ix_profiles_city_lower_birth  (actual rows=7 loops=1)
+      Index Cond: ((lower(city) = 'москва') AND (birth_date >= '1995-01-01') AND (birth_date <= '2007-10-04'))
+Execution Time: 0.481 ms
 ```
 
-Копия, потерявшая индексы, возвращается медленнее, чем была рабочая база, и это единственный способ это заметить до аварии.
+Оговорка, без которой цифра обманывает: на 198 профилях planner выбирает Seq Scan
+(0.235 мс, 6 страниц) и выбирает правильно: индексу невыгодно спорить с таблицей, которая
+с трудом набирает шесть страниц. Поэтому
+проверка написана так: `SET enable_seqscan=off` показывает, что индекс на копии жив и
+пригоден, а «горячее чтение использует индекс» станет правдой не раньше, чем профилей
+станет достаточно для этого. Копия, потерявшая индексы, возвращается медленнее, чем была
+рабочая база, и это единственный способ заметить это до аварии.
 
 После сверки: `docker exec befos_postgres sh -c "dropdb -U befos befos_restore_drill"`.
 
@@ -108,7 +120,7 @@ Execution Time: 1.098 ms
    `docker run --rm -v myapp_befos_uploads:/data alpine tar xzf /in/uploads-<timestamp>.tgz -C /data`.
 5. `docker start befos_backend`, дождаться healthy, проверить `/health/db`, затем
    `alembic current` — он должен показать тот же `revision`, что и отпечаток копии.
-6. Прогнать `python e2e_journey.py` (ожидание: 47/47) — копия считается восстановленной, когда путь нового пользователя проходит целиком, а не когда `pg_restore` вышел с нулём.
+6. Прогнать `python e2e_journey.py` (ожидание: 63/63) — копия считается восстановленной, когда путь нового пользователя проходит целиком, а не когда `pg_restore` вышел с нулём.
 
 Ловушка в том, что система на пустом томе поднимается сама: postgres инициализирует
 пустую базу, backend при старте накатывает `alembic upgrade head` и сеет справочники —
@@ -139,10 +151,16 @@ Execution Time: 1.098 ms
    `docker compose run --rm backend alembic upgrade head`.
 
 Порядок релиза с миграцией всегда: копия → drill → `alembic upgrade head` → новый образ
-backend → e2e. Откат: `alembic downgrade -1` существует в каждом ревизии, но downgrade
-`4f2a1c9d7b30` удаляет таблицу `discovery_queue` вместе с историей показов — это потеря
-данных, а не откат кода. Если потеря приемлема, откатываются вместе с кодом, если нет —
-восстанавливают копию.
+backend → e2e. Этот порядок — не ритуал, а следствие того, что и миграция, и код меняют
+одну и ту же таблицу: на копии без `uq_message_sender_client_id` вставка идемпотентной
+отправки падает ещё до всякого кода приложения (`ERROR: there is no unique or exclusion
+constraint matching the ON CONFLICT specification` — измерено на базе drill с
+преднамеренно удалённым индексом, транзакция откатана, индекс на месте). Откат:
+`alembic downgrade -1` существует в каждом ревизии, но downgrade
+`4f2a1c9d7b30` удаляет таблицу `discovery_queue` вместе с историей показов, а downgrade
+`9c1f5b7d2a40` снимает и `client_msg_id`, и уникальный индекс по нему — то есть откат schema
+под кодом, который на неё опирается, это потеря данных, а не откат кода. Если потеря
+приемлема, откатываются вместе с кодом, если нет — восстанавливают копию.
 
 Проверка соответствия моделей и схемы: `docker exec befos_backend sh -c "cd /app && alembic
 check"` → `No new upgrade operations detected`. Раньше он врал: `discovery_queue` и
@@ -155,6 +173,22 @@ check"` → `No new upgrade operations detected`. Раньше он врал: `d
 Перед мержем любой новой миграции: `alembic check` чист, `pytest` зелёный, `EXPLAIN
 ANALYZE` на горячем чтении (см. `docs/DATABASE.md`), и миграция не содержит `DROP COLUMN`
 без отдельного решения о данных.
+
+Тестовая база устроена иначе: `backend/tests/conftest.py` строит схему через
+`Base.metadata.create_all`, а `create_all` никогда не меняет уже существующую таблицу. После
+правки моделей `befos_test` сохраняет прошлую схему, и тесты падают на `UndefinedColumnError`
+(так произошло с `client_msg_id`). Пересоздание — это одна строка, и терять там нечего, кроме
+строк, которые conftest и так вычищает между тестами:
+
+```powershell
+docker exec befos_postgres sh -c "dropdb -U befos --if-exists befos_test && createdb -U befos -O befos befos_test"
+```
+
+Если в тестовой базе что-то лежит и терять это нельзя, её доводят миграцией как обычную:
+`alembic stamp <предыдущая ревизия>` против `befos_test` (таблицы `alembic_version` в ней нет,
+поэтому без stamp `upgrade head` пойдёт накрывать уже существующие объекты) и затем
+`alembic upgrade head`. Проверено 2026-10-04 на `9c1f5b7d2a40`: после stamp+upgrade частичный
+уникальный индекс `uq_message_sender_client_id` в `befos_test` и в `befos` одинаковый.
 
 ## 7. Пул соединений и его математика
 
@@ -302,7 +336,7 @@ docker exec befos_postgres psql -U befos -d befos -tAc "select count(*) from pho
 docker exec befos_backend sh -c "ls /app/uploads | wc -l"
 ```
 
-Измерено 2026-10-04: 58 строк против 126 файлов (3.8 МБ). Удаление — отдельное осознанное
+Измерено 2026-10-04: 58 строк против 131 файла (3.9 МБ). Удаление — отдельное осознанное
 действие, потому что файл в томе может относиться к ещё не накатанной строке, к копии,
 которую кто-то распаковал, или к загрузке, чьё тело не дошло: прежде чем резать, сличите
 список с дампом. Никакого планировщика чистки в репозитории нет, и появляться он без
