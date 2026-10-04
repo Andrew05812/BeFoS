@@ -58,6 +58,18 @@ class BackendErrorTextTest {
     }
 
     @Test
+    fun `an outage reads as an outage and not as a fault or a logout`() {
+        // The backend says this when the database is not there. "Ошибка сервера" would blame
+        // the app, and anything that reads like a session problem would send the user to
+        // the login screen while their tokens are still valid.
+        val outage = "BeFoS is sorting itself out for a moment. Try again in a few seconds."
+        val expected = "Сервис временно недоступен. Попробуйте ещё раз через несколько секунд."
+        assertEquals(expected, localizeBackendError(outage, "database_unavailable", 503))
+        assertEquals(expected, localizeBackendError("", "database_unavailable", 503))
+        assertFalse(localizeBackendError(outage, "database_unavailable", 503).contains("BeFoS is"))
+    }
+
+    @Test
     fun `transport status copy stays untouched`() {
         assertEquals(defaultHttpMessage(401), localizeBackendError("", "", 401))
         assertEquals(defaultHttpMessage(429), localizeBackendError("", "", 429))

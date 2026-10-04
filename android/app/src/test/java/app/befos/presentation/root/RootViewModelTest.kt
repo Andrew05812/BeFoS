@@ -66,11 +66,25 @@ class RootViewModelTest {
     }
 
     @Test
-    fun `expired session logs out and routes to auth`() = runTest {
-        coEvery { auth.current() } returns StoredAuth("a", "r", "u1")
+    fun `a session the backend refused to refresh again routes to auth`() = runTest {
+        // The client, not this ViewModel, decides that a session is over: a refresh the
+        // server rejected clears the stored tokens before the 401 reaches here. Two reads
+        // of `current()` are the whole story — present at the gate, gone after the 401.
+        coEvery { auth.current() } returnsMany listOf(StoredAuth("a", "r", "u1"), null)
         coEvery { profiles.me() } returns ApiResult.Error(401, "unauthorized")
         assertEquals(RootDestination.AUTH, viewModel().destination.value)
-        coVerify(exactly = 1) { auth.logout() }
+        coVerify(exactly = 0) { auth.logout() }
+    }
+
+    @Test
+    fun `a 401 the client could not have logged out over keeps the session`() = runTest {
+        // An outage or a restarting backend fails the refresh without saying anything about
+        // the session, and the retried call then answers 401 anyway. Erasing the tokens here
+        // would sign a logged-in user out over a hiccup, which is the bug this pins shut.
+        coEvery { auth.current() } returns StoredAuth("a", "r", "u1")
+        coEvery { profiles.me() } returns ApiResult.Error(401, "unauthorized")
+        assertEquals(RootDestination.MAIN, viewModel().destination.value)
+        coVerify(exactly = 0) { auth.logout() }
     }
 
     @Test

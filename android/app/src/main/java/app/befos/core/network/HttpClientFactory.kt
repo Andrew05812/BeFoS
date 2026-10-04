@@ -27,21 +27,25 @@ object ApiConfig {
     const val API_PREFIX: String = "api/v1"
 
     /** Full URL of an API route, e.g. ``api("users/me")``. */
-    fun api(path: String): String = "${BASE_URL.trimEnd('/')}/$API_PREFIX/$path"
+    fun api(path: String): String = joinUrl(BASE_URL, "$API_PREFIX/$path")
 
     /** Resolves a backend-relative path (e.g. ``/uploads/x.png``) to an absolute URL. */
     fun absolute(url: String?): String? {
         if (url.isNullOrBlank()) return null
         if (url.startsWith("http://") || url.startsWith("https://")) return url
-        val base = BASE_URL.trimEnd('/')
-        val path = if (url.startsWith("/")) url else "/$url"
-        return base + path
+        return joinUrl(BASE_URL, url)
     }
 
-    fun wsUrl(matchId: String): String {
-        val base = WS_BASE_URL.trimEnd('/')
-        return "$base/ws/chat/$matchId"
-    }
+    fun wsUrl(matchId: String): String = joinUrl(WS_BASE_URL, "ws/chat/$matchId")
+
+    /**
+     * The one place a base URL and a path are joined. `BEFOS_API_BASE_URL` is written by a
+     * human into a release build, and a base without its trailing slash used to produce
+     * `https://api.example.comapi/v1/...` for the refresh call only: the token could not be
+     * refreshed, so an expired session logged the user out on the one build nobody tested.
+     */
+    internal fun joinUrl(base: String, path: String): String =
+        base.trimEnd('/') + "/" + path.trimStart('/')
 }
 
 val befosJson = Json {
@@ -83,7 +87,7 @@ fun createHttpClient(tokenStore: TokenStore): HttpClient = HttpClient(OkHttp) {
                 // tokens on any of those logs a signed-in user out over a transient hiccup, so
                 // only an explicit authorization rejection is allowed to end the session.
                 val response = try {
-                    client.post("${ApiConfig.BASE_URL}${ApiConfig.API_PREFIX}/auth/refresh") {
+                    client.post(ApiConfig.api("auth/refresh")) {
                         contentType(ContentType.Application.Json)
                         setBody(RefreshRequest(current.refreshToken))
                         markAsRefreshTokenRequest()

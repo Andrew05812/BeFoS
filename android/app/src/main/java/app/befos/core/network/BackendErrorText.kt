@@ -77,6 +77,9 @@ private val translated: Map<String, String> = mapOf(
     "request failed." to "Не удалось выполнить запрос. Попробуйте ещё раз.",
     "internal server error." to "Ошибка сервера. Попробуйте позже.",
     "too many requests. please slow down." to "Слишком много запросов. Подождите немного.",
+    // An outage is not a bug and not a logout: the only advice there is, is to wait.
+    "befos is sorting itself out for a moment. try again in a few seconds." to
+        "Сервис временно недоступен. Попробуйте ещё раз через несколько секунд.",
 )
 
 /** Backend builds some messages from data, so they are matched by their constant prefix. */
@@ -97,6 +100,7 @@ private fun fallback(code: String, status: Int): String = when (code) {
     "conflict" -> "Это уже сделано."
     "rate_limited" -> "Слишком много запросов. Подождите немного."
     "internal_error" -> "Ошибка сервера. Попробуйте позже."
+    "database_unavailable" -> "Сервис временно недоступен. Попробуйте ещё раз через несколько секунд."
     else -> defaultHttpMessage(status)
 }
 

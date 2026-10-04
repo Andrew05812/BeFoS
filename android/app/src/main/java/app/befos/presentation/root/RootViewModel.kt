@@ -48,9 +48,13 @@ class RootViewModel(
                 if (onboarded) RootDestination.MAIN else RootDestination.ONBOARDING
             }
             is ApiResult.Error -> {
-                // A 401 means the stored session is no longer valid.
-                if (result.code == 401) {
-                    authRepository.logout()
+                // The session is over only when the client itself gave up on it: a refresh
+                // that the backend refused clears the stored tokens before this call
+                // returns. A 401 with tokens still stored means the refresh could not
+                // happen at all (outage, restart, network) — the session is intact, so this
+                // goes to MAIN, where the screens own the retry, instead of erasing a
+                // signed-in user over a hiccup.
+                if (result.code == 401 && authRepository.current() == null) {
                     RootDestination.AUTH
                 } else {
                     RootDestination.MAIN
