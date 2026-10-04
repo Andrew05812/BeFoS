@@ -208,12 +208,14 @@ data class DiscoveryCardDto(
     val highlight: String? = null,
 )
 
+/**
+ * One page of the deck. `next_cursor` is the only way to ask for the next page: the deck
+ * is ranked once on the server, and a position would name a different card after a swipe.
+ */
 @Serializable
-data class PaginatedDto<T>(
-    val items: List<T> = emptyList(),
-    val total: Int = 0,
-    val limit: Int = 0,
-    val offset: Int = 0,
+data class DiscoveryPageDto(
+    val items: List<DiscoveryCardDto> = emptyList(),
+    @SerialName("next_cursor") val nextCursor: String? = null,
     @SerialName("has_more") val hasMore: Boolean = false,
 )
 

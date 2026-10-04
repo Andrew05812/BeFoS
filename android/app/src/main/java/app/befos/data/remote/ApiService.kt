@@ -7,7 +7,7 @@ import app.befos.core.network.apiCallUnit
 import app.befos.data.model.AnswersRequest
 import app.befos.data.model.AuthResponseDto
 import app.befos.data.model.CompatibilityDto
-import app.befos.data.model.DiscoveryCardDto
+import app.befos.data.model.DiscoveryPageDto
 import app.befos.data.model.InterestListDto
 import app.befos.data.model.LikeResponseDto
 import app.befos.data.model.LoginRequest
@@ -17,7 +17,6 @@ import app.befos.data.model.MessageDto
 import app.befos.data.model.MessagePageDto
 import app.befos.data.model.MessageRequest
 import app.befos.data.model.OnboardingRequest
-import app.befos.data.model.PaginatedDto
 import app.befos.data.model.PassResponseDto
 import app.befos.data.model.ProfileDto
 import app.befos.data.model.ProfileUpdateRequest
@@ -160,12 +159,12 @@ class ApiService(private val client: HttpClient) {
         }
 
     // ---------- Discovery ----------
-    suspend fun discover(limit: Int = 20, offset: Int = 0): ApiResult<PaginatedDto<DiscoveryCardDto>> =
+    suspend fun discover(limit: Int = 20, cursor: String? = null): ApiResult<DiscoveryPageDto> =
         client.apiCall {
             method = HttpMethod.Get
             url(endpoint("discover"))
             parameter("limit", limit)
-            parameter("offset", offset)
+            if (cursor != null) parameter("cursor", cursor)
         }
 
     suspend fun like(userId: String): ApiResult<LikeResponseDto> =

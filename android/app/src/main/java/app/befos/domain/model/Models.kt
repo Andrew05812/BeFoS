@@ -82,6 +82,17 @@ data class DiscoveryCard(
     val highlight: String? = null,
 )
 
+/**
+ * One page of the viewer's deck. The cursor is where the next page continues from, and
+ * only the backend can know it: a card leaves the deck the moment it is swiped, so a
+ * position would point at a different person on the next request.
+ */
+data class DiscoveryPage(
+    val cards: List<DiscoveryCard>,
+    val nextCursor: String?,
+    val hasMore: Boolean,
+)
+
 data class PublicProfile(
     val userId: String,
     val name: String,

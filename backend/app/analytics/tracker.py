@@ -28,6 +28,7 @@ class Event:
     TEST_STARTED = "test_started"
     TEST_COMPLETED = "test_completed"
     PROFILE_VIEWED = "profile_viewed"
+    DISCOVERY_FEED = "discovery_feed"
     LIKE = "like"
     PASS = "pass"
     MATCH = "match"

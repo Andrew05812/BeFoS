@@ -94,7 +94,7 @@ export BEFOS_API_BASE_URL="https://api.example.com/" BEFOS_WS_BASE_URL="wss://ap
 
 ### Тесты
 
-**Backend** (62 теста: unit + integration + security-config + IDOR-набор + perf-ограничение числа запросов). По умолчанию тесты поднимают отдельную БД `befos_test` на **Docker-PostgreSQL** (`localhost:5432`), поэтому достаточно запущенного `docker compose up -d`:
+**Backend** (117 теста: unit + integration + security-config + IDOR-набор + perf-ограничение числа запросов + набор пагинации подбора). По умолчанию тесты поднимают отдельную БД `befos_test` на **Docker-PostgreSQL** (`localhost:5432`), поэтому достаточно запущенного `docker compose up -d`:
 
 ```bash
 cd backend
@@ -103,7 +103,7 @@ pytest
 
 Целевой кластер можно переопределить переменными `BEFOS_TEST_PG_HOST/PORT/USER/PASSWORD/DB` (например, на bare-metal PostgreSQL на `5433`).
 
-**Android** (31 unit-тест ViewModel и чистых функций: auth, root-маршрутизация, chat, discovery, рекомендации, форматирование совместимости, локализация текстов ошибок backend):
+**Android** (45 unit-тест ViewModel и чистых функций: auth, root-маршрутизация, chat, discovery с курсорной пагинацией, рекомендации, форматирование совместимости, локализация текстов ошибок backend):
 
 ```bash
 cd android
@@ -116,7 +116,7 @@ cd android
 
 ```bash
 cd backend
-./.venv/Scripts/python.exe e2e_journey.py     # 46/46 проверок
+./.venv/Scripts/python.exe e2e_journey.py     # 47/47 проверок
 ```
 
 ## Технологии
@@ -192,6 +192,6 @@ Score = Σ ( normalize(component_i) × weight_i ),   Σ weight_i = 1.0
 
 ## Известные ограничения окружения
 
-1. **Запуск unit-тестов Android из кириллического пути.** `./gradlew :app:testDebugUnitTest` из пути, содержащего кириллицу (проект расположен в `…\Рабочий стол\…`), на Windows завершается ошибкой `ClassNotFoundException` для всех тест-классов: форкаемый Gradle test-worker наследует `sun.jnu.encoding=Cp1251` и не может разрешить classpath с не-ASCII-символами. Те же тесты из ASCII-пути проходят (31/31). Обход: запускать unit-тесты из каталога с ASCII-путём (например, в CI). На сборку приложения (`assembleDebug`) это не влияет.
+1. **Запуск unit-тестов Android из кириллического пути.** `./gradlew :app:testDebugUnitTest` из пути, содержащего кириллицу (проект расположен в `…\Рабочий стол\…`), на Windows завершается ошибкой `ClassNotFoundException` для всех тест-классов: форкаемый Gradle test-worker наследует `sun.jnu.encoding=Cp1251` и не может разрешить classpath с не-ASCII-символами. Те же тесты из ASCII-пути проходят (45/45). Обход: запускать unit-тесты из каталога с ASCII-путём (например, в CI). На сборку приложения (`assembleDebug`) это не влияет.
 
 2. **Полный E2E на эмуляторе выполнен.** Создан AVD `befos_avd` (pixel_4, экран 540x1140 / density 220, `hw.keyboard=yes`, RAM 3G); эмулятор запускается headless (`-no-window -gpu swiftshader_indirect -accel on`). На нём пройден полный сценарий: старт → регистрация → онбординг (3 шага) → тест 21 вопрос → профиль совместимости → подбор → публичный профиль → взаимный like и match → чат (отправка, входящее сообщение по WebSocket без перезагрузки, прочтение) → детали совместимости → рекомендации → пары → профиль → настройки → logout → повторный login. Маршрутизация после входа учитывает заполненность профиля: завершённый профиль попадает сразу в MAIN, незавершённый — в онбординг.

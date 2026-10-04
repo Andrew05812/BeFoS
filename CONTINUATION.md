@@ -59,7 +59,7 @@ Email+пароль → bcrypt-хэш. JWT access (короткий) + refresh (�
 
 ## 9. Discovery + «Почему показан»
 
-`discovery_service.feed()` — batch-загрузка (профили/фото/векторы одним запросом на пул; regression-тест `test_perf_discovery.py` ограничивает ≤25 SQL на ленту, фактически ~9). Карточка несёт `highlight: str | None` — однострочное объяснение, производное только от реальных данных, по приоритету:
+`discovery_service.feed()` — колода (`discovery_queue`) и курсор, а не переворот пула на каждый запрос: кандидаты, отфильтрованные по предпочтениям (`lower(city)`, возраст, цель) и не показанные никогда (анти-джойн по likes/passes/blocks/matches и по строкам самой колоды), ранжируются по совместимости и ставятся в колоду пачкой `DECK_BATCH = 150`; выдача берёт из неё `limit` строк через `SELECT … FOR UPDATE SKIP LOCKED` и помечает их `seen`. Курсор API — это `rank`, поэтому страница не плывёт между запросами, а `seen`-строки переживают перестройку колоды и гарантируют «один человек — один показ». `has_more` считается по колоде плюс проверкой, остались ли не поставленные кандидаты. Контракт: `GET /api/v1/discover?limit&cursor` → `{items, next_cursor, has_more}` (`Paged[T]`, без `offset`). Regression-набор `test_discovery_pagination.py` (18 тестов) проверяет пустой пул, один кандидат, ровно `limit`, `limit+1`, колоду длиннее одной пачки, свайпы/блок/смену предпочтений между страницами, отсутствие повторов и правду в `has_more`. Карточка несёт `highlight: str | None` — однострочное объяснение, производное только от реальных данных, по приоритету:
 1. ≥2 общих интереса → «Общие интересы: a, b»; ровно 1 → «Общий интерес: X» (ярлык, а не
    предложение: множественное название интереса ломает любую фразу вида «нравится …»);
 2. совпадение города (без учёта регистра) → «Из вашего города»;
@@ -92,9 +92,9 @@ REST — надёжная запись (история/отправка/проч
 
 | Набор | Команда | Результат |
 |---|---|---|
-| Backend unit+integration | `cd backend && ./.venv/Scripts/python.exe -m pytest -q` (нужен запущенный `docker compose up -d`; тестовая БД `befos_test`) | **62/62** |
-| Живой journey | `PYTHONIOENCODING=utf-8 backend/.venv/Scripts/python.exe backend/e2e_journey.py` | **46/46** |
-| Android unit | `cd android && ./gradlew :app:testDebugUnitTest` — **только из ASCII-пути** (см. §17.1) | **36/36** |
+| Backend unit+integration | `cd backend && ./.venv/Scripts/python.exe -m pytest -q` (нужен запущенный `docker compose up -d`; тестовая БД `befos_test`) | **117/117** |
+| Живой journey | `PYTHONIOENCODING=utf-8 backend/.venv/Scripts/python.exe backend/e2e_journey.py` | **47/47** |
+| Android unit | `cd android && ./gradlew :app:testDebugUnitTest` — **только из ASCII-пути** (см. §17.1) | **45/45** |
 | Release | `BEFOS_API_BASE_URL=… BEFOS_WS_BASE_URL=… ./gradlew :app:assembleRelease :app:bundleRelease` | APK 1.88 МБ + AAB 4.60 МБ (R8); без `android/keystore.properties` — `app-release-unsigned.apk`, что и проверялось |
 | On-device E2E | эмулятор `befos_avd` | пройден полностью, см. §14 |
 

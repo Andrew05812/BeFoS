@@ -45,4 +45,9 @@ class MessageRead(Base):
 
     message: Mapped["Message"] = relationship(back_populates="reads")
 
-    __table_args__ = (UniqueConstraint("message_id", "reader_id", name="uq_message_read"),)
+    __table_args__ = (
+        UniqueConstraint("message_id", "reader_id", name="uq_message_read"),
+        # The unread count filters reader_id alone, which this table's other keys
+        # never led with.
+        Index("ix_message_reads_reader_message", "reader_id", "message_id"),
+    )

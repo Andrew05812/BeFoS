@@ -24,6 +24,7 @@ from app.models.test import (
 )
 from app.models.social import Block, Like, Match, Pass, Report
 from app.models.chat import Message, MessageRead
+from app.models.discovery import DiscoveryQueue
 from app.models.activity import Activity, ActivityPreference, Recommendation
 from app.models.token import RefreshToken
 
@@ -53,6 +54,7 @@ __all__ = [
     "Report",
     "Message",
     "MessageRead",
+    "DiscoveryQueue",
     "Activity",
     "ActivityPreference",
     "Recommendation",

@@ -7,10 +7,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundError, ValidationError
 from app.models import Photo, Profile
+from app.repositories.social_repo import DiscoveryRepository
 from app.repositories.user_repo import UserRepository
 
 VALID_GENDERS = {"male", "female", "nonbinary", "other"}
 VALID_GOALS = {"relationship", "marriage", "friendship", "casual", "networking"}
+
+# Editing any of these changes who the viewer should be shown, so the deck built under the
+# old values cannot be paged through any more.
+_DECK_FIELDS = {"age_min", "age_max", "gender_preference", "interests", "dating_goal"}
 
 
 def _parse_birth_date(value: str) -> date:
@@ -113,8 +118,15 @@ class ProfileService:
         if "interests" in data and data["interests"] is not None:
             await self._set_interests(profile, data["interests"])
 
+        touched_deck = bool(_DECK_FIELDS & data.keys())
         await self.session.commit()
         await self.session.refresh(profile)
+        # What the viewer wants decides who lands in their deck and in what order. The
+        # ranked part of that deck was built for the previous answer, so it is dropped;
+        # cards already shown stay shown-once, which is what the seen rows remember.
+        if touched_deck:
+            await DiscoveryRepository(self.session).deck_invalidate(user_id)
+            await self.session.commit()
         return profile
 
     async def _set_interests(self, profile: Profile, slugs: list[str]) -> None:

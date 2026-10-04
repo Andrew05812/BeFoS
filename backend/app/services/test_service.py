@@ -10,6 +10,7 @@ from app.compatibility.traits import TRAIT_CATEGORIES_BY_KEY
 from app.compatibility.weights import ENGINE_VERSION
 from app.core.exceptions import NotFoundError, ValidationError
 from app.models import TestAnswer
+from app.repositories.social_repo import DiscoveryRepository
 from app.repositories.test_repo import TestRepository
 
 
@@ -82,6 +83,12 @@ class TestService:
         vector, category_scores = await self.build_vector(user_id)
         await self.repo.upsert_compatibility_profile(user_id, vector, ENGINE_VERSION)
         await self.repo.replace_results(user_id, category_scores)
+        await self.session.commit()
+        # Every queued card was ranked against the vector that just changed. The seen rows
+        # stay — what was shown was shown — but the order of what has not been is rebuilt.
+        await DiscoveryRepository(self.session).deck_invalidate(user_id)
+        # This is a write and the request session commits nothing on its own; without this
+        # line the deck is left holding the ranking the viewer just replaced.
         await self.session.commit()
 
     async def complete(self, user_id: uuid.UUID) -> dict:

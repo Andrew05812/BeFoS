@@ -50,6 +50,6 @@ async def test_discovery_feed_query_count_is_bounded(client: AsyncClient):
     body = resp.json()
     items = body.get("items", body if isinstance(body, list) else [])
     assert len(items) >= 5
-    # Fixed pipeline: excludes(~4) + pool + total + viewer(3) + 4 batch loads + margin.
-    # The old per-candidate code would exceed 30 statements with 6+ candidates.
+    # Fixed pipeline: viewer + candidate pool + ranked insert + claim + freshness +
+    # has_more. The old per-candidate code would exceed 30 statements with 6+ candidates.
     assert counter[0] <= 25, f"query count regressed: {counter[0]}"

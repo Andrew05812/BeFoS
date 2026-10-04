@@ -3,9 +3,11 @@ package app.befos.presentation.discovery
 import app.befos.MainDispatcherRule
 import app.befos.core.network.ApiResult
 import app.befos.domain.model.DiscoveryCard
+import app.befos.domain.model.DiscoveryPage
 import app.befos.domain.model.LikeOutcome
 import app.befos.domain.repository.DiscoveryRepository
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.mockk
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
@@ -29,9 +31,14 @@ class DiscoveryViewModelTest {
         compatibility = 80, sharedInterestsCount = 2,
     )
 
+    private fun pageOf(vararg ids: String, nextCursor: String? = null, hasMore: Boolean = false) =
+        ApiResult.Success(
+            DiscoveryPage(ids.map(::card), nextCursor, hasMore)
+        )
+
     @Test
     fun `like without match advances to next card`() = runTest {
-        coEvery { repo.feed(any(), any()) } returns ApiResult.Success(listOf(card("a"), card("b"), card("c")))
+        coEvery { repo.feed(any(), any()) } returns pageOf("a", "b", "c")
         coEvery { repo.like("a") } returns ApiResult.Success(LikeOutcome(matched = false, matchId = null, compatibility = null))
         coEvery { repo.pass(any()) } returns ApiResult.Success(Unit)
 
@@ -47,7 +54,7 @@ class DiscoveryViewModelTest {
 
     @Test
     fun `mutual like surfaces match dialog`() = runTest {
-        coEvery { repo.feed(any(), any()) } returns ApiResult.Success(listOf(card("a"), card("b")))
+        coEvery { repo.feed(any(), any()) } returns pageOf("a", "b")
         coEvery { repo.like("a") } returns ApiResult.Success(LikeOutcome(matched = true, matchId = "m1", compatibility = 91))
 
         val vm = DiscoveryViewModel(repo)
@@ -64,6 +71,45 @@ class DiscoveryViewModelTest {
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
         assertNull(vm.uiState.value.match)
         assertEquals("b", vm.uiState.value.current?.userId)
+    }
+
+    @Test
+    fun `the next page is asked for with the cursor the server returned`() = runTest {
+        coEvery { repo.feed(any(), null) } returns pageOf("a", "b", nextCursor = "r1", hasMore = true)
+        coEvery { repo.feed(any(), "r1") } returns pageOf("c", nextCursor = "r2", hasMore = false)
+        coEvery { repo.pass(any()) } returns ApiResult.Success(Unit)
+
+        val vm = DiscoveryViewModel(repo)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(listOf("a", "b"), vm.uiState.value.cards.map { it.userId })
+
+        // Two swipes put the viewer near the end of the first page, which is where the
+        // next page is asked for.
+        vm.pass()
+        vm.pass()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(listOf("a", "b", "c"), vm.uiState.value.cards.map { it.userId })
+        coVerify(exactly = 1) { repo.feed(any(), "r1") }
+    }
+
+    @Test
+    fun `a deck that said it was over is not asked again`() = runTest {
+        coEvery { repo.feed(any(), any()) } returns pageOf("a", "b", nextCursor = null, hasMore = false)
+        coEvery { repo.pass(any()) } returns ApiResult.Success(Unit)
+
+        val vm = DiscoveryViewModel(repo)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        vm.pass()
+        vm.pass()
+        vm.pass()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        // One call for the page itself; swiping past its end must not keep requesting a
+        // second one, because the answer that there is nothing more has already been given.
+        coVerify(exactly = 1) { repo.feed(any(), any()) }
+        assertEquals(listOf("a", "b"), vm.uiState.value.cards.map { it.userId })
     }
 
     @Test

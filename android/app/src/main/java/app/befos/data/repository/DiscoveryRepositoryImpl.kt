@@ -4,14 +4,20 @@ import app.befos.core.network.ApiResult
 import app.befos.core.network.map
 import app.befos.data.mapper.toDomain
 import app.befos.data.remote.ApiService
-import app.befos.domain.model.DiscoveryCard
+import app.befos.domain.model.DiscoveryPage
 import app.befos.domain.model.LikeOutcome
 import app.befos.domain.repository.DiscoveryRepository
 
 class DiscoveryRepositoryImpl(private val api: ApiService) : DiscoveryRepository {
 
-    override suspend fun feed(limit: Int, offset: Int): ApiResult<List<DiscoveryCard>> =
-        api.discover(limit, offset).map { page -> page.items.map { it.toDomain() } }
+    override suspend fun feed(limit: Int, cursor: String?): ApiResult<DiscoveryPage> =
+        api.discover(limit, cursor).map { page ->
+            DiscoveryPage(
+                cards = page.items.map { it.toDomain() },
+                nextCursor = page.nextCursor,
+                hasMore = page.hasMore,
+            )
+        }
 
     override suspend fun like(userId: String): ApiResult<LikeOutcome> =
         api.like(userId).map { LikeOutcome(it.match, it.matchId, it.compatibility) }

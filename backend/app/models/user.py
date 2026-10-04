@@ -13,6 +13,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     Index,
+    text,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -55,10 +56,10 @@ class Profile(TimestampMixin, Base):
     name: Mapped[str] = mapped_column(String(80), nullable=False)
     birth_date: Mapped[date] = mapped_column(Date, nullable=False)
     gender: Mapped[str] = mapped_column(String(20), default=Gender.OTHER.value, nullable=False)
-    city: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
+    city: Mapped[str] = mapped_column(String(120), nullable=False)
     about: Mapped[str | None] = mapped_column(Text, nullable=True)
     dating_goal: Mapped[str] = mapped_column(
-        String(30), default=DatingGoal.RELATIONSHIP.value, nullable=False, index=True
+        String(30), default=DatingGoal.RELATIONSHIP.value, nullable=False
     )
 
     # Search preferences
@@ -80,7 +81,11 @@ class Profile(TimestampMixin, Base):
         secondary="user_interests", back_populates="users", lazy="selectin"
     )
 
-    __table_args__ = (Index("ix_profiles_city_goal", "city", "dating_goal"),)
+    __table_args__ = (
+        # Every candidate read asks for lower(city) plus a birth_date range; the plain
+        # city/dating_goal indexes could serve none of them.
+        Index("ix_profiles_city_lower_birth", text("lower(city)"), "birth_date"),
+    )
 
     @property
     def age(self) -> int:

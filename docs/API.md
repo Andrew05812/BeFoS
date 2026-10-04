@@ -124,11 +124,18 @@
 
 | Метод | Путь | Query | Ответ |
 |-------|------|-------|-------|
-| GET | `/discover` | `limit`, `offset` | `Paginated<DiscoveryCard>` |
+| GET | `/discover` | `limit` (1..50, по умолчанию 20), `cursor` | `Paged<DiscoveryCard>` |
 | POST | `/users/{user_id}/like` | — (без тела) | `{liked, match, match_id, compatibility}` |
 | POST | `/users/{user_id}/pass` | — (без тела) | `{passed}` |
 
-`Paginated`: `{items: [...], total, limit, offset, has_more}`.
+`Paged`: `{items: [...], next_cursor, has_more}`.
+
+`cursor` — непрозрачная метка последнего просмотренного места в колоде, её выдаёт сам
+сервер и меняет только он. Позиции (`offset`) нет: свайп убирает кандидата из выборки,
+и номер следующей карты тут же начинает указывать на другого человека. Колода
+ранжируется один раз и хранится в таблице `discovery_queue`, поэтому страницы не
+повторяются и не пропускают кандидатов, даже если между запросами кто-то скрылся или
+был заблокирован.
 
 `DiscoveryCard`:
 

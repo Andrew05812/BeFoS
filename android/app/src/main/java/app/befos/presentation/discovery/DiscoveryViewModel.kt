@@ -32,16 +32,31 @@ class DiscoveryViewModel(private val discoveryRepository: DiscoveryRepository) :
 
     private val pageLimit = 20
 
+    // The deck is ranked on the server and paged by cursor, so the client carries the
+    // cursor instead of a position: a swipe changes how many cards remain, never where the
+    // next card is.
+    private var cursor: String? = null
+    private var moreComing = true
+
     init {
         load()
     }
 
     fun load() {
         _uiState.update { it.copy(loading = true, error = null) }
+        cursor = null
+        moreComing = true
         viewModelScope.launch {
-            when (val result = discoveryRepository.feed(limit = pageLimit, offset = 0)) {
-                is ApiResult.Success -> _uiState.update {
-                    it.copy(loading = false, cards = result.data, index = 0)
+            when (val result = discoveryRepository.feed(limit = pageLimit, cursor = null)) {
+                is ApiResult.Success -> {
+                    val page = result.data
+                    // The first page hands over the cursor the rest of the deck continues
+                    // from; dropping it would ask for this page again and append it twice.
+                    cursor = page.nextCursor
+                    moreComing = page.hasMore
+                    _uiState.update {
+                        it.copy(loading = false, cards = page.cards, index = 0)
+                    }
                 }
                 is ApiResult.Error -> _uiState.update { it.copy(loading = false, error = result.message) }
             }
@@ -97,16 +112,19 @@ class DiscoveryViewModel(private val discoveryRepository: DiscoveryRepository) :
     }
 
     private fun fetchMore() {
-        if (_uiState.value.refreshing) return
+        if (_uiState.value.refreshing || !moreComing) return
         _uiState.update { it.copy(refreshing = true) }
+        val from = cursor
         viewModelScope.launch {
-            val offset = _uiState.value.cards.size
-            when (val result = discoveryRepository.feed(limit = pageLimit, offset = offset)) {
-                is ApiResult.Success -> _uiState.update { state ->
-                    val existing = state.cards.map { it.userId }.toSet()
-                    val fresh = result.data.filterNot { it.userId in existing }
-                    state.copy(refreshing = false, cards = state.cards + fresh)
+            when (val result = discoveryRepository.feed(limit = pageLimit, cursor = from)) {
+                is ApiResult.Success -> {
+                    val page = result.data
+                    cursor = page.nextCursor ?: from
+                    moreComing = page.hasMore
+                    _uiState.update { state -> state.copy(refreshing = false, cards = state.cards + page.cards) }
                 }
+                // A failed page keeps the cursor where it was: the next attempt asks for
+                // the same page again rather than skipping past cards it never showed.
                 is ApiResult.Error -> _uiState.update { it.copy(refreshing = false) }
             }
         }

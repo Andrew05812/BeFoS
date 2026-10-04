@@ -3,7 +3,7 @@ package app.befos.domain.repository
 import app.befos.core.network.ApiResult
 import app.befos.core.network.StoredAuth
 import app.befos.domain.model.Compatibility
-import app.befos.domain.model.DiscoveryCard
+import app.befos.domain.model.DiscoveryPage
 import app.befos.domain.model.Interest
 import app.befos.domain.model.LikeOutcome
 import app.befos.domain.model.MatchSummary
@@ -56,7 +56,7 @@ interface TestRepository {
 }
 
 interface DiscoveryRepository {
-    suspend fun feed(limit: Int, offset: Int): ApiResult<List<DiscoveryCard>>
+    suspend fun feed(limit: Int, cursor: String?): ApiResult<DiscoveryPage>
     suspend fun like(userId: String): ApiResult<LikeOutcome>
     suspend fun pass(userId: String): ApiResult<Unit>
 }

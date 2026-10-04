@@ -59,6 +59,7 @@ from app.main import create_app  # noqa: E402
 from app.models import (  # noqa: E402
     Block,
     CompatibilityProfile,
+    DiscoveryQueue,
     Like,
     Match,
     Message,
@@ -76,6 +77,7 @@ from app.models import (  # noqa: E402
 from app.seed import _seed_catalogs  # noqa: E402
 
 _DOMAIN_MODELS = (
+    DiscoveryQueue,
     MessageRead,
     Message,
     Recommendation,

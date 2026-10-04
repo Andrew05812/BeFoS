@@ -18,13 +18,17 @@ router = APIRouter(tags=["discovery"])
 @router.get("/discover", response_model=DiscoveryResponse)
 async def discover(
     limit: int = Query(default=20, ge=1, le=50),
-    offset: int = Query(default=0, ge=0),
-    city: str | None = Query(default=None),
+    cursor: str | None = Query(default=None),
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
+    """One page of the viewer's deck, and the cursor for the next one.
+
+    No offset: the deck is ranked once and paging moves by rank, so liking or passing
+    between requests cannot shift a card into or out of the page being asked for.
+    """
     service = DiscoveryService(session)
-    data = await service.feed(current_user.id, limit=limit, offset=offset, city_override=city)
+    data = await service.feed(current_user.id, limit=limit, cursor=cursor)
     return DiscoveryResponse(**data)
 
 

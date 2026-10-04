@@ -12,12 +12,16 @@ class ORMModel(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class Paginated(BaseModel, Generic[T]):
+class Paged(BaseModel, Generic[T]):
+    """A page you can ask the next page of.
+
+    A cursor, not an offset: the offset of the next card changes the moment the viewer
+    likes anything, and a feed that pages by position quietly skips candidates.
+    """
+
     items: list[T]
-    total: int
-    limit: int
-    offset: int
-    has_more: bool
+    next_cursor: str | None = None
+    has_more: bool = False
 
 
 class ErrorDetail(BaseModel):
@@ -208,7 +212,7 @@ class DiscoveryCard(BaseModel):
     highlight: str | None = None
 
 
-class DiscoveryResponse(Paginated[DiscoveryCard]):
+class DiscoveryResponse(Paged[DiscoveryCard]):
     pass
 
 

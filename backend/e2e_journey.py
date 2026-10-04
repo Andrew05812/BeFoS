@@ -109,17 +109,23 @@ def main() -> int:
     c.post(f"{BASE}/tests/answers", headers=hb, json={"answers": ansb})
     c.post(f"{BASE}/tests/complete", headers=hb)
 
-    # 5. discovery (paginate; endpoint caps limit at 50)
+    # 5. discovery (page by cursor; endpoint caps limit at 50)
     items: list[dict] = []
-    offset = 0
+    cursor = None
+    seen_ids: set[str] = set()
     while True:
-        page = c.get(f"{BASE}/discover", headers=ha, params={"limit": 50, "offset": offset}).json()
+        params: dict = {"limit": 50}
+        if cursor:
+            params["cursor"] = cursor
+        page = c.get(f"{BASE}/discover", headers=ha, params=params).json()
         batch = page.get("items", [])
         items.extend(batch)
+        seen_ids.update(it["user_id"] for it in batch)
         if not page.get("has_more") or not batch:
             break
-        offset += 50
+        cursor = page.get("next_cursor")
     check(len(items) > 0, "discovery returns candidates", f"{len(items)} cards")
+    check(len(items) == len(seen_ids), "no card is served twice across pages", f"{len(items)} cards")
     b_in_disc = any(it["user_id"] == uid_b for it in items)
     check(b_in_disc, "B appears in A discovery", f"{len(items)} cards scanned")
     card = next((it for it in items if it["user_id"] == uid_b), items[0])
