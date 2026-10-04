@@ -22,19 +22,29 @@ class ChatService:
             raise ForbiddenError("You are not a participant of this chat.")
         return match
 
-    async def send(self, match_id: uuid.UUID, sender_id: uuid.UUID, body: str) -> dict:
+    async def send(
+        self,
+        match_id: uuid.UUID,
+        sender_id: uuid.UUID,
+        body: str,
+        client_msg_id: str | None = None,
+    ) -> tuple[dict, bool]:
+        """Write a send and report whether it is new, so a retry is not counted and shown twice."""
         body = (body or "").strip()
         if not body:
             raise ValidationError("Message cannot be empty.")
         if len(body) > 4000:
             raise ValidationError("Message is too long.")
         await self._require_membership(match_id, sender_id)
-        msg = await self.repo.add_message(match_id, sender_id, body)
+        msg, created = await self.repo.add_message(
+            match_id, sender_id, body, (client_msg_id or "").strip() or None
+        )
         await self.session.commit()
-        tracker.track(Event.MESSAGE_SENT, str(sender_id), match=str(match_id))
+        if created:
+            tracker.track(Event.MESSAGE_SENT, str(sender_id), match=str(match_id))
         # The only read row on a brand-new message is the sender's implicit one, and
         # `msg.reads` is not loaded here — state the known value instead of querying it.
-        return self._to_dto(msg, sender_id, is_read=False)
+        return self._to_dto(msg, sender_id, is_read=False), created
 
     async def history(
         self, match_id: uuid.UUID, user_id: uuid.UUID, *, limit: int = 50, before_id: uuid.UUID | None = None
@@ -68,4 +78,5 @@ class ChatService:
             "created_at": msg.created_at,
             "is_read": is_read,
             "is_own": is_own,
+            "client_msg_id": msg.client_msg_id,
         }

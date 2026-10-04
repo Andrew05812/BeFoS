@@ -11,7 +11,7 @@ from app.core.context import new_request_id, request_id
 from app.core.database import AsyncSessionLocal
 from app.core.logging import get_logger
 from app.core.security import decode_token
-from app.models import Match
+from app.models import Match, User
 from app.repositories.chat_repo import ChatRepository
 from app.websocket.manager import manager
 
@@ -20,6 +20,7 @@ logger = get_logger(__name__)
 router = APIRouter()
 
 MAX_BODY_CHARS = 4000
+MAX_CLIENT_MSG_ID_CHARS = 64
 
 
 async def _authenticate(token: str | None) -> uuid.UUID | None:
@@ -37,11 +38,42 @@ async def _authenticate(token: str | None) -> uuid.UUID | None:
         return None
 
 
-async def _still_belongs_to_match(match_id: uuid.UUID, user_id: uuid.UUID) -> bool:
-    """The pair can stop existing while a socket for it is open (a block, a deletion)."""
+async def _refusal_reason(match_id: uuid.UUID, user_id: uuid.UUID) -> str | None:
+    """Why this pair may not hold a socket right now, or None if it may.
+
+    An access token outlives the state behind it: a block or a deletion removes the match
+    and disables the account, while the JWT still decodes. The rows are the truth, so the
+    handshake and every write ask them rather than trusting the token.
+    """
     async with AsyncSessionLocal() as session:
+        user = await session.get(User, user_id)
+        if user is None or user.is_deleted:
+            return "user no longer exists"
+        if not user.is_active:
+            return "account is disabled"
         match = await session.get(Match, match_id)
-        return bool(match and user_id in (match.user_a_id, match.user_b_id))
+        if match is None or user_id not in (match.user_a_id, match.user_b_id):
+            return "caller is not part of the pair"
+    return None
+
+
+def client_msg_id_from(data: dict) -> tuple[str | None, str | None]:
+    """Return the send's own name for the client plus an error, one of the two empty.
+
+    The id is opaque text the client invented; the column is 64 wide, so an over-long one
+    is refused instead of being stored truncated or blowing up the write.
+    """
+    raw = data.get("client_msg_id")
+    if raw is None:
+        return None, None
+    if not isinstance(raw, str):
+        return None, "client_msg_id must be text."
+    cleaned = raw.strip()
+    if not cleaned:
+        return None, None
+    if len(cleaned) > MAX_CLIENT_MSG_ID_CHARS:
+        return None, f"client_msg_id is longer than {MAX_CLIENT_MSG_ID_CHARS} characters."
+    return cleaned, None
 
 
 def parse_client_frame(raw: object) -> dict | None:
@@ -77,16 +109,13 @@ async def _handle_socket(
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
-    async with AsyncSessionLocal() as session:
-        match = await session.get(Match, match_id)
-        if match is None or user_id not in (match.user_a_id, match.user_b_id):
-            logger.warning(
-                "socket refused, caller is not part of the pair (match=%s user=%s)",
-                match_id,
-                user_id,
-            )
-            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-            return
+    reason = await _refusal_reason(match_id, user_id)
+    if reason is not None:
+        logger.warning(
+            "socket refused, %s (match=%s user=%s)", reason, match_id, user_id
+        )
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
 
     opened = time.perf_counter()
     await manager.connect(match_id, websocket, user_id)
@@ -130,6 +159,9 @@ async def _handle_socket(
                 )
 
             elif msg_type == "read":
+                if await _refusal_reason(match_id, user_id) is not None:
+                    await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+                    return
                 async with AsyncSessionLocal() as session:
                     repo = ChatRepository(session)
                     await repo.mark_read(match_id, user_id)
@@ -146,25 +178,37 @@ async def _handle_socket(
                         websocket, {"type": "error", "message": "Invalid message body."}
                     )
                     continue
-                if not await _still_belongs_to_match(match_id, user_id):
+                client_msg_id, id_error = client_msg_id_from(data)
+                if id_error is not None:
+                    await manager.send_personal(
+                        websocket, {"type": "error", "message": id_error}
+                    )
+                    continue
+                if await _refusal_reason(match_id, user_id) is not None:
                     await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
                     return
-                client_msg_id = data.get("client_msg_id")
                 async with AsyncSessionLocal() as session:
                     repo = ChatRepository(session)
-                    msg = await repo.add_message(match_id, user_id, body)
+                    msg, created = await repo.add_message(
+                        match_id, user_id, body, client_msg_id
+                    )
                     await session.commit()
                     payload = {
                         "type": "message",
                         "id": str(msg.id),
-                        "client_msg_id": client_msg_id,
+                        "client_msg_id": msg.client_msg_id,
                         "match_id": str(match_id),
                         "sender_id": str(user_id),
                         "body": msg.body,
                         "created_at": msg.created_at.isoformat(),
                         "is_read": False,
                     }
-                await manager.broadcast_to_match(match_id, payload)
+                if created:
+                    await manager.broadcast_to_match(match_id, payload)
+                else:
+                    # A retry of a send that already landed: the peer has the message, and
+                    # the sender is the one still waiting for the answer.
+                    await manager.send_personal(websocket, payload)
 
             else:
                 await manager.send_personal(

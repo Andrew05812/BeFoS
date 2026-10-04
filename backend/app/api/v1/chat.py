@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.deps import get_current_user
@@ -35,11 +35,19 @@ async def get_messages(
 async def send_message(
     match_id: uuid.UUID,
     payload: MessageIn,
+    response: Response,
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
     service = ChatService(session)
-    msg = await service.send(match_id, current_user.id, payload.body)
+    msg, created = await service.send(
+        match_id, current_user.id, payload.body, payload.client_msg_id
+    )
+    if not created:
+        # The retry of a send that did land: the peer already has this message, so the
+        # honest answer is the stored row with 200 and no second broadcast.
+        response.status_code = 200
+        return MessageOut(**msg)
     # REST sends must reach open sockets too, otherwise the peer only sees
     # the message after a history reload.
     await manager.broadcast_to_match(
@@ -47,7 +55,7 @@ async def send_message(
         {
             "type": "message",
             "id": msg["id"],
-            "client_msg_id": None,
+            "client_msg_id": msg["client_msg_id"],
             "match_id": msg["match_id"],
             "sender_id": msg["sender_id"],
             "body": msg["body"],

@@ -255,6 +255,7 @@ class MessageOut(BaseModel):
     created_at: datetime
     is_read: bool
     is_own: bool
+    client_msg_id: str | None = None
 
 
 class MessageIn(BaseModel):
@@ -262,6 +263,10 @@ class MessageIn(BaseModel):
     # useless to someone whose message was simply too long, so the length rule lives in
     # ChatService.send with its own message; this bound only stops an absurd payload.
     body: str = Field(min_length=1, max_length=20_000)
+    # The client's own name for the send, which lets a retry of a request whose response
+    # was lost reuse it instead of writing a second copy. 64 is the column width, so an
+    # over-long id is a 422 on input rather than a database error.
+    client_msg_id: str | None = Field(default=None, max_length=64)
 
 
 class MessagePage(BaseModel):

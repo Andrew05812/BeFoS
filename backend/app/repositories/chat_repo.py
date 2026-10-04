@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import select, func, and_, exists, or_
+from sqlalchemy import select, func, and_, exists, or_, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -22,16 +22,75 @@ class ChatRepository:
         match = await self.get_match(match_id)
         return bool(match and (match.user_a_id == user_id or match.user_b_id == user_id))
 
-    async def add_message(self, match_id: uuid.UUID, sender_id: uuid.UUID, body: str) -> Message:
-        msg = Message(match_id=match_id, sender_id=sender_id, body=body)
+    async def add_message(
+        self,
+        match_id: uuid.UUID,
+        sender_id: uuid.UUID,
+        body: str,
+        client_msg_id: str | None = None,
+    ) -> tuple[Message, bool]:
+        """Store a message and report whether this call is the one that stored it.
+
+        With a `client_msg_id` the write is idempotent: the same id from the same sender
+        in the same match names one row, and a retry gets that row back instead of a
+        second copy. `ON CONFLICT DO NOTHING` waits for the row it collides with to
+        resolve, so the follow-up read sees it even when two attempts arrived together.
+        """
+        if client_msg_id is not None:
+            msg = (
+                await self.session.execute(
+                    pg_insert(Message)
+                    .values(
+                        match_id=match_id,
+                        sender_id=sender_id,
+                        body=body,
+                        client_msg_id=client_msg_id,
+                    )
+                    .on_conflict_do_nothing(
+                        index_elements=["match_id", "sender_id", "client_msg_id"],
+                        index_where=text("client_msg_id IS NOT NULL"),
+                    )
+                    .returning(Message)
+                )
+            ).scalar_one_or_none()
+            if msg is not None:
+                self._note_read_by_sender(msg.id, sender_id)
+                await self.session.flush()
+                return msg, True
+
+            stored = await self.find_by_client_id(match_id, sender_id, client_msg_id)
+            if stored is not None:
+                return stored, False
+            # Only a row that collided and then went away again (rolled back, deleted
+            # between the two statements) reaches here. The key is free again, so the
+            # plain write below is the honest answer rather than a refusal.
+
+        msg = Message(
+            match_id=match_id, sender_id=sender_id, body=body, client_msg_id=client_msg_id
+        )
         self.session.add(msg)
         await self.session.flush()
-        # Sender has implicitly read their own message.
-        self.session.add(
-            MessageRead(message_id=msg.id, reader_id=sender_id, read_at=datetime.now(timezone.utc))
-        )
+        self._note_read_by_sender(msg.id, sender_id)
         await self.session.flush()
-        return msg
+        return msg, True
+
+    def _note_read_by_sender(self, message_id: uuid.UUID, sender_id: uuid.UUID) -> None:
+        """A sender has read their own message; without this row the unread count counts them."""
+        self.session.add(
+            MessageRead(
+                message_id=message_id, reader_id=sender_id, read_at=datetime.now(timezone.utc)
+            )
+        )
+
+    async def find_by_client_id(
+        self, match_id: uuid.UUID, sender_id: uuid.UUID, client_msg_id: str
+    ) -> Message | None:
+        stmt = select(Message).where(
+            Message.match_id == match_id,
+            Message.sender_id == sender_id,
+            Message.client_msg_id == client_msg_id,
+        )
+        return (await self.session.execute(stmt)).scalar_one_or_none()
 
     async def list_messages(
         self, match_id: uuid.UUID, *, limit: int = 50, before_id: uuid.UUID | None = None

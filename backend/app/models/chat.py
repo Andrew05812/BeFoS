@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, String, Text, UniqueConstraint, Index
+from sqlalchemy import DateTime, ForeignKey, String, Text, UniqueConstraint, Index, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -22,13 +22,30 @@ class Message(TimestampMixin, Base):
     )
     body: Mapped[str] = mapped_column(Text, nullable=False)
     is_deleted: Mapped[bool] = mapped_column(default=False, nullable=False)
+    # The client's own id for the message it is sending. A send whose response never
+    # arrived is retried with the same value, and the row has to exist once: without a
+    # key the retry is a second identical message to the peer, and the user — who cannot
+    # tell "lost" from "refused" — is the one who finds out.
+    client_msg_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     match: Mapped["Match"] = relationship(back_populates="messages")
     reads: Mapped[list["MessageRead"]] = relationship(
         back_populates="message", cascade="all, delete-orphan"
     )
 
-    __table_args__ = (Index("ix_message_match_created", "match_id", "created_at"),)
+    __table_args__ = (
+        Index("ix_message_match_created", "match_id", "created_at"),
+        # Partial because the key is optional: messages written before it existed, and
+        # any client that sends without one, must not collide on NULL.
+        Index(
+            "uq_message_sender_client_id",
+            "match_id",
+            "sender_id",
+            "client_msg_id",
+            unique=True,
+            postgresql_where=text("client_msg_id IS NOT NULL"),
+        ),
+    )
 
 
 class MessageRead(Base):
