@@ -146,10 +146,14 @@ fun OnboardingScreen(onDone: () -> Unit) {
                         1 -> StepPreferences(state, vm)
                         2 -> StepInterests(state, vm)
                     }
-                    state.error?.let { InlineNotice(it) }
                 }
             }
         }
+
+        // Pinned above the button that refused the step. The form is taller than the viewport,
+        // so an error rendered at the end of the scrollable column stays off screen and the tap
+        // reads as a dead button.
+        state.error?.let { InlineNotice(it, modifier = Modifier.padding(bottom = Spacing.md)) }
 
         Row(
             modifier = Modifier
