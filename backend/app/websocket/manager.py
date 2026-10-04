@@ -31,10 +31,16 @@ class ConnectionManager:
         room = self._rooms.get(match_id)
         if not room:
             return
+        leaving = next((c for c in room if c.websocket is websocket), None)
         self._rooms[match_id] = [c for c in room if c.websocket is not websocket]
         if not self._rooms[match_id]:
             self._rooms.pop(match_id, None)
-        logger.info("WS disconnected match=%s", match_id)
+        logger.info(
+            "WS disconnected match=%s user=%s watching_left=%d",
+            match_id,
+            getattr(leaving, "user_id", "unknown"),
+            len(self._rooms.get(match_id, [])),
+        )
 
     async def close_room(self, match_id: uuid.UUID) -> None:
         """End every socket for a pair that no longer exists.

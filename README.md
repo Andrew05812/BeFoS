@@ -94,7 +94,7 @@ export BEFOS_API_BASE_URL="https://api.example.com/" BEFOS_WS_BASE_URL="wss://ap
 
 ### Тесты
 
-**Backend** (117 теста: unit + integration + security-config + IDOR-набор + perf-ограничение числа запросов + набор пагинации подбора). По умолчанию тесты поднимают отдельную БД `befos_test` на **Docker-PostgreSQL** (`localhost:5432`), поэтому достаточно запущенного `docker compose up -d`:
+**Backend** (136 тестов: unit + integration + security-config + IDOR-набор + perf-ограничение числа запросов + набор пагинации подбора + набор наблюдаемости). По умолчанию тесты поднимают отдельную БД `befos_test` на **Docker-PostgreSQL** (`localhost:5432`), поэтому достаточно запущенного `docker compose up -d`:
 
 ```bash
 cd backend

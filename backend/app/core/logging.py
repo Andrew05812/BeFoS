@@ -5,6 +5,7 @@ import re
 import sys
 
 from app.core.config import settings
+from app.core.context import request_id
 
 _CONFIGURED = False
 
@@ -40,6 +41,14 @@ class SensitiveFilter(logging.Filter):
         return True
 
 
+class RequestIdFilter(logging.Filter):
+    """Puts the current correlation id on every record, so lines of one request sort together."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.request_id = request_id.get() or "-"
+        return True
+
+
 def setup_logging() -> None:
     global _CONFIGURED
     if _CONFIGURED:
@@ -49,11 +58,12 @@ def setup_logging() -> None:
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(
         logging.Formatter(
-            fmt="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
+            fmt="%(asctime)s | %(levelname)-8s | %(name)s | %(request_id)s | %(message)s",
             datefmt="%Y-%m-%d %H:%M:%S",
         )
     )
     handler.addFilter(SensitiveFilter())
+    handler.addFilter(RequestIdFilter())
 
     root = logging.getLogger()
     root.handlers.clear()

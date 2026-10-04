@@ -11,6 +11,7 @@ from app.api.router import api_router
 from app.core.config import settings
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import get_logger, setup_logging
+from app.core.observability import RequestContextMiddleware
 from app.websocket.chat_ws import router as ws_router
 
 logger = get_logger(__name__)
@@ -46,7 +47,11 @@ def create_app() -> FastAPI:
         allow_credentials=allow_credentials,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=["X-Request-Id"],
     )
+    # Added last so it sits outermost: every response, including one CORS rejected it,
+    # carries the id a caller can quote when reporting a problem.
+    app.add_middleware(RequestContextMiddleware)
 
     register_exception_handlers(app)
 

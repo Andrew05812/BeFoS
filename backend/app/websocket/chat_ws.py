@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import time
 import uuid
 
 import jwt
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect, status
 
+from app.core.context import new_request_id, request_id
 from app.core.database import AsyncSessionLocal
 from app.core.logging import get_logger
 from app.core.security import decode_token
@@ -57,17 +59,36 @@ async def chat_socket(
     match_id: uuid.UUID,
     token: str | None = Query(default=None),
 ) -> None:
+    # A socket is one long request, and every line it produces — the handshake, the
+    # writes, the close — has to be findable as belonging to the same connection.
+    correlation = request_id.set(f"ws-{new_request_id()}")
+    try:
+        await _handle_socket(websocket, match_id, token)
+    finally:
+        request_id.reset(correlation)
+
+
+async def _handle_socket(
+    websocket: WebSocket, match_id: uuid.UUID, token: str | None
+) -> None:
     user_id = await _authenticate(token)
     if user_id is None:
+        logger.warning("socket refused, no usable access token (match=%s)", match_id)
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
     async with AsyncSessionLocal() as session:
         match = await session.get(Match, match_id)
         if match is None or user_id not in (match.user_a_id, match.user_b_id):
+            logger.warning(
+                "socket refused, caller is not part of the pair (match=%s user=%s)",
+                match_id,
+                user_id,
+            )
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
             return
 
+    opened = time.perf_counter()
     await manager.connect(match_id, websocket, user_id)
     # A client that joins a room nobody is watching would otherwise show the peer as
     # offline until the peer's next state change, so the room's truth is stated once on
@@ -156,6 +177,12 @@ async def chat_socket(
         logger.exception("WS error match=%s user=%s", match_id, user_id)
     finally:
         manager.disconnect(match_id, websocket)
+        logger.info(
+            "socket closed match=%s user=%s after %d ms",
+            match_id,
+            user_id,
+            round((time.perf_counter() - opened) * 1000),
+        )
         await manager.broadcast_to_match(
             match_id, {"type": "presence", "user_id": str(user_id), "online": False}
         )

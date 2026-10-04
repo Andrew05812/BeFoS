@@ -79,6 +79,15 @@
 
 - Unit-тесты ViewModel (JUnit4 + MockK + Turbine + kotlinx-coroutines-test): валидация авторизации, поведение лайка/мэтча в подборе, дедупликация и отправка сообщений в чате.
 
+## Наблюдательность
+
+- Каждый HTTP-запрос получает correlation id в `X-Request-Id`: клиентский id принимается только если он является одним печатным токеном `[A-Za-z0-9_.-]{1,64}`, иначе генерируется свой 16-hex. Значение возвращается в заголовке ответа — по нему пользователь или поддержка называет конкретный запрос.
+- Формат лога — `время | уровень | логгер | request_id | сообщение`. Id берётся из `contextvars` (`RequestIdFilter`), поэтому error-строка, analytics-событие и access-строка одного запроса читаются как одна история.
+- `befos.access` пишет `request METHOD path -> STATUS in X ms`; дольше 1000 мс — отдельный `WARNING slow request`; `/api/v1/health` уходит в DEBUG, чтобы пробы живости не заполняли поток. Middleware — чистый ASGI, а не `BaseHTTPMiddleware`: сокеты проходят сквозь него нетронутыми.
+- Жизненный цикл WebSocket пишется целиком: отказ без пригодного токена и отказ «не пара» (WARNING с причиной), connect, disconnect с числом оставшихся слушателей в комнате, close с длительностью соединения, `WS room closed` при блоке или удалении аккаунта.
+- В лог не попадают пароли, access/refresh-токены и заголовок `Authorization`; строка запроса пишется без query-части (рукопожатие сокета несёт токен именно там), а `SensitiveFilter` дописывает `[redacted]` к `token=`, `"password":` и похожие ключи в строках uvicorn.
+- Покрыто набором `backend/tests/test_observability.py` (19 тестов), включая проверку, что заголовок-инъекция не может дописать вторую строку в лог.
+
 ## Деплой
 
 `docker-compose.yml` поднимает `postgres` (16-alpine) и `backend`. При старте backend применяет миграции (`alembic upgrade head`), сеет данные (`python -m app.seed --if-empty`) и запускает `uvicorn`. Загрузки хранятся в именованном томе `befos_uploads`, БД — в `befos_pgdata`. Android-клиент собирается отдельно (`:app:assembleDebug`).

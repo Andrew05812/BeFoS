@@ -88,11 +88,20 @@ REST — надёжная запись (история/отправка/проч
 - Release-бинарник не может содержать http-адрес эмулятора: без `BEFOS_API_BASE_URL`/`BEFOS_WS_BASE_URL` сборка падает (fail-fast).
 - Протухшая сессия не является тупиком: `bearer`-плагин при неудачном refresh очищает токены, `TokenStore.clear()` публикует событие `signedOut`, а `BeFosNavHost` по нему уводит на экран входа с очисткой стека. Без этого пользователь оставался на «Сессия истекла. Войдите снова.» с кнопкой «Повторить», которая не может сработать никогда. Проверено на устройстве: ротация `JWT_SECRET` в `.env` + перезапуск backend → тап по вкладке «Профиль» → экран входа с предзаполненным email → повторный вход возвращает в подбор.
 
+## 12.1. Наблюдаемость (корреляция, длительность, lifecycle сокетов)
+
+- Каждый HTTP-запрос получает correlation id: наружный `X-Request-Id` принимается только если это один печатный ASCII-токен `[A-Za-z0-9_.-]{1,64}` (иначе генерируется свой 16-hex) и возвращается в заголовке ответа — по нему пользователь может назвать конкретный запрос.
+- Строка лога: `время | уровень | логгер | request_id | сообщение`. Id кладёт `RequestIdFilter` из `contextvars`, поэтому access-строка, stack trace, analytics-событие и строки WebSocket одного запроса читаются вместе. Middleware — чистый ASGI (`core/observability.py`): route сокета проходит сквозь него нетронутым.
+- `befos.access` пишет `request METHOD path -> STATUS in X ms`; дольше `SLOW_MS` (1000 мс) — отдельный `WARNING slow request`; `/api/v1/health` уходит в DEBUG, чтобы пробы живости не заполняли поток. Query-часть не пишется: рукопожатие WS несёт токен именно там.
+- WebSocket виден целиком: отказ без пригодного токена и отказ «не пара» — WARNING с причиной, но без значения токена; connect/disconnect — кто ушёл и сколько слушателей осталось в комнате; close — длительность соединения; блок/удаление аккаунта — `WS room closed`.
+- В логи не попадают пароли, access/refresh-токены и заголовок `Authorization`; `SensitiveFilter` вычищает `token=`, `"password":` и похожие ключи из строк uvicorn.
+- Покрыто `backend/tests/test_observability.py` (19 тестов): корреляция id между error- и access-строкой, отсутствие учётных данных, невозможность дописать вторую строку в лог через заголовок, доступ-строка с собственным id (а не с `-`).
+
 ## 13. Текущие результаты тестов (воспроизводимо)
 
 | Набор | Команда | Результат |
 |---|---|---|
-| Backend unit+integration | `cd backend && ./.venv/Scripts/python.exe -m pytest -q` (нужен запущенный `docker compose up -d`; тестовая БД `befos_test`) | **117/117** |
+| Backend unit+integration | `cd backend && ./.venv/Scripts/python.exe -m pytest -q` (нужен запущенный `docker compose up -d`; тестовая БД `befos_test`) | **136/136** |
 | Живой journey | `PYTHONIOENCODING=utf-8 backend/.venv/Scripts/python.exe backend/e2e_journey.py` | **47/47** |
 | Android unit | `cd android && ./gradlew :app:testDebugUnitTest` — **только из ASCII-пути** (см. §17.1) | **45/45** |
 | Release | `BEFOS_API_BASE_URL=… BEFOS_WS_BASE_URL=… ./gradlew :app:assembleRelease :app:bundleRelease` | APK 1.88 МБ + AAB 4.60 МБ (R8); без `android/keystore.properties` — `app-release-unsigned.apk`, что и проверялось |
