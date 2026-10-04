@@ -1,14 +1,9 @@
 package app.befos.core.designsystem
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -1187,7 +1182,9 @@ fun InterestChip(
         contentColor = fg,
         border = border,
     ) {
-        val inner = Modifier.padding(horizontal = Spacing.lg, vertical = Spacing.sm)
+        val inner = Modifier
+            .then(if (onClick != null) Modifier.heightIn(min = 48.dp) else Modifier)
+            .padding(horizontal = Spacing.lg, vertical = Spacing.sm)
         if (onClick != null) {
             Row(
                 modifier = inner.clickable(
@@ -1198,9 +1195,25 @@ fun InterestChip(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
             ) {
-                AnimatedVisibility(visible = selected, enter = scaleIn(tween(Motion.Fast)) + fadeIn(tween(Motion.Fast)), exit = scaleOut(tween(Motion.Fast)) + fadeOut(tween(Motion.Fast))) {
-                    Box(Modifier.size(14.dp).clip(CircleShape).background(Ember))
-                }
+                // The slot is composed in both states: a chip that grows on tap slides
+                // every chip after it sideways, and on a narrow screen that is a re-wrap
+                // under the finger. Only paint moves.
+                val progress by animateFloatAsState(
+                    targetValue = if (selected) 1f else 0f,
+                    animationSpec = tween(Motion.Fast),
+                    label = "chipSelection",
+                )
+                Box(
+                    Modifier
+                        .size(14.dp)
+                        .graphicsLayer {
+                            scaleX = 0.7f + 0.3f * progress
+                            scaleY = 0.7f + 0.3f * progress
+                        }
+                        .clip(CircleShape)
+                        .background(Ember.copy(alpha = progress))
+                        .border(1.5.dp, Ember.copy(alpha = 0.30f + 0.70f * progress), CircleShape),
+                )
                 Text(label, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         } else {
