@@ -39,6 +39,18 @@ users ─1:1─ profiles ─M:N─ interests   (через user_interests)
 ### `photos`
 `user_id` (FK, cascade, index), `url` (String 500), `is_primary` (Boolean), `position` (Integer).
 
+Чтётся всегда в одном порядке — `PHOTO_DISPLAY_ORDER` в `app/models/user.py`
+(`is_primary DESC, position ASC, created_at ASC, id ASC`), его импортируют все семь мест
+чтения (профиль, публичная анкета, подбор, колода, основные фото пар). `position` сейчас у
+всех строк 0, поэтому сортировка только по нему — порядок строк с одинаковыми значениями,
+то есть порядок heap, а не факт: `VACUUM` его переписывает. Два последних ключа делают
+ответ определённым, а `is_primary` первым — тем, что выбрал владелец (экраны берут
+`photos[0]` как аватар).
+
+`url` — путь, а не идентификатор: при удалении аккаунта файл ищется по последнему сегменту
+(`basename`), потому что доверять пути как ключу нельзя. Файлы удаляются после commit,
+чтобы неудачная транзакция не оставила базу, указывающую на несуществующие файлы.
+
 ### `interests` / `user_interests`
 `interests`: `id` (Int PK), `slug` (String 80, unique), `name`, `category` (index). Связь M:N через `user_interests` (`profile_id` + `interest_id`, составной PK, `uq_user_interest`).
 

@@ -14,7 +14,7 @@ from app.models.enums import (
     InterestCategory,
     ReportStatus,
 )
-from app.models.user import Interest, Photo, Profile, User, UserInterest
+from app.models.user import PHOTO_DISPLAY_ORDER, Interest, Photo, Profile, User, UserInterest
 from app.models.test import (
     CompatibilityProfile,
     TestAnswer,
@@ -40,6 +40,7 @@ __all__ = [
     "User",
     "Profile",
     "Photo",
+    "PHOTO_DISPLAY_ORDER",
     "Interest",
     "UserInterest",
     "TestQuestion",

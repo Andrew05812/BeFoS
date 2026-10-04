@@ -6,8 +6,9 @@ from fastapi import APIRouter, Depends, File, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.deps import get_current_user
+from app.core.config import settings
 from app.core.database import get_session
-from app.models import User
+from app.models import PHOTO_DISPLAY_ORDER, User
 from app.repositories.user_repo import UserRepository
 from app.schemas.schemas import OnboardingProfile, ProfileOut, ProfileUpdate
 from app.services import photo_service
@@ -49,7 +50,7 @@ async def get_me(
     from sqlalchemy import select
 
     photos = list(
-        (await session.execute(select(Photo).where(Photo.user_id == current_user.id).order_by(Photo.position)))
+        (await session.execute(select(Photo).where(Photo.user_id == current_user.id).order_by(*PHOTO_DISPLAY_ORDER)))
         .scalars()
         .all()
     )
@@ -70,7 +71,7 @@ async def complete_onboarding(
     from sqlalchemy import select
 
     photos = list(
-        (await session.execute(select(Photo).where(Photo.user_id == current_user.id).order_by(Photo.position)))
+        (await session.execute(select(Photo).where(Photo.user_id == current_user.id).order_by(*PHOTO_DISPLAY_ORDER)))
         .scalars()
         .all()
     )
@@ -91,7 +92,7 @@ async def update_me(
     from sqlalchemy import select
 
     photos = list(
-        (await session.execute(select(Photo).where(Photo.user_id == current_user.id).order_by(Photo.position)))
+        (await session.execute(select(Photo).where(Photo.user_id == current_user.id).order_by(*PHOTO_DISPLAY_ORDER)))
         .scalars()
         .all()
     )
@@ -104,7 +105,7 @@ async def upload_photo(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
-    file_bytes = await file.read()
+    file_bytes = await photo_service.read_upload_capped(file, settings.max_upload_size_bytes)
     url = await photo_service.process_and_store_upload(file_bytes, file.content_type)
     service = ProfileService(session)
     await service.add_photo(current_user.id, url, make_primary=True)
@@ -114,7 +115,7 @@ async def upload_photo(
     from sqlalchemy import select
 
     photos = list(
-        (await session.execute(select(Photo).where(Photo.user_id == current_user.id).order_by(Photo.position)))
+        (await session.execute(select(Photo).where(Photo.user_id == current_user.id).order_by(*PHOTO_DISPLAY_ORDER)))
         .scalars()
         .all()
     )

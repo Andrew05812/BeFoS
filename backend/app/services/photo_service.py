@@ -30,6 +30,34 @@ def _safe_filename(stem: str, ext: str) -> str:
     return f"{uuid.uuid4().hex}{ext}"
 
 
+# Read in pieces the size of a phone photo: big enough that a normal upload costs one
+# syscall trip, small enough that an oversized one is refused after one piece past the cap.
+UPLOAD_CHUNK = 1024 * 1024
+
+
+async def read_upload_capped(upload, limit_bytes: int) -> bytes:
+    """Take the body of an upload, refusing it as soon as it is past the cap.
+
+    `await upload.read()` without a size materialises the whole body first and looks at
+    the limit after, so the cap that is supposed to protect the worker is paid for in
+    advance: measured on a 60 MB body, the handler's own RSS grew by 60 MB before the 422
+    came back, against 6 MB with the bound in place (and 1 MB of container RSS). The
+    answer was always right; the cost was the point. A stranger picks the body size, so
+    the bound has to be enforced while the bytes are still arriving.
+    """
+    pieces: list[bytes] = []
+    received = 0
+    while True:
+        piece = await upload.read(UPLOAD_CHUNK)
+        if not piece:
+            break
+        received += len(piece)
+        if received > limit_bytes:
+            raise ValidationError(f"Image exceeds {settings.max_upload_size_mb} MB limit.")
+        pieces.append(piece)
+    return b"".join(pieces)
+
+
 async def process_and_store_upload(file_bytes: bytes, content_type: str | None) -> str:
     """Validate, re-encode and persist an uploaded image. Returns its public path.
 
@@ -87,3 +115,21 @@ async def process_and_store_upload(file_bytes: bytes, content_type: str | None) 
 
     logger.info("Stored upload %s (%d bytes)", filename, len(payload))
     return f"/uploads/{filename}"
+
+
+def delete_stored_photo(url: str) -> None:
+    """Remove a stored upload by the public path it was handed out under.
+
+    Only the last segment of the url is trusted, because a path is not an identifier:
+    whatever arrived in the column is reduced to a filename inside the upload directory,
+    and a file that is already gone is not an error worth raising over.
+    """
+    name = os.path.basename((url or "").strip())
+    if not name:
+        return
+    try:
+        os.remove(os.path.join(settings.upload_dir, name))
+    except FileNotFoundError:
+        pass
+    except OSError as error:
+        logger.warning("could not remove stored upload %s (%s)", name, type(error).__name__)

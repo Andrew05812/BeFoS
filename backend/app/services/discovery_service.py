@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.analytics.tracker import Event, tracker
 from app.compatibility.engine import compute_compatibility
 from app.core.exceptions import NotFoundError, ValidationError
-from app.models import Photo, Profile
+from app.models import PHOTO_DISPLAY_ORDER, Photo, Profile
 from app.repositories.social_repo import DiscoveryRepository, SocialRepository
 from app.repositories.user_repo import UserRepository
 from app.services.compatibility_service import CompatibilityService
@@ -248,7 +248,7 @@ class DiscoveryService:
         tracker.track(Event.PROFILE_VIEWED, str(viewer_id), target=str(target_id))
 
         result = await self.compatibility.score_pair(viewer_id, target_id)
-        photos_stmt = select(Photo).where(Photo.user_id == target_id).order_by(Photo.position)
+        photos_stmt = select(Photo).where(Photo.user_id == target_id).order_by(*PHOTO_DISPLAY_ORDER)
         photos = list((await self.session.execute(photos_stmt)).scalars().all())
         viewer_input = await self.compatibility.build_input(viewer_id)
         target_input = await self.compatibility.build_input(target_id)

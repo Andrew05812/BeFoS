@@ -7,7 +7,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models import Interest, Photo, Profile, User, UserInterest
+from app.models import PHOTO_DISPLAY_ORDER, Interest, Photo, Profile, User, UserInterest
 
 
 class UserRepository:
@@ -64,7 +64,7 @@ class UserRepository:
         stmt = (
             select(Photo)
             .where(Photo.user_id.in_(user_ids))
-            .order_by(Photo.user_id, Photo.is_primary.desc(), Photo.position.asc())
+            .order_by(Photo.user_id, *PHOTO_DISPLAY_ORDER)
         )
         first: dict[uuid.UUID, Photo] = {}
         for photo in (await self.session.execute(stmt)).scalars():
@@ -80,7 +80,7 @@ class UserRepository:
         stmt = (
             select(Photo)
             .where(Photo.user_id == user_id)
-            .order_by(Photo.is_primary.desc(), Photo.position.asc())
+            .order_by(*PHOTO_DISPLAY_ORDER)
             .limit(1)
         )
         return (await self.session.execute(stmt)).scalar_one_or_none()

@@ -111,6 +111,18 @@ class Photo(TimestampMixin, Base):
     user: Mapped["User"] = relationship(back_populates="photos")
 
 
+# The one order a photo list is ever read in. Every screen paints `photos[0]` as the
+# avatar, so the photo the owner chose leads; `position` alone sorted a column that is
+# always 0, which leaves the rest to whatever the heap handed back — and a page can be
+# rewritten under it by a vacuum. The two tiebreakers make the answer a fact.
+PHOTO_DISPLAY_ORDER = (
+    Photo.is_primary.desc(),
+    Photo.position.asc(),
+    Photo.created_at.asc(),
+    Photo.id.asc(),
+)
+
+
 class Interest(Base):
     __tablename__ = "interests"
 

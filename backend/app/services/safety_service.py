@@ -3,13 +3,15 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ConflictError, NotFoundError, ValidationError
-from app.models import User
+from app.models import Photo, User
 from app.repositories.social_repo import SocialRepository
 from app.repositories.token_repo import TokenRepository
 from app.repositories.user_repo import UserRepository
+from app.services import photo_service
 from app.websocket.manager import manager
 
 VALID_REASONS = {"spam", "harassment", "inappropriate", "fake", "minor", "other"}
@@ -68,6 +70,15 @@ class SafetyService:
             profile.is_hidden = True
             profile.lifestyle = {}
             await self.users.set_profile_interests(profile.id, [])
+        # Hiding the profile stops every route from serving it, which is not the same
+        # statement as "the photographs are gone": `/uploads` is a public static mount, so
+        # a url somebody already loaded keeps answering for as long as the file sits there.
+        # The rows go with the account and the files go with the rows.
+        photo_urls = list(
+            (await self.session.execute(select(Photo.url).where(Photo.user_id == user_id))).scalars().all()
+        )
+        if photo_urls:
+            await self.session.execute(delete(Photo).where(Photo.user_id == user_id))
         user.is_deleted = True
         user.is_active = False
         user.deleted_at = datetime.now(timezone.utc)
@@ -76,6 +87,10 @@ class SafetyService:
         await self.tokens.revoke_all_for_user(user_id)
         dissolved = await self.social.purge_social_graph(user_id)
         await self.session.commit()
+        # After the commit: a transaction that failed must not have already destroyed the
+        # files the database still points at.
+        for url in photo_urls:
+            photo_service.delete_stored_photo(url)
         for match_id in dissolved:
             await manager.close_room(match_id)
         return {"deleted": True}
