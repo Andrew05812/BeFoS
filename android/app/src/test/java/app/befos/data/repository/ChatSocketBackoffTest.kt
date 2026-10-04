@@ -1,6 +1,7 @@
 package app.befos.data.repository
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -28,5 +29,14 @@ class ChatSocketBackoffTest {
     fun `the wait is capped so a recovered backend is noticed within half a minute`() {
         assertTrue((0..200).all { reconnectBackoffMs(it) <= 30_000L })
         assertEquals(30_000L, reconnectBackoffMs(200))
+    }
+
+    @Test
+    fun `a signed out chat stops dialing instead of dialing forever`() {
+        // A missing access token is not a network hiccup: nothing a retry can fix. The
+        // streak may grow for a moment while the store reads itself back, then the loop ends.
+        assertTrue((0..5).all(::keepDialing))
+        assertFalse(keepDialing(6))
+        assertFalse((7..40).any(::keepDialing))
     }
 }

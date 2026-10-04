@@ -292,6 +292,10 @@ data class MessageDto(
 @Serializable
 data class MessageRequest(
     val body: String,
+    // The app's own name for this send. A POST whose answer never arrived is
+    // indistinguishable from a POST that was refused, and the backend stores one message
+    // per (match, sender, id), so retrying the same attempt cannot write it twice.
+    @SerialName("client_msg_id") val clientMsgId: String? = null,
 )
 
 @Serializable

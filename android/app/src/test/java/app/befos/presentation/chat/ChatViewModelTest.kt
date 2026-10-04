@@ -55,7 +55,7 @@ class ChatViewModelTest {
         coEvery { repo.history("m1", any()) } returns ApiResult.Success(emptyList())
         coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
         coEvery { repo.sendTyping(any(), any()) } returns Unit
-        coEvery { repo.send("m1", "привет") } returns ApiResult.Success(message("9", true, "привет"))
+        coEvery { repo.send("m1", "привет", any()) } returns ApiResult.Success(message("9", true, "привет"))
 
         val vm = ChatViewModel(repo, matchRepo, "m1")
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
@@ -73,7 +73,7 @@ class ChatViewModelTest {
         coEvery { repo.history("m1", any()) } returns ApiResult.Success(emptyList())
         coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
         coEvery { repo.sendTyping(any(), any()) } returns Unit
-        coEvery { repo.send("m1", "too long") } returns
+        coEvery { repo.send("m1", "too long", any()) } returns
             ApiResult.Error(422, "Сообщение слишком длинное — разбейте его на два.")
 
         val vm = ChatViewModel(repo, matchRepo, "m1")
@@ -94,7 +94,7 @@ class ChatViewModelTest {
         coEvery { repo.history("m1", any()) } returns ApiResult.Success(emptyList())
         coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
         coEvery { repo.sendTyping(any(), any()) } returns Unit
-        coEvery { repo.send("m1", "hey") } coAnswers {
+        coEvery { repo.send("m1", "hey", any()) } coAnswers {
             delay(50)
             ApiResult.Success(message("5", true, "hey"))
         }
@@ -107,15 +107,73 @@ class ChatViewModelTest {
         vm.send()
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
 
-        coVerify(exactly = 1) { repo.send("m1", "hey") }
+        coVerify(exactly = 1) { repo.send("m1", "hey", any()) }
         assertEquals(listOf("5"), vm.uiState.value.messages.map { it.id })
+    }
+
+    @Test
+    fun `a retry of a send that never got an answer keeps the same name`() = runTest {
+        val names = mutableListOf<String?>()
+        var attempts = 0
+        coEvery { repo.history("m1", any()) } returns ApiResult.Success(emptyList())
+        coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
+        coEvery { repo.sendTyping(any(), any()) } returns Unit
+        coEvery { repo.send("m1", "again", captureNullable(names)) } coAnswers {
+            attempts++
+            // The first answer is a transport failure: the request may or may not have
+            // reached the server, which is exactly what a named send is for.
+            if (attempts == 1) ApiResult.Error(-1, "Сервер недоступен. Проверьте соединение и попробуйте ещё раз.")
+            else ApiResult.Success(message("9", true, "again"))
+        }
+
+        val vm = ChatViewModel(repo, matchRepo, "m1")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        vm.onDraftChange("again")
+        vm.send()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        vm.send()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(2, names.size)
+        assertEquals(1, names.distinct().size)
+        assertTrue(names.first() != null)
+        assertEquals(listOf("9"), vm.uiState.value.messages.map { it.id })
+    }
+
+    @Test
+    fun `a send retyped after an edit is a new message`() = runTest {
+        val names = mutableListOf<String?>()
+        coEvery { repo.history("m1", any()) } returns ApiResult.Success(emptyList())
+        coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
+        coEvery { repo.sendTyping(any(), any()) } returns Unit
+        coEvery { repo.send("m1", "again", captureNullable(names)) } returnsMany listOf(
+            ApiResult.Error(-1, "Сервер недоступен. Проверьте соединение и попробуйте ещё раз."),
+            ApiResult.Success(message("9", true, "again")),
+        )
+
+        val vm = ChatViewModel(repo, matchRepo, "m1")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        vm.onDraftChange("again")
+        vm.send()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        // The person edits the text and puts it back: the next send is their intent, not a
+        // retry of the old one, so it must be free to store.
+        vm.onDraftChange("ага")
+        vm.onDraftChange("again")
+        vm.send()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(2, names.size)
+        assertEquals(2, names.distinct().size)
     }
 
     @Test
     fun `socket echo of own sent message is deduplicated`() = runTest {        coEvery { repo.history("m1", any()) } returns ApiResult.Success(emptyList())
         coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
         coEvery { repo.sendTyping(any(), any()) } returns Unit
-        coEvery { repo.send("m1", "hey") } returns ApiResult.Success(message("5", true, "hey"))
+        coEvery { repo.send("m1", "hey", any()) } returns ApiResult.Success(message("5", true, "hey"))
 
         val vm = ChatViewModel(repo, matchRepo, "m1")
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
@@ -171,5 +229,52 @@ class ChatViewModelTest {
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
         assertEquals(false, vm.uiState.value.connected)
         assertEquals(false, vm.uiState.value.otherTyping)
+    }
+
+    @Test
+    fun `a reconnect reads the messages that arrived while the socket was down`() = runTest {
+        coEvery { repo.history("m1", any()) } returnsMany listOf(
+            ApiResult.Success(listOf(message("1", false, "привет"))),
+            ApiResult.Success(listOf(message("1", false, "привет"), message("2", false, "пока"))),
+        )
+        coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
+        coEvery { repo.sendTyping(any(), any()) } returns Unit
+
+        val vm = ChatViewModel(repo, matchRepo, "m1")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(listOf("1"), vm.uiState.value.messages.map { it.id })
+
+        // The first Connected is the socket opening behind a history load that already
+        // happened, so it reads nothing again.
+        events.tryEmit(ChatEvent.Connected)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 1) { repo.history("m1", any()) }
+
+        events.tryEmit(ChatEvent.Disconnected)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        events.tryEmit(ChatEvent.Connected)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(listOf("1", "2"), vm.uiState.value.messages.map { it.id })
+        coVerify(exactly = 2) { repo.history("m1", any()) }
+    }
+
+    @Test
+    fun `a reconnect that finds nothing new leaves the thread alone`() = runTest {
+        val known = listOf(message("1", false, "привет"))
+        coEvery { repo.history("m1", any()) } returns ApiResult.Success(known)
+        coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
+        coEvery { repo.sendTyping(any(), any()) } returns Unit
+
+        val vm = ChatViewModel(repo, matchRepo, "m1")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        vm.onDraftChange("черновик")
+
+        events.tryEmit(ChatEvent.Disconnected)
+        events.tryEmit(ChatEvent.Connected)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(listOf("1"), vm.uiState.value.messages.map { it.id })
+        assertEquals("черновик", vm.uiState.value.draft)
     }
 }

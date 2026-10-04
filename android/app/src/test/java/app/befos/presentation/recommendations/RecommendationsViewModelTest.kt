@@ -38,7 +38,7 @@ class RecommendationsViewModelTest {
     }
 
     private fun chatRepo(result: ApiResult<Message> = ApiResult.Success(proposal)) = mockk<ChatRepository> {
-        coEvery { send("m1", any()) } returns result
+        coEvery { send("m1", any(), any()) } returns result
     }
 
     private fun viewModel(
@@ -59,7 +59,7 @@ class RecommendationsViewModelTest {
         vm.select(7, cinema.title)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
 
-        coVerify { chat.send("m1", "Идея для нас: Поход в кино. Что скажете?") }
+        coVerify { chat.send("m1", "Идея для нас: Поход в кино. Что скажете?", any()) }
         coVerify { match.selectRecommendation("m1", 7) }
         assertTrue(vm.uiState.value.selected.contains(7))
         assertNull(vm.uiState.value.selectError)
@@ -88,6 +88,27 @@ class RecommendationsViewModelTest {
         vm.select(7, cinema.title)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
 
-        coVerify(exactly = 1) { chat.send(any(), any()) }
+        coVerify(exactly = 1) { chat.send(any(), any(), any()) }
+    }
+
+    @Test
+    fun `a proposal tap that got no answer is retried under the same name`() = runTest {
+        val names = mutableListOf<String?>()
+        val chat = mockk<ChatRepository> {
+            coEvery { send("m1", any(), captureNullable(names)) } returnsMany listOf(
+                ApiResult.Error(-1, "Сервер недоступен. Проверьте соединение и попробуйте ещё раз."),
+                ApiResult.Success(proposal),
+            )
+        }
+        val vm = viewModel(chat = chat)
+
+        vm.select(7, cinema.title)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        vm.select(7, cinema.title)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(2, names.size)
+        assertEquals(1, names.distinct().size)
+        assertTrue(names.first() != null)
     }
 }

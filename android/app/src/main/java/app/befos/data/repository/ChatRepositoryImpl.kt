@@ -100,16 +100,22 @@ class ChatSocket(
 
     private suspend fun CoroutineScope.dialLoop() {
         var failures = 0
+        var tokenlessStreak = 0
         while (isActive) {
             val token = freshAccessToken()
             if (token == null) {
-                // Either signed out or the token store has not answered yet; both are worth
-                // another attempt on the same capped schedule. The loop ends for good when
-                // the chat screen closes and the last collector goes away.
+                // Either signed out or the token store has not answered yet. Both are worth
+                // another attempt on the capped schedule, but not forever: a missing token is
+                // not a network hiccup a retry can fix. The next collector to arrive starts
+                // the loop again from scratch, so ending it costs nothing a real visit cannot
+                // undo.
+                tokenlessStreak++
+                if (!keepDialing(tokenlessStreak)) return
                 failures++
                 delay(reconnectBackoffMs(failures))
                 continue
             }
+            tokenlessStreak = 0
             var opened = false
             try {
                 client.webSocket(urlString = "${ApiConfig.wsUrl(matchId)}?token=$token") {
@@ -195,8 +201,16 @@ class ChatSocket(
 internal fun reconnectBackoffMs(failures: Int): Long =
     (BASE_BACKOFF_MS * (1L shl failures.coerceIn(0, 4))).coerceAtMost(MAX_BACKOFF_MS)
 
+/**
+ * How many attempts in a row may find no access token before the dial loop ends. The streak
+ * resets on any token, so a cold start that reads the store a moment late is not counted
+ * against it; six capped attempts span about a minute and a half.
+ */
+internal fun keepDialing(tokenlessStreak: Int): Boolean = tokenlessStreak < MAX_TOKENLESS_DIALS
+
 private const val BASE_BACKOFF_MS = 2_000L
 private const val MAX_BACKOFF_MS = 30_000L
+private const val MAX_TOKENLESS_DIALS = 6
 
 class ChatRepositoryImpl(
     private val api: ApiService,
@@ -214,8 +228,8 @@ class ChatRepositoryImpl(
     override suspend fun history(matchId: String, beforeId: String?): ApiResult<List<Message>> =
         api.getMessages(matchId, beforeId = beforeId).map { page -> page.messages.map { it.toDomain() } }
 
-    override suspend fun send(matchId: String, body: String): ApiResult<Message> =
-        api.sendMessage(matchId, body).map { it.toDomain() }
+    override suspend fun send(matchId: String, body: String, clientMsgId: String?): ApiResult<Message> =
+        api.sendMessage(matchId, body, clientMsgId).map { it.toDomain() }
 
     override suspend fun markRead(matchId: String): ApiResult<Unit> = api.markRead(matchId)
 

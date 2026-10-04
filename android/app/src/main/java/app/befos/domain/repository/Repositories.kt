@@ -71,7 +71,7 @@ interface MatchRepository {
 
 interface ChatRepository {
     suspend fun history(matchId: String, beforeId: String? = null): ApiResult<List<Message>>
-    suspend fun send(matchId: String, body: String): ApiResult<Message>
+    suspend fun send(matchId: String, body: String, clientMsgId: String?): ApiResult<Message>
     suspend fun markRead(matchId: String): ApiResult<Unit>
     fun socket(matchId: String): Flow<ChatEvent>
     suspend fun sendTyping(matchId: String, typing: Boolean)

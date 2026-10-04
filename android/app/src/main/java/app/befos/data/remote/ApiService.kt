@@ -220,11 +220,15 @@ class ApiService(private val client: HttpClient) {
             if (beforeId != null) parameter("before_id", beforeId)
         }
 
-    suspend fun sendMessage(matchId: String, body: String): ApiResult<MessageDto> =
+    suspend fun sendMessage(
+        matchId: String,
+        body: String,
+        clientMsgId: String? = null,
+    ): ApiResult<MessageDto> =
         client.apiCall {
             method = HttpMethod.Post
             url(endpoint("matches/$matchId/messages"))
-            setBody(MessageRequest(body))
+            setBody(MessageRequest(body, clientMsgId))
         }
 
     suspend fun markRead(matchId: String): ApiResult<Unit> =

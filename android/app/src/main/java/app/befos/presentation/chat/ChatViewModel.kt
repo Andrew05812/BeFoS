@@ -7,6 +7,7 @@ import app.befos.domain.model.Message
 import app.befos.domain.repository.ChatEvent
 import app.befos.domain.repository.ChatRepository
 import app.befos.domain.repository.MatchRepository
+import java.util.UUID
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -37,6 +38,17 @@ class ChatViewModel(
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
 
     private var socketJob: Job? = null
+
+    /**
+     * The one send attempt that has not been answered yet, named by the app. The name is
+     * what lets a retry of a lost response reuse the stored message instead of writing a
+     * second copy; it belongs to exactly the text that failed, so an edit ends it.
+     */
+    private var pendingAttempt: PendingAttempt? = null
+
+    private data class PendingAttempt(val body: String, val clientMsgId: String)
+
+    private var socketWasDown = false
 
     init {
         loadHistory()
@@ -81,10 +93,40 @@ class ChatViewModel(
                         st.copy(messages = st.messages.map { if (it.isOwn) it.copy(isRead = true) else it })
                     }
                     is ChatEvent.Presence -> _uiState.update { it.copy(otherOnline = event.online) }
-                    is ChatEvent.Connected -> _uiState.update { it.copy(connected = true) }
-                    is ChatEvent.Disconnected -> _uiState.update { it.copy(connected = false, otherTyping = false) }
+                    is ChatEvent.Connected -> {
+                        _uiState.update { it.copy(connected = true) }
+                        if (socketWasDown) {
+                            socketWasDown = false
+                            fillGap()
+                        }
+                    }
+                    is ChatEvent.Disconnected -> {
+                        socketWasDown = true
+                        _uiState.update { it.copy(connected = false, otherTyping = false) }
+                    }
                     is ChatEvent.Error -> Unit
                 }
+            }
+        }
+    }
+
+    /**
+     * What arrived while the socket was down exists only in the database, so the gap is
+     * filled from the newest page instead of being guessed at. The first `Connected` of a
+     * screen is not a gap: the history load that came with it is the same read.
+     */
+    private fun fillGap() {
+        viewModelScope.launch {
+            val result = chatRepository.history(matchId)
+            if (result !is ApiResult.Success) return@launch
+            _uiState.update { state ->
+                val known = state.messages.mapTo(HashSet()) { it.id }
+                val fresh = result.data.filterNot { it.id in known }
+                if (fresh.isEmpty()) state
+                else state.copy(
+                    messages = (state.messages + fresh).sortedBy { it.createdAt },
+                    otherTyping = false,
+                )
             }
         }
     }
@@ -102,6 +144,9 @@ class ChatViewModel(
 
     fun onDraftChange(v: String) {
         val wasTyping = _uiState.value.draft.isNotBlank()
+        // A failed send keeps its name only while the text that failed sits untouched; once
+        // the person edits, the next send is a new message and must be free to store.
+        pendingAttempt = pendingAttempt?.takeIf { it.body == v.trim() }
         _uiState.update { it.copy(draft = v) }
         // One frame per blank/non-blank transition instead of one per keystroke.
         if (wasTyping != v.isNotBlank()) viewModelScope.launch { chatRepository.sendTyping(matchId, v.isNotBlank()) }
@@ -110,16 +155,22 @@ class ChatViewModel(
     fun send() {
         val body = _uiState.value.draft.trim()
         if (body.isEmpty() || _uiState.value.sending) return
+        val attempt = pendingAttempt?.takeIf { it.body == body }
+            ?: PendingAttempt(body, UUID.randomUUID().toString())
+        pendingAttempt = attempt
         _uiState.update { it.copy(sending = true, draft = "", sendError = null) }
         viewModelScope.launch {
             chatRepository.sendTyping(matchId, false)
-            when (val result = chatRepository.send(matchId, body)) {
+            when (val result = chatRepository.send(matchId, attempt.body, attempt.clientMsgId)) {
                 is ApiResult.Success -> {
+                    pendingAttempt = null
                     upsert(result.data)
                     _uiState.update { it.copy(sending = false) }
                 }
+                // The attempt keeps its name: an unanswered send may have stored the message,
+                // and a retry under the same name is the difference between one copy and two.
                 is ApiResult.Error -> _uiState.update {
-                    it.copy(sending = false, draft = body, sendError = result.message)
+                    it.copy(sending = false, draft = attempt.body, sendError = result.message)
                 }
             }
         }
