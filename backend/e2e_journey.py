@@ -2,16 +2,21 @@
 
 Exercises the full BeFoS value chain with two fresh users who mutually like each
 other so a real match + chat + recommendations flow is produced. Every step
-asserts on live backend data; nothing is mocked or hardcoded.
+asserts on live backend data; nothing is mocked or hardcoded. Both accounts are
+deleted at the end, so a run leaves no probe rows in the development database.
 """
 from __future__ import annotations
 
+import asyncio
+import json
 import sys
 import time
 
 import httpx
+import websockets  # comes with uvicorn[standard], the same server that answers here
 
 BASE = "http://localhost:8000/api/v1"
+WS_BASE = "ws://localhost:8000"
 results: list[tuple[bool, str]] = []
 
 
@@ -22,6 +27,134 @@ def check(ok: bool, label: str, extra: str = "") -> None:
     if not ok:
         # keep going to surface all failures, but remember we failed
         pass
+
+
+class Peer:
+    """One end of the chat as the app sees it: a socket plus frames nobody asked for yet.
+
+    Realtime delivers presence, typing and receipts in no order the test can predict, so
+    a frame that is not the one being waited for is parked instead of dropped — dropping
+    it would make the next check fail for the wrong reason.
+    """
+
+    def __init__(self, ws) -> None:
+        self.ws = ws
+        self.parked: list[dict] = []
+
+    async def next(self, kind: str, timeout: float = 2.0, **wanted) -> dict | None:
+        for index, frame in enumerate(self.parked):
+            if frame.get("type") == kind and all(frame.get(k) == v for k, v in wanted.items()):
+                return self.parked.pop(index)
+        deadline = time.monotonic() + timeout
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return None
+            try:
+                raw = await asyncio.wait_for(self.ws.recv(), remaining)
+            except (asyncio.TimeoutError, TimeoutError):
+                return None
+            except websockets.exceptions.ConnectionClosed:
+                # The room ending is an answer to the question "did this frame arrive";
+                # it must fail the check, not the whole journey.
+                return None
+            try:
+                frame = json.loads(raw)
+            except ValueError:
+                continue
+            if not isinstance(frame, dict):
+                continue
+            if frame.get("type") == kind and all(frame.get(k) == v for k, v in wanted.items()):
+                return frame
+            self.parked.append(frame)
+
+    async def nothing(self, kind: str, seconds: float = 1.0, **wanted) -> bool:
+        return await self.next(kind, seconds, **wanted) is None
+
+
+async def _refusal(uri: str) -> str:
+    """Why this socket did not open, or 'accepted' when it did."""
+    try:
+        async with websockets.connect(uri, open_timeout=5):
+            return "accepted"
+    except websockets.exceptions.InvalidStatus as exc:
+        return f"handshake {exc.response.status_code}"
+    except websockets.exceptions.ConnectionClosed as exc:
+        return f"closed {getattr(exc.rcvd, 'code', 'unknown')}"
+
+
+def socket_refused(uri: str) -> str:
+    return asyncio.run(_refusal(uri))
+
+
+def realtime(match_id: str, uid_a: str, uid_b: str, tok_a: str, tok_b: str, stranger_tok: str, c: httpx.Client) -> None:
+    """Ask the live socket what the REST history already confirmed.
+
+    REST proves the row exists. Only a socket proves that the second client is told about
+    it without refetching, that a retried send does not appear twice, and that a token
+    whose owner no longer belongs to the pair gets no room.
+    """
+    ha = {"Authorization": f"Bearer {tok_a}"}
+    hb = {"Authorization": f"Bearer {tok_b}"}
+
+    async def drive() -> None:
+        uri_a = f"{WS_BASE}/ws/chat/{match_id}?token={tok_a}"
+        uri_b = f"{WS_BASE}/ws/chat/{match_id}?token={tok_b}"
+        async with websockets.connect(uri_a, open_timeout=5) as ws_a, websockets.connect(uri_b, open_timeout=5) as ws_b:
+            a, b = Peer(ws_a), Peer(ws_b)
+
+            seen = await b.next("presence", user_id=uid_a)
+            check(seen is not None and seen.get("online") is True, "B is told A came online", str(seen))
+            seen = await a.next("presence", user_id=uid_b)
+            check(seen is not None and seen.get("online") is True, "A is told B came online", str(seen))
+
+            reuse = "e2e-retry-1"
+            body = "Привет по сокету."
+            frame = {"type": "message", "body": body, "client_msg_id": reuse}
+            await ws_a.send(json.dumps(frame))
+            inbound = await b.next("message", body=body)
+            check(inbound is not None, "a socket send reaches the peer without a reload", str(inbound))
+            ack = await a.next("message", body=body)
+            same_id = inbound is not None and ack is not None and ack.get("id") == inbound.get("id")
+            check(same_id, "the sender is answered with the stored id", str(ack))
+
+            await ws_a.send(json.dumps(frame))
+            replayed = await a.next("message", id=(inbound or {}).get("id"))
+            check(replayed is not None, "a retried send is answered under the same id", str(replayed))
+            quiet = await b.nothing("message")
+            check(quiet, "a retried send is not shown to the peer twice")
+
+            await ws_a.send("this is not json")
+            err = await a.next("error")
+            check(err is not None, "a malformed frame is answered, not fatal", str(err))
+
+            await ws_a.send(json.dumps({"type": "typing", "typing": True}))
+            typing = await b.next("typing", user_id=uid_a, typing=True)
+            check(typing is not None and await a.nothing("error", 0.6) is True,
+                  "the socket survives it and relays typing", str(typing))
+
+            rest = c.post(f"{BASE}/matches/{match_id}/messages", headers=hb,
+                          json={"body": "Отправлено по REST."})
+            delivered = await a.next("message", body="Отправлено по REST.")
+            check(rest.status_code in (200, 201) and delivered is not None,
+                  "a REST send is relayed into the open room", str(delivered))
+
+            await ws_b.send(json.dumps({"type": "read"}))
+            receipt = await a.next("read", user_id=uid_b)
+            read_back = [m for m in c.get(f"{BASE}/matches/{match_id}/messages", headers=ha,
+                                          params={"limit": 50}).json()["messages"] if m["is_own"]]
+            check(receipt is not None and all(m["is_read"] for m in read_back),
+                  "a socket read is both shown and stored", str(receipt))
+
+        refused = await _refusal(f"{WS_BASE}/ws/chat/{match_id}?token={stranger_tok}")
+        check(refused != "accepted", "a stranger holding a valid token gets no room", refused)
+        refused = await _refusal(f"{WS_BASE}/ws/chat/{match_id}?token=not-a-token")
+        check(refused != "accepted", "a token that does not verify gets no room", refused)
+
+    try:
+        asyncio.run(drive())
+    except Exception as exc:  # a socket that will not open is a failure, not a traceback
+        check(False, "both members hold a socket on the pair", f"{type(exc).__name__}: {exc}")
 
 
 def onboard_payload(name: str, gender: str, pref: list[str], interests: list[str]) -> dict:
@@ -179,6 +312,14 @@ def main() -> int:
     hist_a = c.get(f"{BASE}/matches/{match_id}/messages", headers=ha).json()
     check(len(hist_a["messages"]) >= 2, "A sees full thread", f"{len(hist_a['messages'])} msgs")
 
+    # 11b. realtime on the same pair; C exists only to be kept out of the room
+    rc = c.post(f"{BASE}/auth/register", json={"email": f"e2e.c.{stamp}@befosmail.com", "password": pw, "password_confirm": pw})
+    check(rc.status_code in (200, 201), "register C (a stranger to the pair)", str(rc.status_code))
+    tok_c = rc.json()["tokens"]["access_token"]
+    realtime(match_id, uid_a, uid_b, tok_a, tok_b, tok_c, c)
+    cd = c.delete(f"{BASE}/users/me", headers={"Authorization": f"Bearer {tok_c}"})
+    check(cd.status_code == 200, "the stranger account is deleted again", str(cd.status_code))
+
     # 12. recommendations
     recs = c.get(f"{BASE}/matches/{match_id}/recommendations", headers=ha).json()
     rl = recs["recommendations"]
@@ -216,8 +357,17 @@ def main() -> int:
     check(noauth.status_code in (401, 403), "unauthorized /users/me rejected", str(noauth.status_code))
 
     # 17. delete account
-    dele = c.delete(f"{BASE}/users/me", headers={"Authorization": f"Bearer {la2.json()['tokens']['access_token']}"})
+    tok_a2 = la2.json()["tokens"]["access_token"]
+    dele = c.delete(f"{BASE}/users/me", headers={"Authorization": f"Bearer {tok_a2}"})
     check(dele.status_code == 200, "delete account A", str(dele.status_code))
+
+    # 18. an access token does not outlive the account behind it
+    refused = socket_refused(f"{WS_BASE}/ws/chat/{match_id}?token={tok_a2}")
+    check(refused != "accepted", "a deleted account gets no room", refused)
+
+    # 19. the journey leaves no account behind: both halves of it are probe data
+    deb = c.delete(f"{BASE}/users/me", headers=hb)
+    check(deb.status_code == 200, "delete account B", str(deb.status_code))
 
     c.close()
     passed = sum(1 for ok, _ in results if ok)
