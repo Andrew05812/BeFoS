@@ -3,7 +3,15 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, UniqueConstraint, Index, CheckConstraint
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    PrimaryKeyConstraint,
+    String,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -27,10 +35,10 @@ class DiscoveryQueue(Base):
     __tablename__ = "discovery_queue"
 
     viewer_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     candidate_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     rank: Mapped[int] = mapped_column(Integer, nullable=False)
     score: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
@@ -39,7 +47,11 @@ class DiscoveryQueue(Base):
     seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
-        UniqueConstraint("viewer_id", "candidate_id", name="uq_discovery_queue_pair"),
+        # Named for the upsert that leans on it (`ON CONFLICT` needs a constraint name)
+        # and declared as the primary key rather than as a second unique constraint over
+        # the same columns: Postgres promotes the unique index to the primary key, and a
+        # separate UniqueConstraint here would make `alembic check` report drift forever.
+        PrimaryKeyConstraint("viewer_id", "candidate_id", name="uq_discovery_queue_pair"),
         CheckConstraint(
             "status in ('ready', 'seen')",
             name="ck_discovery_queue_status",

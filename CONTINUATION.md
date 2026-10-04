@@ -43,11 +43,11 @@ Python 3.12, FastAPI, Pydantic 2.10 + pydantic-settings, SQLAlchemy 2.0 async, a
 
 ## 5. Docker
 
-Основной runtime. `docker compose up --build` поднимает `befos_postgres` (16-alpine) и `befos_backend`; при старте — `alembic upgrade head` + `python -m app.seed --if-empty` (справочники + 50 демо-пользователей + демо-матчи; детерминированный `RNG_SEED=20240501`). API: `http://localhost:8000`, Swagger `/docs`, health: **`/api/v1/health`** (корневого `/health` нет). Тома: `befos_pgdata`, `befos_uploads`. Эмулятор Android ходит на host через `http://10.0.2.2:8000`.
+Основной runtime. `docker compose up --build` поднимает `befos_postgres` (16-alpine) и `befos_backend`; при старте — `alembic upgrade head` + `python -m app.seed --if-empty` (справочники + 50 демо-пользователей + демо-матчи; детерминированный `RNG_SEED=20240501`). API: `http://localhost:8000`, Swagger `/docs`, пробы живости: **`/api/v1/health`** (процесс) и **`/api/v1/health/db`** (база; корневой `/health` не существует). Healthcheck контейнера опрашивает `/health`, `start_period=60s` — миграции и сид выполняются в той же команде до uvicorn. Тома: `myapp_befos_pgdata`, `myapp_befos_uploads` (копируются и проверяются по `docs/OPERATIONS.md`; том копией не является). Эмулятор Android ходит на host через `http://10.0.2.2:8000`.
 
 ## 6. Database
 
-PostgreSQL 16, 21 доменная таблица (users, profiles, photos, interests/user_interests, test_questions/test_options/test_answers/test_results, compatibility_profiles, likes, passes, matches, messages, message_reads, activities, recommendations, blocks, reports, refresh_tokens + alembic_version). Индексы на горячих путях (`ix_likes_from/to_user_id`, уникальность `uq_like_pair`, CHECK `from<>to`). Миграции — Alembic; актуальная head в `backend/alembic/`.
+PostgreSQL 16, 22 доменная таблица (users, profiles, photos, interests/user_interests, test_questions/test_options/test_answers/test_results, compatibility_profiles, activity_preferences, discovery_queue, likes, passes, matches, messages, message_reads, activities, recommendations, blocks, reports, refresh_tokens + `alembic_version`). Индексы на горячих путях (`ix_likes_from/to_user_id`, уникальность `uq_like_pair`, `ix_profiles_city_lower_birth`, `ix_message_reads_reader_message`, `ix_discovery_queue_viewer_status_rank`). Миграции — Alembic; актуальная head в `backend/alembic/`, `alembic check` чист (см. §12.2).
 
 ## 7. Authentication
 
@@ -97,11 +97,20 @@ REST — надёжная запись (история/отправка/проч
 - В логи не попадают пароли, access/refresh-токены и заголовок `Authorization`; `SensitiveFilter` вычищает `token=`, `"password":` и похожие ключи из строк uvicorn.
 - Покрыто `backend/tests/test_observability.py` (19 тестов): корреляция id между error- и access-строкой, отсутствие учётных данных, невозможность дописать вторую строку в лог через заголовок, доступ-строка с собственным id (а не с `-`).
 
+## 12.2. Надёжность БД и эксплуатация
+
+- Соединение берётся до тела хэндлера (`get_session` → `checkout_connection`), и первая неудача стоит повторной выдачи, а не половины запроса: `pool_pre_ping` не покрывает `InternalClientError` asyncpg (это не DBAPI-ошибка, поэтому `is_disconnect` на пути пинга не вызывается). Измерено после `pg_terminate_backend`: при паузе 0 мс падает одна выдача из подряд идущих, при паузе ≥50 мс — ни одной; пул выбрасывает отравленное соединение сам.
+- Отсутствующая база отвечает 503 `database_unavailable` с `Retry-After: 5` и человеческой формулировкой, а не 500 с текстом драйвера (в тексте есть host, user и пароль строки подключения). `/health/db` при этом `503 {"status":"degraded","database":"unavailable"}`; `/health` остаётся 200 — «процесс жив» и «база жива» разные утверждения, алерт вешать на `/health/db`.
+- Проверено на живом стенде: `docker restart befos_postgres` — outage ~2.1 с, за это время backend отдал 503 и 200 и ни одного 500; контейнер при этом оставался `healthy` (healthcheck смотрит `/health`, `start_period=60s` — миграции и сид идут в той же команде до uvicorn).
+- `alembic check` чист: `uq_discovery_queue_pair` и `uq_user_interest` объявлены как `PrimaryKeyConstraint` (Postgres повышал бы отдельный уникальный индекс до PK, и autogenerate вечно предлагал добавить ограничение, которое уже есть). Имена обязаны остаться — на них ссылается `ON CONFLICT (constraint …)`.
+- Резервная копия — это `pg_dump -Fc` + tar тома фото вне контейнера, том Docker копией не является. Drill (восстановление в `befos_restore_drill`, сверка отпечатка `backend/ops/backup_fingerprint.sql`, удаление) пройден 2026-10-04: совпало всё, включая `Bitmap Index Scan on ix_profiles_city_lower_birth` на восстановленной базе. Команды, порядок восстановления после потери данных, ретенция и playbook — `docs/OPERATIONS.md`.
+- Покрыто `backend/tests/test_db_reliability.py` (7 тестов): честность пробы, отсутствие утечки DSN, форма 503 с `Retry-After`, настройки пула, реальное убийство соединения (`pg_terminate_backend`) с последующими успешными выдачами, и детерминированная проверка того, что зависимость берёт соединение до хэндлера.
+
 ## 13. Текущие результаты тестов (воспроизводимо)
 
 | Набор | Команда | Результат |
 |---|---|---|
-| Backend unit+integration | `cd backend && ./.venv/Scripts/python.exe -m pytest -q` (нужен запущенный `docker compose up -d`; тестовая БД `befos_test`) | **136/136** |
+| Backend unit+integration | `cd backend && ./.venv/Scripts/python.exe -m pytest -q` (нужен запущенный `docker compose up -d`; тестовая БД `befos_test`) — **один набор за раз**: два одновременных прогона делят `befos_test`, а `conftest` чистит доменные таблицы между тестами, поэтому второй прогон видит чужие строки и падения не означают поломки кода | **143/143** (160 с на хосте, 114 с в контейнере: `docker exec -e BEFOS_TEST_PG_HOST=postgres befos_backend python -m pytest /app/tests -q`) |
 | Живой journey | `PYTHONIOENCODING=utf-8 backend/.venv/Scripts/python.exe backend/e2e_journey.py` | **47/47** |
 | Android unit | `cd android && ./gradlew :app:testDebugUnitTest` — **только из ASCII-пути** (см. §17.1) | **45/45** |
 | Release | `BEFOS_API_BASE_URL=… BEFOS_WS_BASE_URL=… ./gradlew :app:assembleRelease :app:bundleRelease` | APK 1.88 МБ + AAB 4.60 МБ (R8); без `android/keystore.properties` — `app-release-unsigned.apk`, что и проверялось |
@@ -149,12 +158,14 @@ Windows/adb-подводные камни (экономия времени):
 6. Сокет чата живёт в app-scope до конца процесса (закрытие per-chat не реализовано; на UX не влияет).
 7. Демо-данные сидируются в БД (`--if-empty`); для «чистого» прода — отключить demo и не сидировать домен.
 8. **Холодный старт зависит от типа сборки, а не от кода приложения**: на одном и том же эмуляторе debug-APK — `Displayed +31s662ms` (JIT без AOT/R8, `performTraversals` компилируется ~12 с), release-APK — `am start -W` TotalTime 6.1 с в первый запуск и 4.6 с во второй. Тяжёлый HTTP-стек (OkHttp/TLS) уже вынесен в `by lazy` в `AppContainer`, чтобы не платить его цену в `Application.onCreate`; дальнейший разгон — это baseline profile + release, а не правки приложения.
+9. **Копии снимаются и проверяются руками**: командные рецепты, отпечаток и drill задокументированы и исполнены (`docs/OPERATIONS.md`), но планировщика нет и копии нет вне хоста — для выгрузки нужны адрес и ключ, которых в этом репозитории намеренно нет. Точка восстановления — момент последнего дампа, PITR нет.
 
 ## 18. Возможные следующие задачи (не начаты, по убыванию ценности)
 
 - Push-уведомления (FCM) о match/сообщениях — отдельный мандат.
 - Офлайн-кэш истории чата (Room) + queued send.
 - Загрузка фото профиля с устройства (фото отдаются API, UI камеры/галереи минимален).
+- Планировщик копий с drill по расписанию и выгрузкой вне хоста (блокировано отсутствием адреса и ключа; локальная часть сделана — `docs/OPERATIONS.md` §5).
 - CI (GitHub Actions): pytest + journey + unit-тесты из ASCII-checkout, сборка release с секретами из CI-vault.
 - Модерация-панель / админ API.
 - Пагинация/курсор для длинной истории сообщений, индикатор «печатает…» в списке пар.
@@ -165,4 +176,4 @@ Windows/adb-подводные камни (экономия времени):
 - Рабочий код менять только под конкретную обнаруженную проблему; не рефакторить без нужды; алгоритм совместимости и UI не трогать «на всякий случай».
 - Не добавлять FCM/офлайн-кэш молча — это пункты §18.
 - Коммиты логические, дерево чистое; секреты в git никогда; не называть «лимитацией» невыполненную задачу.
-- Перед «готово»: pytest 62, journey 46, unit 36, сборки, и — для UI/чат-фич — реальный прогон на эмуляторе.
+- Перед «готово»: backend pytest 143, journey 47, Android unit 45, сборки, и — для UI/чат-фич — реальный прогон на эмуляторе.

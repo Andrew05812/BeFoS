@@ -9,9 +9,9 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
+    PrimaryKeyConstraint,
     String,
     Text,
-    UniqueConstraint,
     Index,
     text,
 )
@@ -128,13 +128,16 @@ class UserInterest(Base):
     __tablename__ = "user_interests"
 
     profile_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("profiles.id", ondelete="CASCADE"), primary_key=True
+        ForeignKey("profiles.id", ondelete="CASCADE"), nullable=False
     )
     interest_id: Mapped[int] = mapped_column(
-        ForeignKey("interests.id", ondelete="CASCADE"), primary_key=True
+        ForeignKey("interests.id", ondelete="CASCADE"), nullable=False
     )
 
     __table_args__ = (
-        UniqueConstraint("profile_id", "interest_id", name="uq_user_interest"),
+        # The pair is the row identity and the name the interest upsert conflicts on;
+        # declaring it as the primary key is what the database actually holds, so
+        # `alembic check` stops reporting a constraint that cannot be added twice.
+        PrimaryKeyConstraint("profile_id", "interest_id", name="uq_user_interest"),
         Index("ix_user_interests_interest", "interest_id"),
     )

@@ -7,6 +7,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.core.database import DatabaseUnavailable
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -68,10 +69,26 @@ def _error_body(code: str, message: str, detail: Any = None) -> dict[str, Any]:
     return body
 
 
+# Phrased for the person reading the app, not for the operator: the database being
+# unreachable is nobody's fault and asking them to retry is the only advice there is.
+_DATABASE_UNAVAILABLE_MESSAGE = "BeFoS is sorting itself out for a moment. Try again in a few seconds."
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(AppError)
     async def _app_error_handler(_: Request, exc: AppError) -> JSONResponse:
         return JSONResponse(status_code=exc.status_code, content=_error_body(exc.code, exc.message, exc.detail))
+
+    @app.exception_handler(DatabaseUnavailable)
+    async def _database_unavailable_handler(_: Request, _exc: DatabaseUnavailable) -> JSONResponse:
+        # A request that never got a connection is not a bug in the request: say so, say
+        # when to come back, and keep the driver's text — which names the database host,
+        # the user and the password — out of the response.
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content=_error_body("database_unavailable", _DATABASE_UNAVAILABLE_MESSAGE),
+            headers={"Retry-After": "5"},
+        )
 
     @app.exception_handler(RequestValidationError)
     async def _validation_handler(_: Request, exc: RequestValidationError) -> JSONResponse:

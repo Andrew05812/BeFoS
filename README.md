@@ -33,7 +33,8 @@ FastAPI (Python, async)  →  Service  →  Repository  →  PostgreSQL
 Подробности:
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — слои, модули, движок совместимости (в конце — краткое резюме для защиты проекта).
 - [`docs/API.md`](docs/API.md) — все REST/WebSocket эндпоинты с форматами запросов и ответов.
-- [`docs/DATABASE.md`](docs/DATABASE.md) — схема БД (21 таблица), миграции.
+- [`docs/DATABASE.md`](docs/DATABASE.md) — схема БД (22 таблицы + `alembic_version`), миграции, пул соединений.
+- [`docs/OPERATIONS.md`](docs/OPERATIONS.md) — эксплуатация: резервные копии и проверенный drill восстановления, миграции и откат, health-пробы и алерты, playbook аварий, формат логов и что в них не попадает.
 - [`CONTINUATION.md`](CONTINUATION.md) — handover-документ для нового разработчика/AI: стек, конфигурация, тесты, ограничения.
 - [`DEMO.md`](DEMO.md) — сценарий демонстрации продукта на 5–10 минут (15 шагов).
 
@@ -94,7 +95,7 @@ export BEFOS_API_BASE_URL="https://api.example.com/" BEFOS_WS_BASE_URL="wss://ap
 
 ### Тесты
 
-**Backend** (136 тестов: unit + integration + security-config + IDOR-набор + perf-ограничение числа запросов + набор пагинации подбора + набор наблюдаемости). По умолчанию тесты поднимают отдельную БД `befos_test` на **Docker-PostgreSQL** (`localhost:5432`), поэтому достаточно запущенного `docker compose up -d`:
+**Backend** (143 теста: unit + integration + security-config + IDOR-набор + perf-ограничение числа запросов + набор пагинации подбора + набор наблюдаемости + набор надёжности БД). По умолчанию тесты поднимают отдельную БД `befos_test` на **Docker-PostgreSQL** (`localhost:5432`), поэтому достаточно запущенного `docker compose up -d`:
 
 ```bash
 cd backend
@@ -148,13 +149,14 @@ myapp/
 │   │   ├── api/v1/     # маршруты: auth, users, tests, discover, matches, chat, safety, health
 │   │   ├── services/   # бизнес-логика
 │   │   ├── repositories/
-│   │   ├── models/     # SQLAlchemy-модели (21 таблица)
+│   │   ├── models/     # SQLAlchemy-модели (22 таблицы)
 │   │   ├── compatibility/  # детерминированный движок совместимости
 │   │   ├── recommendations/# движок рекомендаций активностей
 │   │   ├── websocket/  # шлюз чата
 │   │   ├── schemas/    # Pydantic-схемы
 │   │   └── core/       # config, database, security, rate_limit, exceptions
 │   ├── alembic/        # миграции
+│   ├── ops/            # backup_fingerprint.sql — отпечаток копии для restore-drill
 │   ├── tests/          # unit + integration
 │   └── requirements.txt
 ├── android/            # клиент Jetpack Compose
@@ -163,7 +165,7 @@ myapp/
 │       ├── data/       # model (DTO), remote (ApiService), repository, mapper
 │       ├── domain/     # model, repository (интерфейсы)
 │       └── presentation/  # экраны + ViewModel (auth, onboarding, test, discovery, matches, chat, compatibility, recommendations, profile, editprofile, publicprofile, settings, main, root, navigation)
-├── docs/               # ARCHITECTURE.md, API.md, DATABASE.md
+├── docs/               # ARCHITECTURE.md, API.md, DATABASE.md, OPERATIONS.md
 ├── CONTINUATION.md     # handover-документ для продолжающего разработчика
 ├── DEMO.md             # сценарий демонстрации на 5–10 минут
 ├── docker-compose.yml

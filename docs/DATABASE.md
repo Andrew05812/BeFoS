@@ -107,7 +107,31 @@ users ─1:1─ profiles ─M:N─ interests   (через user_interests)
 ### `refresh_tokens`
 `id` (UUID PK), `user_id` (FK, cascade, index), `token_hash` (String 64, unique — SHA-256 от refresh-токена), `expires_at` (timestamptz), `revoked` (Boolean), `revoked_at`, `user_agent` (String, null). Refresh-токены ротируются: при обновлении старый отзывается.
 
+## Пул и что он не покрывает
+
+`app/core/database.py`: `pool_size=10`, `max_overflow=20` (до 30 соединений на процесс),
+`pool_pre_ping=True`, `pool_recycle=1800`. При `max_connections=100` это практически три
+реплики backend; при четвёртой refused connection появится под нагрузкой, а не при старте.
+
+Остаток, который pre-ping не ловит, измерен после `pg_terminate_backend`: если сервер
+закрыл соединение в тот момент, когда пул уже его отдаёт, asyncpg поднимает
+`InternalClientError` — это не DBAPI-ошибка, и pre-ping не может классифицировать её как
+разрыв. Из трёх подряд выдач одна поднимала ошибку, две следующие нет; пул выбрасывает
+отравленное соединение сам. Поэтому `get_session` берёт соединение явно, до хэндлера, и
+повторяет попытку один раз; если не вышло и дважды — 503 `database_unavailable` вместо 500
+с текстом драйвера. Покрыто набором `backend/tests/test_db_reliability.py` (7 тестов:
+честная проба, отсутствие утечки DSN, настройки пула, реальная потеря соединения и
+восстановление, 503 на dependency-пути).
+
+Проверка соответствия моделей и схемы — `alembic check`, сейчас чистый. `discovery_queue`
+и `user_interests` объявлены через `PrimaryKeyConstraint` с именами `uq_*`, а не через
+отдельный `UniqueConstraint` на тех же колонках: Postgres повышал уникальный индекс до
+первичного ключа, и вторая формулировка навечно оставляла `alembic check` в состоянии
+«есть drift». Имена этих двух ограничений при этом обязаны остаться — на них ссылается
+`ON CONFLICT (constraint ...)` в `social_repo` и `user_repo`.
+
 ## Миграции и сид
 
 - **Миграции:** `alembic upgrade head` (применяется автоматически в docker-compose при старте backend).
 - **Сид:** `python -m app.seed [--if-empty]`. Идемпотентно создаёт справочники (`interests`, `activities`, `test_questions`/`test_options`), затем демо-домен: 1 демо-пользователь (`demo@befos.app` / `Demo12345`), 50 пользователей и 4 демо-матча. `RNG_SEED=20240501` — детерминированная генерация. Функции `_seed_catalogs`, `_clear_domain`, `run_seed` переиспользуются и в тестах.
+- **Копия, восстановление и откат** — в [`docs/OPERATIONS.md`](OPERATIONS.md): что именно копируется (и почему том Docker копией не является), как drill проверяет копию отпечатком `backend/ops/backup_fingerprint.sql`, и в каком порядке ставятся миграции релиза.
