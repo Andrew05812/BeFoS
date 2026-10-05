@@ -94,6 +94,25 @@ fun scoreColor(percent: Int): Color {
 }
 
 /**
+ * [scoreColor] for a place where the score is written as text rather than painted.
+ *
+ * The stops are tuned as fills: ScoreLow is 2.33:1 on a card, which fails even the 3:1
+ * bar for large text. Whether a score written as text may use that lower bar is decided by
+ * [need] at the call site, from the style it is painted with: WCAG treats only 18.66sp
+ * Bold or 24sp regular as large text, so the 21sp Bold verdict line asks for 3:1 and the
+ * 18sp digits inside the ring ask for 4.5:1. Either way, the scores that need explaining
+ * the most — the low ones — are the ones that would be hardest to read. Same hue family,
+ * darkened only as far as the surface requires, so a high iris score still arrives as
+ * brand iris.
+ */
+fun scoreTextColor(percent: Int, background: Color, need: Double = 4.5): Color =
+    ensureTextContrast(scoreColor(percent), background, need)
+
+/** [scoreTextColor] for the score pills, which paint a 12% wash of the hue behind the digits. */
+fun scoreTextColorOnWash(percent: Int, surface: Color): Color =
+    scoreTextColor(percent, blend(scoreColor(percent).copy(alpha = 0.12f), surface))
+
+/**
  * The score in words — same bands the compatibility page uses, so «92%» always
  * reads as the same claim wherever it appears (card, badge, match moment, story).
  */
@@ -287,6 +306,9 @@ fun CompatibilityScore(
     size: Dp = 92.dp,
     strokeWidth: Dp = 8.dp,
     onDark: Boolean = false,
+    // The panel the digits are read against. A parameter because the compatibility hero
+    // washes from IrisSoft to the surface, where the digits are not on a card.
+    digitsOn: Color = cardPaintedSurface(),
 ) {
     val target = percent.coerceIn(0, 100) / 100f
     val sweep = remember { Animatable(0f) }
@@ -346,7 +368,11 @@ fun CompatibilityScore(
             text = "$shown%",
             style = MaterialTheme.typography.titleLarge.tabularDigits(),
             fontWeight = FontWeight.Bold,
-            color = if (onDark) Color.White else color,
+            // titleLarge is 18sp: Bold, but under WCAG's 18.66sp bar for large text, so the
+            // digits are ordinary text here and need 4.5:1. The raw ScoreLow stop is 2.33:1
+            // on a card, which is why they are not painted with the color the arc uses —
+            // the arc is the fill that carries the vivid hue, the digits only have to read.
+            color = if (onDark) Color.White else scoreTextColor(percent, digitsOn),
         )
     }
 }
@@ -389,7 +415,7 @@ fun CompatibilityBadge(percent: Int, modifier: Modifier = Modifier, compact: Boo
         shape = RoundedCornerShape(50),
         color = color.copy(alpha = 0.12f),
         border = BorderStroke(Elev.hairlineWidth, color.copy(alpha = 0.28f)),
-        contentColor = color,
+        contentColor = scoreTextColorOnWash(percent, cardPaintedSurface()),
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
@@ -861,7 +887,10 @@ fun AppButton(
         contentColor = contentColorOverride ?: when (variant) {
             AppButtonVariant.Filled -> Color.White
             AppButtonVariant.Tonal -> MaterialTheme.colorScheme.onSurface
-            AppButtonVariant.Ghost -> MaterialTheme.colorScheme.primary
+            // A ghost label is labelLarge 15sp, which WCAG counts as normal text, so it
+            // needs the text ember rather than the fill ember; the Filled variant's white
+            // on the CTA is handled by the gradient stops themselves.
+            AppButtonVariant.Ghost -> MaterialTheme.colorScheme.onPrimaryContainer
         },
     ) {
         val fill: Brush? = when (variant) {
@@ -1002,7 +1031,10 @@ fun AppTextField(
         Text(
             text = label.uppercase(),
             style = MaterialTheme.typography.labelSmall,
-            color = if (focused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            // onPrimaryContainer, not primary: this label is labelSmall, and the ember
+            // that fills a CTA is only 3.16:1 on paper. The focused border below stays on
+            // primary because a border is not text and is held to 3:1.
+            color = if (focused) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(start = Spacing.xs),
         )
         Surface(
@@ -1075,7 +1107,32 @@ fun AppTextField(
 
 // ---------- Surfaces & structure ----------
 
-/** Tonal panel: white surface + hairline border + soft shadow. */
+/**
+ * The fraction of the surface tint a card at [Elev.card] carries.
+ *
+ * Measured, not read off a spec: a captured card interior is #FEF3F3 against the #FFFFFF of
+ * `colorScheme.surface`, which is the brand ember at 7%. Internal because
+ * ContrastPolicyTest pins it to that capture instead of trusting the number.
+ */
+internal const val CardTintAlpha = 0.07f
+
+/**
+ * The color a card interior is actually painted with, and therefore the color text on a card
+ * is read against.
+ *
+ * [AppCard] is a `Surface(color = surface, tonalElevation = Elev.card)`, and Material blends
+ * the scheme's surface tint into that color before anything is drawn on it. Solving contrast
+ * against the flat `colorScheme.surface` instead claims about 8% more ratio than the pixels
+ * deliver, and the WCAG thresholds are floors — which is what a low score's digits ran into.
+ */
+@Composable
+fun cardPaintedSurface(): Color = blend(
+    MaterialTheme.colorScheme.surfaceTint.copy(alpha = CardTintAlpha),
+    MaterialTheme.colorScheme.surface,
+)
+
+/** Card: tinted surface + hairline border + soft shadow. Text on it is measured against
+ *  [cardPaintedSurface], not against the untinted `surface`. */
 @Composable
 fun AppCard(
     modifier: Modifier = Modifier,
@@ -1384,7 +1441,7 @@ fun ProfileCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Text("$name, $age", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                Text(goal, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+                Text(goal, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
             }
             CompatibilityScore(percent = compatibility, size = 92.dp, strokeWidth = 9.dp)
         }

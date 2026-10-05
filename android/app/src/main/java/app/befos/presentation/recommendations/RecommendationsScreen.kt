@@ -43,7 +43,9 @@ import app.befos.core.designsystem.ErrorState
 import app.befos.core.designsystem.InlineNotice
 import app.befos.core.designsystem.ListSkeleton
 import app.befos.core.designsystem.Spacing
+import app.befos.core.designsystem.cardPaintedSurface
 import app.befos.core.designsystem.scoreColor
+import app.befos.core.designsystem.scoreTextColorOnWash
 import app.befos.core.designsystem.tabularDigits
 import app.befos.core.di.beFosViewModel
 import app.befos.domain.model.Recommendation
@@ -182,7 +184,7 @@ private fun RecommendationCard(
                 ) {
                     Text(
                         "${rec.score}%",
-                        color = accent,
+                        color = scoreTextColorOnWash(rec.score, cardPaintedSurface()),
                         style = MaterialTheme.typography.labelLarge.tabularDigits(),
                         fontWeight = FontWeight.Bold,
                     )

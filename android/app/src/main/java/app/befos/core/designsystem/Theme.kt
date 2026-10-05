@@ -75,7 +75,9 @@ val BeFosShapes = Shapes(
     extraLarge = RoundedCornerShape(32.dp),   // dialogs, discovery card
 )
 
-private val LightColors = lightColorScheme(
+// Internal, not private: the palette contract that the screens rely on is this scheme's
+// token->role mapping, and ContrastPolicyTest has to read it to check that contract.
+internal val LightColors = lightColorScheme(
     primary = Ember,
     onPrimary = Color.White,
     primaryContainer = EmberSoft,
@@ -103,7 +105,7 @@ private val LightColors = lightColorScheme(
     onErrorContainer = Color(0xFF8C1D22),
 )
 
-private val DarkColors = darkColorScheme(
+internal val DarkColors = darkColorScheme(
     primary = Color(0xFFFF8A80),
     onPrimary = Color(0xFF4A0407),
     primaryContainer = Color(0xFF6E2220),

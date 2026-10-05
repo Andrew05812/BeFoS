@@ -118,13 +118,20 @@ private fun TabItem(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // The selected tab is drawn in the ember the palette keeps for reading, not the one it
+    // keeps for filling. Both were measured against the pixels of the bar itself: the label
+    // is 11sp, which WCAG treats as ordinary text at 4.5:1, and the fill ember gives 3.45:1
+    // on the bar and 2.98:1 for the icon on its own 12% pill. The pill still paints the
+    // brand ember — it is the fill that carries the hue, the glyph only has to read.
+    val tint = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
+    else MaterialTheme.colorScheme.onSurfaceVariant
     val iconTint by animateColorAsState(
-        targetValue = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+        targetValue = tint,
         animationSpec = tween(Motion.Fast),
         label = "tabIconTint",
     )
     val labelTint by animateColorAsState(
-        targetValue = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+        targetValue = tint,
         animationSpec = tween(Motion.Fast),
         label = "tabLabelTint",
     )

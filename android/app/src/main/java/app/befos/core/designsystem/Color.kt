@@ -10,9 +10,14 @@ import androidx.compose.ui.graphics.Color
 // never pure black/white. One palette, meaningful colors only.
 // ============================================================
 
-// Brand — ember
+// Brand — ember.
+// EmberDeep is the ember that carries TEXT: 11..15sp labels on paper, cards and the
+// ember-soft chip. It is 4% darker than the pure hue step because at 0xFFC63B44 the
+// lightest of those surfaces (EmberSoft) read 4.24:1, under the 4.5 bar for text that
+// small. Ember itself stays for fills, bars, icons and numerals of 24sp+, where 3:1 is
+// the bar and the brighter red is the point.
 val Ember = Color(0xFFF0544F)
-val EmberDeep = Color(0xFFC63B44)
+val EmberDeep = Color(0xFFBE3941)
 val EmberSoft = Color(0xFFFFE4DF)
 val Peach = Color(0xFFFF9A62)
 val Apricot = Color(0xFFFFC59E)
@@ -50,9 +55,12 @@ val NightInkSecondary = Color(0xFFB4AAC0)
 val NightOutline = Color(0xFF3C3348)
 
 // Semantic
+// ErrorRed carries the 13sp line under an invalid field and the label of the destructive
+// action: at 0xFFD9484E that text measured 4.21:1 on a card, under the 4.5 bar. 9% darker
+// clears it (4.95:1) and white on the same fill still clears it too.
 val SuccessGreen = Color(0xFF1FA463)
 val WarningAmber = Color(0xFFE1912B)
-val ErrorRed = Color(0xFFD9484E)
+val ErrorRed = Color(0xFFC54247)
 
 // Compatibility score gradient stops (0..100).
 val ScoreLow = Color(0xFFFF8A5C)
@@ -61,8 +69,19 @@ val ScoreHigh = Color(0xFF6C4CF1)
 
 // ------- Named gradients (single source of truth) -------
 
-/** Primary CTA fill — the brand ember. */
-val EmberGradient = Brush.linearGradient(listOf(Color(0xFFF6603F), EmberDeep))
+/** Primary CTA fill — the brand ember.
+ *
+ *  The light stop is the constraint: a labelLarge 15sp SemiBold white label is not "large
+ *  text" under WCAG, so it needs 4.5:1 against every pixel it sits on. At 0xFFF6603F the
+ *  white measured 3.15:1 at the light end and 3.98:1 mid-gradient; the stop moved 19%
+ *  toward black to 0xFFC74E33 and the label now reads 4.6:1 at its lightest point.
+ *
+ *  The stops are named because the contract is on the stops, not on the Brush: reading
+ *  them back off a Brush in a JVM test is not something worth depending on.
+ */
+val CtaStopLight = Color(0xFFC74E33)
+val CtaStopDeep = EmberDeep
+val EmberGradient = Brush.linearGradient(listOf(CtaStopLight, CtaStopDeep))
 
 /** Hero scrim over photos: transparent → warm ink. */
 fun photoScrim(): Brush = Brush.verticalGradient(

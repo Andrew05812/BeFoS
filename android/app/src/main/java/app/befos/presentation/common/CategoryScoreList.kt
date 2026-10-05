@@ -28,7 +28,9 @@ import androidx.compose.ui.unit.dp
 import app.befos.core.designsystem.Motion
 import app.befos.core.designsystem.ScoreLow
 import app.befos.core.designsystem.Spacing
+import app.befos.core.designsystem.cardPaintedSurface
 import app.befos.core.designsystem.scoreColor
+import app.befos.core.designsystem.scoreTextColor
 import app.befos.core.designsystem.tabularDigits
 import app.befos.domain.model.CategoryScore
 
@@ -73,7 +75,10 @@ fun CategoryScoreRow(score: CategoryScore, modifier: Modifier = Modifier, delayM
                 text = "${score.score}%",
                 style = MaterialTheme.typography.titleMedium.tabularDigits(),
                 fontWeight = FontWeight.Bold,
-                color = color,
+                // 16sp bold is not "large text" to WCAG, and the raw score hue is a fill
+                // color: ScoreLow reads 2.33:1 on a card, so a low category — the one a
+                // user most needs to read — was the least legible number on the screen.
+                color = scoreTextColor(score.score, cardPaintedSurface()),
             )
         }
         Box(

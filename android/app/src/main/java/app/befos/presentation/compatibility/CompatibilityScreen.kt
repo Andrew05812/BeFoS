@@ -39,7 +39,7 @@ import app.befos.core.designsystem.compatibilityVerdict
 import app.befos.core.designsystem.SectionHeader
 import app.befos.core.designsystem.Spacing
 import app.befos.core.designsystem.WarningAmber
-import app.befos.core.designsystem.scoreColor
+import app.befos.core.designsystem.scoreTextColor
 import app.befos.core.di.beFosViewModel
 import app.befos.domain.model.Explanation
 import app.befos.presentation.common.CategoryScoreList
@@ -89,12 +89,26 @@ fun CompatibilityScreen(matchId: String, onBack: () -> Unit) {
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
-                            CompatibilityScore(percent = data.overall, size = 160.dp, strokeWidth = 12.dp)
+                            CompatibilityScore(
+                                percent = data.overall,
+                                size = 160.dp,
+                                strokeWidth = 12.dp,
+                                // The panel below is washed from IrisSoft to the surface, so
+                                // the digits are read against the darker stop, not against
+                                // the white of `surface`.
+                                digitsOn = IrisSoft,
+                            )
                             Text(
                                 compatibilityVerdict(data.overall),
                                 style = MaterialTheme.typography.headlineMedium,
                                 fontWeight = FontWeight.Bold,
-                                color = scoreColor(data.overall),
+                                // headlineMedium is 21sp, and Bold at 21sp clears WCAG's
+                                // 18.66sp-Bold bar for large text, so the bar here is 3:1
+                                // rather than 4.5:1. The wash decides the background: on the
+                                // flat white the raw ScoreMid stop measures 3.45:1 and looks
+                                // legal, on the IrisSoft end the same pixels measure 2.87:1 —
+                                // which is why the dark stop is the one asked about.
+                                color = scoreTextColor(data.overall, IrisSoft, need = 3.0),
                             )
                             Text(
                                 "Совпадения считаны по анкетам и тесту — это не психологический диагноз.",

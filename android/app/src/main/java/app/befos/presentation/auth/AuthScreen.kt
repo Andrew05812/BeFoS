@@ -149,7 +149,7 @@ fun AuthScreen(onAuthed: () -> Unit) {
                 Text(
                     if (state.isRegister) "Войти" else "Регистрация",
                     style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
                 )
             }
         }

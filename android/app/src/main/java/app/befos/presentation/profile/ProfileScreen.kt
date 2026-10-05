@@ -171,7 +171,9 @@ private fun ProfileHero(photoUrl: String?, title: String, city: String, goal: St
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                     Text(city, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(goal, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                    // The hero panel fades from iris-soft, which is lighter than paper, so
+                    // the fill ember here would read below 4.5:1 at labelLarge.
+                    Text(goal, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
                 }
             }
         }
