@@ -11,6 +11,10 @@ _INSECURE_DEFAULTS = {
     "change-me-refresh-secret-key-min-32-chars",
 }
 _MIN_SECRET_LEN = 32
+# The deployment reads as production only when it says so in one of these two words. A
+# typo here silently turns every guard below off, so an unknown value is a startup error.
+_KNOWN_ENVIRONMENTS = {"development", "dev", "test", "staging", "production", "prod"}
+_DEFAULT_DATABASE_URL = "postgresql+asyncpg://befos:befos_password@localhost:5432/befos"
 
 
 class Settings(BaseSettings):
@@ -28,10 +32,7 @@ class Settings(BaseSettings):
     backend_host: str = Field(default="0.0.0.0", alias="BACKEND_HOST")
     backend_port: int = Field(default=8000, alias="BACKEND_PORT")
 
-    database_url: str = Field(
-        default="postgresql+asyncpg://befos:befos_password@localhost:5432/befos",
-        alias="DATABASE_URL",
-    )
+    database_url: str = Field(default=_DEFAULT_DATABASE_URL, alias="DATABASE_URL")
 
     jwt_secret: str = Field(default="change-me-access-secret-key-min-32-chars", alias="JWT_SECRET")
     jwt_refresh_secret: str = Field(
@@ -59,6 +60,18 @@ class Settings(BaseSettings):
     def _strip(cls, v: str) -> str:
         return v.strip()
 
+    @field_validator("environment")
+    @classmethod
+    def _known_environment(cls, v: str) -> str:
+        cleaned = v.strip().lower()
+        if cleaned not in _KNOWN_ENVIRONMENTS:
+            raise ValueError(
+                f"ENVIRONMENT={v!r} is not one of {sorted(_KNOWN_ENVIRONMENTS)}. A value that "
+                "is not understood reads as 'not production', which is how every production "
+                "guard below gets skipped by a typo."
+            )
+        return cleaned
+
     @model_validator(mode="after")
     def _reject_insecure_production_secrets(self) -> "Settings":
         """Fail fast if production runs with placeholder/short JWT secrets.
@@ -83,6 +96,24 @@ class Settings(BaseSettings):
             raise ValueError("CORS_ORIGINS must not contain '*' in production.")
         if any(o.startswith("http://") for o in self.cors_origin_list):
             raise ValueError("CORS_ORIGINS must use https:// in production.")
+        if self.database_url == _DEFAULT_DATABASE_URL:
+            raise ValueError(
+                "DATABASE_URL still points at the development database shipped in this "
+                "repository; production must name its own."
+            )
+        if self.debug:
+            raise ValueError(
+                "DEBUG must be false in production. It drops the root log level to DEBUG, "
+                "and third-party loggers then write their own internals into the same "
+                "stream (asyncio's transport setup, httpx's per-request lines — both visible "
+                "in the development stand's logs)."
+            )
+        if self.demo_enabled:
+            raise ValueError(
+                "DEMO_ENABLED must be false in production. The demo account's password is "
+                "printed in README.md and DEMO.md, so a seeded demo login is a shared "
+                "credential anybody with the repository can use."
+            )
         return self
 
     @property

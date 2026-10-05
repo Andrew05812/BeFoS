@@ -243,6 +243,15 @@ async def run_seed(session: AsyncSession, *, force: bool = False) -> None:
     catalogs = await _seed_catalogs(session)
     interest_slugs = list(catalogs["interests"].keys())
 
+    if not settings.demo_enabled:
+        # This is the switch README.md and DEMO.md name. With it off the stand still gets the
+        # reference catalogues the app cannot work without — interests, questions, activities —
+        # and no invented people. The demo account's password is printed in this repository,
+        # so seeding it into a real deployment is a shared credential, not a convenience.
+        logger.info("DEMO_ENABLED=false: catalogues seeded, no demo accounts created")
+        await session.commit()
+        return
+
     if not force and not await _table_empty(session):
         logger.info("Users already exist; skipping user seed (use --force to reseed).")
         await session.commit()
