@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import pytest
+from httpx import AsyncClient
+
+from .conftest import answer_all_questions, auth_headers, complete_onboarding, register_and_auth
 from app.recommendations.engine import ActivitySignal, UserSignal, recommend, score_activity
 
 
@@ -79,3 +83,88 @@ def test_top_n_limits_results():
     b = UserSignal(interests={"x"}, city="", dating_goal="relationship")
     acts = [_act(i, f"a{i}", ["x"]) for i in range(10)]
     assert len(recommend(acts, a, b, top_n=3)) == 3
+
+
+# ---------- against the API ----------
+
+
+async def _ready(client: AsyncClient, email: str, name: str, gender: str) -> dict:
+    creds = await register_and_auth(client, email)
+    await complete_onboarding(client, creds["token"], name=name, gender=gender)
+    await answer_all_questions(client, creds["token"])
+    return creds
+
+
+@pytest.fixture
+async def pair(client: AsyncClient):
+    a = await _ready(client, "rec_a@befos.app", "Аня", "female")
+    b = await _ready(client, "rec_b@befos.app", "Боря", "male")
+    await client.post(
+        f"/api/v1/users/{b['user_id']}/like", json={}, headers=auth_headers(a["token"])
+    )
+    mutual = await client.post(
+        f"/api/v1/users/{a['user_id']}/like", json={}, headers=auth_headers(b["token"])
+    )
+    assert mutual.status_code in (200, 201), mutual.text
+    return a, b, mutual.json()["match_id"]
+
+
+async def test_an_answer_of_0_to_100_is_promised_not_hoped_for(client: AsyncClient, pair):
+    a, _, match_id = pair
+    resp = await client.get(
+        f"/api/v1/matches/{match_id}/recommendations", headers=auth_headers(a["token"])
+    )
+    assert resp.status_code == 200, resp.text
+    cards = resp.json()["recommendations"]
+    assert cards, "the catalogue should offer this pair something"
+    for card in cards:
+        assert 0 <= card["score"] <= 100
+
+
+async def test_selecting_an_activity_that_is_not_in_the_catalogue_is_refused(
+    client: AsyncClient, pair
+):
+    # The id comes from the request url. Before the check it reached a foreign key and
+    # the database answered with an integrity error, so the client got a 500 for asking
+    # about an activity that never existed.
+    a, _, match_id = pair
+    resp = await client.post(
+        f"/api/v1/matches/{match_id}/recommendations/999999/select",
+        headers=auth_headers(a["token"]),
+    )
+    assert resp.status_code == 404, f"{resp.status_code}: {resp.text[:200]}"
+
+
+async def test_recommendations_follow_a_partner_who_changed_their_interests(
+    client: AsyncClient, pair
+):
+    a, _, match_id = pair
+    first = await client.get(
+        f"/api/v1/matches/{match_id}/recommendations", headers=auth_headers(a["token"])
+    )
+    assert first.status_code == 200, first.text
+    shared = [
+        r
+        for card in first.json()["recommendations"]
+        for r in card["reasons"]
+        if "нтерес" in r
+    ]
+    assert shared, "the fixture pair shares interests, so a card should say so"
+
+    edited = await client.patch(
+        "/api/v1/users/me", json={"interests": []}, headers=auth_headers(a["token"])
+    )
+    assert edited.status_code == 200, edited.text
+
+    second = await client.get(
+        f"/api/v1/matches/{match_id}/recommendations", headers=auth_headers(a["token"])
+    )
+    assert second.status_code == 200, second.text
+    stale = [
+        r
+        for card in second.json()["recommendations"]
+        for r in card["reasons"]
+        if "нтерес" in r
+    ]
+    assert stale == [], f"nobody shares interests any more, but the page still says: {stale}"
+

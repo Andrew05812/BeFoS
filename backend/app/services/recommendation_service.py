@@ -114,6 +114,12 @@ class RecommendationService:
 
     async def mark_selected(self, match_id: uuid.UUID, user_id: uuid.UUID, activity_id: int) -> None:
         await self._require_match(match_id, user_id)
+        # The id arrives from the request url, so it is a claim about the catalogue rather
+        # than a fact from it. Left unchecked it reached a foreign key and the database
+        # answered with an integrity error, which the client saw as a 500.
+        known = await self.activities.get_by_ids([activity_id])
+        if activity_id not in known:
+            raise NotFoundError("Activity not found.")
         await self.activities.set_preference(user_id, activity_id, 1.0)
         await self.session.commit()
         tracker.track(Event.RECOMMENDATION_SELECTED, str(user_id), match=str(match_id), activity=activity_id)

@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundError, ValidationError
 from app.models import Photo, Profile
+from app.repositories.activity_repo import ActivityRepository
 from app.repositories.social_repo import DiscoveryRepository
 from app.repositories.user_repo import UserRepository
 
@@ -16,6 +17,10 @@ VALID_GOALS = {"relationship", "marriage", "friendship", "casual", "networking"}
 # Editing any of these changes who the viewer should be shown, so the deck built under the
 # old values cannot be paged through any more.
 _DECK_FIELDS = {"age_min", "age_max", "gender_preference", "interests", "dating_goal"}
+
+# These are what a pair's activity page is scored from, so editing one of them makes the
+# cached page of another person's match stale rather than merely older.
+_REC_FIELDS = {"interests", "city", "dating_goal"}
 
 
 def _parse_birth_date(value: str) -> date:
@@ -133,13 +138,19 @@ class ProfileService:
             await self._set_interests(profile, data["interests"])
 
         touched_deck = bool(_DECK_FIELDS & data.keys())
+        touched_pair = bool(_REC_FIELDS & data.keys())
         await self.session.commit()
         await self.session.refresh(profile)
         # What the viewer wants decides who lands in their deck and in what order. The
         # ranked part of that deck was built for the previous answer, so it is dropped;
         # cards already shown stay shown-once, which is what the seen rows remember.
-        if touched_deck:
-            await DiscoveryRepository(self.session).deck_invalidate(user_id)
+        # The pair page is dropped for the same reason from the other side: it explains
+        # activities by the interests, the city and the goal that just changed.
+        if touched_deck or touched_pair:
+            if touched_deck:
+                await DiscoveryRepository(self.session).deck_invalidate(user_id)
+            if touched_pair:
+                await ActivityRepository(self.session).invalidate_for_user(user_id)
             await self.session.commit()
         return profile
 

@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import select, delete
+from sqlalchemy import delete, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Activity, ActivityPreference, Recommendation
+from app.models import Activity, ActivityPreference, Match, Recommendation
 
 
 class ActivityRepository:
@@ -75,3 +75,15 @@ class ActivityRepository:
             .order_by(Recommendation.position)
         )
         return list((await self.session.execute(stmt)).scalars().all())
+
+    async def invalidate_for_user(self, user_id: uuid.UUID) -> int:
+        """Drop the cached recommendations of every match this user is in.
+
+        A page of activities is scored once and then served from the database, which is
+        only honest while both profiles still say what they said then. Once one of them
+        moves city, re-takes the test or edits their interests, the stored reasons
+        describe somebody who no longer exists on this pair.
+        """
+        matches = select(Match.id).where(or_(Match.user_a_id == user_id, Match.user_b_id == user_id))
+        stmt = delete(Recommendation).where(Recommendation.match_id.in_(matches))
+        return (await self.session.execute(stmt)).rowcount or 0

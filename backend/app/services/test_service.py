@@ -10,6 +10,7 @@ from app.compatibility.traits import TRAIT_CATEGORIES_BY_KEY
 from app.compatibility.weights import ENGINE_VERSION
 from app.core.exceptions import NotFoundError, ValidationError
 from app.models import TestAnswer
+from app.repositories.activity_repo import ActivityRepository
 from app.repositories.social_repo import DiscoveryRepository
 from app.repositories.test_repo import TestRepository
 
@@ -87,6 +88,9 @@ class TestService:
         # Every queued card was ranked against the vector that just changed. The seen rows
         # stay — what was shown was shown — but the order of what has not been is rebuilt.
         await DiscoveryRepository(self.session).deck_invalidate(user_id)
+        # The same goes for the pairs that were handed a page of activities scored against
+        # the old answers: their next visit recomputes it instead of rereading it.
+        await ActivityRepository(self.session).invalidate_for_user(user_id)
         # This is a write and the request session commits nothing on its own; without this
         # line the deck is left holding the ranking the viewer just replaced.
         await self.session.commit()
