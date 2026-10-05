@@ -17,6 +17,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import app.befos.core.designsystem.EmptyState
 import app.befos.core.designsystem.ErrorState
+import app.befos.core.designsystem.InlineNotice
 import app.befos.core.designsystem.ListSkeleton
 import app.befos.core.designsystem.MatchCard
 import app.befos.core.designsystem.Spacing
@@ -58,6 +59,12 @@ fun MatchListScreen(onOpenChat: (String) -> Unit, onGoDiscover: () -> Unit) {
                     modifier = Modifier.fillMaxWidth().padding(bottom = Spacing.xs),
                     verticalArrangement = Arrangement.spacedBy(Spacing.xs),
                 ) {
+                    // The list is still on screen, so nothing failed loudly. Without this line
+                    // a pair that arrived while the refresh was down reads as a pair that
+                    // never existed.
+                    state.refreshError?.let {
+                        InlineNotice(it, actionLabel = "Повторить", onAction = vm::refreshSilently)
+                    }
                     Text(
                         "ВАШИ ПАРЫ",
                         style = MaterialTheme.typography.labelSmall,

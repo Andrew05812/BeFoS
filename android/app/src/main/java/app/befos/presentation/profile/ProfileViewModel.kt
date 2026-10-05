@@ -20,6 +20,11 @@ data class ProfileUiState(
     val testProgress: TestProgress? = null,
     val testProgressFailed: Boolean = false,
     val error: String? = null,
+    /**
+     * A background refresh did not land, so what is on screen may be out of date. Separate
+     * from [error], which replaces the screen.
+     */
+    val refreshError: String? = null,
     val signingOut: Boolean = false,
     val loggedOut: Boolean = false,
 )
@@ -38,7 +43,7 @@ class ProfileViewModel(
     }
 
     fun load() {
-        _uiState.update { it.copy(loading = true, error = null) }
+        _uiState.update { it.copy(loading = true, error = null, refreshError = null) }
         viewModelScope.launch {
             when (val result = profileRepository.me()) {
                 is ApiResult.Success -> _uiState.update { it.copy(loading = false, profile = result.data) }
@@ -55,13 +60,33 @@ class ProfileViewModel(
     fun refreshSilently() {
         if (_uiState.value.loading) return
         viewModelScope.launch {
-            when (val result = profileRepository.me()) {
-                is ApiResult.Success -> _uiState.update { it.copy(profile = result.data, error = null) }
-                is ApiResult.Error -> Unit
-            }
-            when (val progress = testRepository.progress()) {
-                is ApiResult.Success -> _uiState.update { it.copy(testProgress = progress.data, testProgressFailed = false) }
-                is ApiResult.Error -> Unit
+            val me = profileRepository.me()
+            val progress = testRepository.progress()
+            _uiState.update { state ->
+                var next = state.copy(refreshError = null)
+                when (me) {
+                    is ApiResult.Success -> next = next.copy(profile = me.data, error = null)
+                    is ApiResult.Error -> next = if (next.profile == null) {
+                        // Nothing cached: the failure is the screen, not a note about it.
+                        next.copy(error = me.message)
+                    } else {
+                        next.copy(refreshError = me.message)
+                    }
+                }
+                when (progress) {
+                    is ApiResult.Success -> next = next.copy(
+                        testProgress = progress.data,
+                        testProgressFailed = false,
+                    )
+                    is ApiResult.Error -> next = if (next.testProgress == null) {
+                        // The card already has a "did not load" state for a first failure.
+                        next.copy(testProgressFailed = true)
+                    } else {
+                        // The percent stays on screen, so the screen has to say it may be old.
+                        next.copy(refreshError = next.refreshError ?: progress.message)
+                    }
+                }
+                next
             }
         }
     }

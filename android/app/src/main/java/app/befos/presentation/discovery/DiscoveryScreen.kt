@@ -123,15 +123,22 @@ fun DiscoveryScreen(onOpenMatch: (String) -> Unit, onOpenProfile: (String) -> Un
             title = "Не удалось загрузить анкеты",
             onRetry = vm::load,
         )
-        state.isEmpty || state.current == null -> EmptyState(
-            title = "Анкеты закончились",
-            // No search filters exist in this product, so the next step is the honest
-            // one: the pool refreshes as people register, not by tweaking settings.
-            message = "Мы показали всех, кто подходит вам сейчас. Новые анкеты появляются со временем — попробуйте обновить подбор позже.",
-            overline = "Подбор",
-            actionLabel = "Обновить подбор",
-            onAction = vm::load,
-        )
+        state.isEmpty || state.current == null -> {
+            // A deck that ran out because the next page never arrived cannot claim it showed
+            // everyone: that sentence is only true when the server said there is no more.
+            val stalled = state.feedError != null && state.cards.isNotEmpty()
+            EmptyState(
+                title = if (stalled) "Подбор не продолжился" else "Анкеты закончились",
+                message = if (stalled) {
+                    "Показали всё, что успели загрузить. Следующие анкеты не пришли — попробуйте ещё раз."
+                } else {
+                    "Мы показали всех, кто подходит вам сейчас. Новые анкеты появляются со временем — попробуйте обновить подбор позже."
+                },
+                overline = "Подбор",
+                actionLabel = if (stalled) "Загрузить ещё" else "Обновить подбор",
+                onAction = if (stalled) vm::fetchMore else vm::load,
+            )
+        }
         else -> DiscoveryContent(state, vm, onOpenProfile)
     }
 }
@@ -305,6 +312,9 @@ private fun DiscoveryContent(state: DiscoveryUiState, vm: DiscoveryViewModel, on
         )
         if (state.error != null) {
             InlineNotice(state.error!!)
+        }
+        state.feedError?.let {
+            InlineNotice(it, actionLabel = "Повторить", onAction = vm::fetchMore)
         }
     }
 }

@@ -19,6 +19,12 @@ data class DiscoveryUiState(
     val refreshing: Boolean = false,
     val busy: Boolean = false,
     val error: String? = null,
+    /**
+     * The next page of the deck did not arrive. The cards already loaded stay swipeable, so
+     * [error] would be wrong; without this line the deck simply runs out and claims it showed
+     * everyone.
+     */
+    val feedError: String? = null,
     val match: LikeOutcome? = null,
 ) {
     val current: DiscoveryCard? get() = cards.getOrNull(index)
@@ -43,7 +49,7 @@ class DiscoveryViewModel(private val discoveryRepository: DiscoveryRepository) :
     }
 
     fun load() {
-        _uiState.update { it.copy(loading = true, error = null) }
+        _uiState.update { it.copy(loading = true, error = null, feedError = null) }
         cursor = null
         moreComing = true
         viewModelScope.launch {
@@ -111,7 +117,11 @@ class DiscoveryViewModel(private val discoveryRepository: DiscoveryRepository) :
         }
     }
 
-    private fun fetchMore() {
+    /**
+     * Ask for the page after the one on screen. Public because the screen offers it as the
+     * retry for a page that did not arrive.
+     */
+    fun fetchMore() {
         if (_uiState.value.refreshing || !moreComing) return
         _uiState.update { it.copy(refreshing = true) }
         val from = cursor
@@ -121,11 +131,15 @@ class DiscoveryViewModel(private val discoveryRepository: DiscoveryRepository) :
                     val page = result.data
                     cursor = page.nextCursor ?: from
                     moreComing = page.hasMore
-                    _uiState.update { state -> state.copy(refreshing = false, cards = state.cards + page.cards) }
+                    _uiState.update { state ->
+                        state.copy(refreshing = false, cards = state.cards + page.cards, feedError = null)
+                    }
                 }
                 // A failed page keeps the cursor where it was: the next attempt asks for
                 // the same page again rather than skipping past cards it never showed.
-                is ApiResult.Error -> _uiState.update { it.copy(refreshing = false) }
+                is ApiResult.Error -> _uiState.update {
+                    it.copy(refreshing = false, feedError = result.message)
+                }
             }
         }
     }

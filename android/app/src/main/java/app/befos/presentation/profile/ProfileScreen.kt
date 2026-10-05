@@ -43,6 +43,7 @@ import app.befos.core.designsystem.AppCard
 import app.befos.core.designsystem.Avatar
 import app.befos.core.designsystem.EmberGradient
 import app.befos.core.designsystem.ErrorState
+import app.befos.core.designsystem.InlineNotice
 import app.befos.core.designsystem.InterestChip
 import app.befos.core.designsystem.IrisSoft
 import app.befos.core.designsystem.ProfileSkeleton
@@ -89,6 +90,9 @@ fun ProfileScreen(
                     .padding(start = Spacing.gutter, top = Spacing.xl, end = Spacing.gutter, bottom = 96.dp),
                 verticalArrangement = Arrangement.spacedBy(Spacing.xxl),
             ) {
+                state.refreshError?.let {
+                    InlineNotice(it, actionLabel = "Повторить", onAction = vm::refreshSilently)
+                }
                 ProfileHero(profile.primaryPhoto, "${profile.name}, ${profile.age}", profile.city, goalLabel(profile.datingGoal))
 
                 if (!profile.about.isNullOrBlank()) {

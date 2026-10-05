@@ -119,4 +119,64 @@ class DiscoveryViewModelTest {
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
         assertEquals("Нет подключения к интернету.", vm.uiState.value.error)
     }
+
+    @Test
+    fun `a page that did not arrive is reported while the loaded cards stay`() = runTest {
+        coEvery { repo.feed(any(), null) } returns pageOf("a", "b", "c", nextCursor = "r1", hasMore = true)
+        coEvery { repo.feed(any(), "r1") } returns ApiResult.Error(-1, "Сервер недоступен. Проверьте соединение и попробуйте ещё раз.")
+        coEvery { repo.pass(any()) } returns ApiResult.Success(Unit)
+
+        val vm = DiscoveryViewModel(repo)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        vm.pass()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        // The deck goes on with what is already loaded; the failure is about what comes next.
+        assertEquals(listOf("a", "b", "c"), vm.uiState.value.cards.map { it.userId })
+        assertEquals("b", vm.uiState.value.current?.userId)
+        assertEquals(null, vm.uiState.value.error)
+        assertEquals("Сервер недоступен. Проверьте соединение и попробуйте ещё раз.", vm.uiState.value.feedError)
+    }
+
+    @Test
+    fun `retrying a page that did not arrive asks for the cursor it never got`() = runTest {
+        coEvery { repo.feed(any(), null) } returns pageOf("a", "b", "c", nextCursor = "r1", hasMore = true)
+        coEvery { repo.feed(any(), "r1") } returnsMany listOf(
+            ApiResult.Error(-1, "Сервер недоступен. Проверьте соединение и попробуйте ещё раз."),
+            pageOf("d", nextCursor = "r2", hasMore = false),
+        )
+        coEvery { repo.pass(any()) } returns ApiResult.Success(Unit)
+
+        val vm = DiscoveryViewModel(repo)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        vm.pass()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        assertNotNull(vm.uiState.value.feedError)
+
+        vm.fetchMore()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        // The cursor did not move, so the retry asks for the same page instead of skipping it.
+        coVerify(exactly = 2) { repo.feed(any(), "r1") }
+        assertEquals(listOf("a", "b", "c", "d"), vm.uiState.value.cards.map { it.userId })
+        assertEquals(null, vm.uiState.value.feedError)
+    }
+
+    @Test
+    fun `a deck that ran out on its own does not warn about a failed page`() = runTest {
+        coEvery { repo.feed(any(), any()) } returns pageOf("a", "b", nextCursor = null, hasMore = false)
+        coEvery { repo.pass(any()) } returns ApiResult.Success(Unit)
+
+        val vm = DiscoveryViewModel(repo)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        vm.pass()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        vm.pass()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        // The screen only claims it showed everyone when the server actually said so.
+        assertNull(vm.uiState.value.current)
+        assertNull(vm.uiState.value.feedError)
+    }
 }

@@ -15,6 +15,11 @@ data class MatchesUiState(
     val loading: Boolean = true,
     val matches: List<MatchSummary> = emptyList(),
     val error: String? = null,
+    /**
+     * A background refresh failed and the previous list stayed on screen. Separate from
+     * [error], which blocks the screen: this one says visible content may be out of date.
+     */
+    val refreshError: String? = null,
 )
 
 class MatchesViewModel(private val matchRepository: MatchRepository) : ViewModel() {
@@ -27,7 +32,7 @@ class MatchesViewModel(private val matchRepository: MatchRepository) : ViewModel
     }
 
     fun load() {
-        _uiState.update { it.copy(loading = true, error = null) }
+        _uiState.update { it.copy(loading = true, error = null, refreshError = null) }
         viewModelScope.launch {
             when (val result = matchRepository.matches()) {
                 is ApiResult.Success -> _uiState.update { it.copy(loading = false, matches = result.data) }
@@ -41,8 +46,16 @@ class MatchesViewModel(private val matchRepository: MatchRepository) : ViewModel
         if (_uiState.value.loading) return
         viewModelScope.launch {
             when (val result = matchRepository.matches()) {
-                is ApiResult.Success -> _uiState.update { it.copy(loading = false, matches = result.data, error = null) }
-                is ApiResult.Error -> Unit
+                is ApiResult.Success -> _uiState.update {
+                    it.copy(loading = false, matches = result.data, error = null, refreshError = null)
+                }
+                // Keeping the old list is right; saying nothing about it is not: an unread
+                // pair that did not arrive looks like a pair that does not exist. An empty
+                // list has no cached content to stand on, so there the failure is the screen.
+                is ApiResult.Error -> _uiState.update { state ->
+                    if (state.matches.isEmpty()) state.copy(loading = false, error = result.message)
+                    else state.copy(refreshError = result.message)
+                }
             }
         }
     }

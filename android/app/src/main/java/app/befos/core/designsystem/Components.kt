@@ -37,6 +37,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -44,6 +45,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -723,19 +725,24 @@ fun CompatibilitySkeleton(modifier: Modifier = Modifier) {
     }
 }
 
-/** Compact inline banner: error tone for failures, neutral for confirmations. */
+/**
+ * Compact inline banner: error tone for failures, neutral for confirmations.
+ *
+ * The action slot is what makes a failure recoverable: a tab that still shows cached
+ * content has no other way to retry, so the retry lives next to the news.
+ */
 @Composable
 fun InlineNotice(
     text: String,
     modifier: Modifier = Modifier,
     isError: Boolean = true,
+    actionLabel: String? = null,
+    onAction: (() -> Unit)? = null,
 ) {
-    Text(
-        text = text,
-        style = MaterialTheme.typography.bodySmall,
-        textAlign = TextAlign.Center,
-        color = if (isError) MaterialTheme.colorScheme.onErrorContainer
-        else MaterialTheme.colorScheme.onSurfaceVariant,
+    val hasAction = actionLabel != null && onAction != null
+    val contentColor = if (isError) MaterialTheme.colorScheme.onErrorContainer
+    else MaterialTheme.colorScheme.onSurfaceVariant
+    Row(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
@@ -743,8 +750,33 @@ fun InlineNotice(
                 if (isError) MaterialTheme.colorScheme.errorContainer
                 else MaterialTheme.colorScheme.surfaceVariant,
             )
-            .padding(horizontal = Spacing.md, vertical = Spacing.sm),
-    )
+            .padding(
+                start = Spacing.md,
+                // The text button brings its own hit area; the banner must not double it.
+                end = if (hasAction) Spacing.xs else Spacing.md,
+                top = if (hasAction) Spacing.xs else Spacing.sm,
+                bottom = if (hasAction) Spacing.xs else Spacing.sm,
+            ),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodySmall,
+            textAlign = if (hasAction) TextAlign.Start else TextAlign.Center,
+            color = contentColor,
+            modifier = if (hasAction) Modifier.weight(1f) else Modifier.fillMaxWidth(),
+        )
+        if (actionLabel != null && onAction != null) {
+            TextButton(
+                onClick = onAction,
+                colors = ButtonDefaults.textButtonColors(contentColor = contentColor),
+                modifier = Modifier.semantics { contentDescription = actionLabel },
+            ) {
+                Text(actionLabel, style = MaterialTheme.typography.labelLarge)
+            }
+        }
+    }
 }
 
 @Composable
