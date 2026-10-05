@@ -54,7 +54,63 @@ class BackendErrorTextTest {
     fun `machine code gives a better fallback than the status alone`() {
         assertEquals("Сессия истекла. Войдите снова.", localizeBackendError("Token rotated.", "unauthorized", 401))
         assertEquals("Проверьте введённые данные.", localizeBackendError("Bad field.", "validation_error", 422))
-        assertEquals("Не найдено.", localizeBackendError("", "not_found", 404))
+        assertEquals("Этого здесь нет — возможно, анкету или чат удалили.", localizeBackendError("", "not_found", 404))
+    }
+
+    @Test
+    fun `a refusal is not sold as a retry`() {
+        // Asking again for something the server already refused cannot work, so the one
+        // thing this line must not do is send the user back to the tap that was denied.
+        val refused = "У вашего аккаунта нет доступа к этому."
+        assertFalse(refused.contains("ещё раз"))
+        assertEquals(refused, defaultHttpMessage(403))
+        assertEquals(refused, localizeBackendError("", "", 403))
+        assertEquals(refused, localizeBackendError("", "forbidden", 403))
+        assertEquals(refused, localizeBackendError("You do not have access to this resource.", "forbidden", 403))
+    }
+
+    @Test
+    fun `one failure has one wording whichever route found it`() {
+        // The envelope message, the machine code and the bare status all describe the same
+        // event; three sentences for it is how a product starts to contradict itself.
+        assertEquals("Что-то сломалось с нашей стороны. Попробуйте ещё раз через минуту.", defaultHttpMessage(500))
+        for (status in listOf(403, 404, 500)) {
+            assertEquals(defaultHttpMessage(status), localizeBackendError("", codeOf(status), status))
+        }
+        assertEquals(
+            defaultHttpMessage(404),
+            localizeBackendError("Resource not found.", "not_found", 404),
+        )
+        assertEquals(
+            defaultHttpMessage(500),
+            localizeBackendError("Internal Server Error.", "internal_error", 500),
+        )
+    }
+
+    @Test
+    fun `a fallback never reads as a status label`() {
+        for (status in listOf(400, 401, 403, 404, 409, 422, 429, 500, 502, 503, -1)) {
+            val text = defaultHttpMessage(status)
+            assertTrue(text, cyrillic(text))
+            assertFalse("[$text] leaks a number", Regex("""\d{3}""").containsMatchIn(text))
+            assertTrue("[$text] is a bare label", text.length > 20)
+        }
+    }
+
+    @Test
+    fun `a failure that never reached the wire does not blame the network`() {
+        // -1 used to read "Нет подключения к интернету." for any throwable, which told users
+        // with working Wi-Fi that their connection was the problem. DNS failing is still
+        // named by its own branch; this one only says what it can stand behind.
+        val text = friendlyNetworkMessage(IllegalStateException("no engine registered"))
+        assertTrue(text, cyrillic(text))
+        assertFalse(text.contains("интернет"))
+    }
+
+    private fun codeOf(status: Int): String = when (status) {
+        403 -> "forbidden"
+        404 -> "not_found"
+        else -> "internal_error"
     }
 
     @Test

@@ -54,7 +54,10 @@ class ChatSocketFailureTest {
     @Test
     fun `a server that failed the handshake is worth another dial`() {
         assertTrue(retryAfterDialFailure(refused("500 Internal Server Error")))
-        assertEquals("Ошибка сервера. Попробуйте позже.", socketFailureMessage(refused("500 Internal Server Error")))
+        assertEquals(
+            "Что-то сломалось с нашей стороны. Попробуйте ещё раз через минуту.",
+            socketFailureMessage(refused("500 Internal Server Error")),
+        )
     }
 
     @Test

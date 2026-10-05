@@ -73,13 +73,14 @@ private val translated: Map<String, String> = mapOf(
     "invalid input." to "Проверьте введённые данные.",
     "invalid request payload." to "Проверьте введённые данные.",
 
-    // generic
+    // generic. The three that belong to a status family name it instead of repeating its
+    // sentence, so a failure cannot grow two wordings.
     "something went wrong." to "Не удалось выполнить запрос. Попробуйте ещё раз.",
-    "resource not found." to "Не найдено.",
+    "resource not found." to defaultHttpMessage(404),
     "resource already exists." to "Это уже добавлено.",
-    "you do not have access to this resource." to "Нет доступа.",
+    "you do not have access to this resource." to defaultHttpMessage(403),
     "request failed." to "Не удалось выполнить запрос. Попробуйте ещё раз.",
-    "internal server error." to "Ошибка сервера. Попробуйте позже.",
+    "internal server error." to defaultHttpMessage(500),
     "too many requests. please slow down." to "Слишком много запросов. Подождите немного.",
     // An outage is not a bug and not a logout: the only advice there is, is to wait.
     "befos is sorting itself out for a moment. try again in a few seconds." to
@@ -101,11 +102,13 @@ private val translatedPrefixes: List<Pair<String, String>> = listOf(
 private fun fallback(code: String, status: Int): String = when (code) {
     "unauthorized" -> "Сессия истекла. Войдите снова."
     "validation_error" -> "Проверьте введённые данные."
-    "forbidden" -> "Нет доступа."
-    "not_found" -> "Не найдено."
+    // These three are the status families themselves; naming the status keeps one failure
+    // from having two wordings that drift apart.
+    "forbidden" -> defaultHttpMessage(403)
+    "not_found" -> defaultHttpMessage(404)
+    "internal_error" -> defaultHttpMessage(500)
     "conflict" -> "Это уже сделано."
     "rate_limited" -> "Слишком много запросов. Подождите немного."
-    "internal_error" -> "Ошибка сервера. Попробуйте позже."
     "database_unavailable" -> "Сервис временно недоступен. Попробуйте ещё раз через несколько секунд."
     else -> defaultHttpMessage(status)
 }
