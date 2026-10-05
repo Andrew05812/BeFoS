@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -75,6 +76,13 @@ fun OnboardingScreen(onDone: () -> Unit) {
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
+            // The inset belongs here, not on the scrollable box below: «Далее» is pinned
+            // outside that box, so padding the box only squeezed the form while the
+            // keyboard stayed on top of the button that submits it.
+            .imePadding()
+            // Without the gesture bar the pinned «Далее» row sits under it at rest,
+            // which the keyboard fix alone does not solve.
+            .navigationBarsPadding()
             .padding(horizontal = Spacing.gutter),
     ) {
         // Segmented stepper instead of a bare progress bar.
@@ -101,8 +109,7 @@ fun OnboardingScreen(onDone: () -> Unit) {
         Box(
             modifier = Modifier
                 .weight(1f)
-                .verticalScroll(rememberScrollState())
-                .imePadding(),
+                .verticalScroll(rememberScrollState()),
         ) {
             AnimatedContent(
                 targetState = state.step,
