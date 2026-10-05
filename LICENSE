@@ -1,0 +1,32 @@
+Copyright (c) 2026 Andrew Kolesnikov. All rights reserved.
+
+BeFoS — the source code in this repository, its documentation, its artwork and its
+development history — is proprietary work protected by copyright. It is not released
+under an open-source licence, and no licence is granted by publishing it here.
+
+No part of this work may be copied, reproduced, republished, modified, translated into
+another language or programming style, created into derivative works, sold, sublicensed,
+distributed, or used to build, train, market or operate a product or service, in whole or
+in part, in any medium, without the prior written permission of the copyright holder.
+
+What this repository does permit, without asking:
+
+  - Reading the code, the commit history and the documentation, for review, education and
+    evaluation of the author's engineering work.
+  - Building and running the project locally, unmodified, on your own machine, following
+    the steps in README.md, for the same purposes.
+  - Quoting short passages of the documentation with attribution.
+
+Anything beyond that — reusing a module, porting the compatibility engine, embedding the
+APK, hosting a copy, adapting the design — needs written permission from the copyright
+holder. Requests can be made through the author's GitHub profile (Andrew05812).
+
+Third-party components named in THIRD_PARTY_NOTICES.md remain under their own licences;
+this file grants nothing over them.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
+PURPOSE AND NON-INFRINGEMENT. IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
+ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
