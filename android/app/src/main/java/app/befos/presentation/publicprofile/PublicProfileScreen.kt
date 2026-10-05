@@ -82,7 +82,13 @@ fun PublicProfileScreen(
     onOpenChat: (String) -> Unit,
 ) {
     val vm: PublicProfileViewModel = beFosViewModel {
-        PublicProfileViewModel(it.profileRepository, it.discoveryRepository, it.safetyRepository, userId)
+        PublicProfileViewModel(
+            it.profileRepository,
+            it.discoveryRepository,
+            it.safetyRepository,
+            it.answeredUsers,
+            userId,
+        )
     }
     val state by vm.uiState.collectAsState()
     val haptics = rememberHaptics()
@@ -105,6 +111,14 @@ fun PublicProfileScreen(
         }
     }
 
+    if (state.blockDialog) {
+        BlockDialog(
+            name = state.profile?.name,
+            onConfirm = vm::confirmBlock,
+            onDismiss = vm::cancelBlock,
+        )
+    }
+
     if (state.reportDialog) {
         ReportDialog(
             reason = state.reportReason,
@@ -125,7 +139,9 @@ fun PublicProfileScreen(
                 onBack = onBack,
                 actions = {
                     IconButton(onClick = vm::openReport) { Icon(Icons.Filled.Flag, contentDescription = "Пожаловаться") }
-                    IconButton(onClick = vm::block) { Icon(Icons.Filled.Block, contentDescription = "Заблокировать") }
+                    // The icon is one tap from deleting a whole conversation, so it opens a
+                    // question instead of the action.
+                    IconButton(onClick = vm::askBlock) { Icon(Icons.Filled.Block, contentDescription = "Заблокировать") }
                 },
             )
         },
@@ -354,6 +370,39 @@ private fun HeroPhoto(url: String, description: String, name: String) {
             )
         }
     }
+}
+
+/**
+ * The block asks first, in the same two-step the account deletion uses. The server removes
+ * the match row with its messages and there is no screen in the app that puts any of it back,
+ * so the dialog is the only place a mistaken tap can still be stopped.
+ */
+@Composable
+private fun BlockDialog(name: String?, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Заблокировать?") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                Text(
+                    if (name.isNullOrBlank()) "Человек больше не появится в подборе."
+                    else "$name больше не появится в подборе.",
+                )
+                Text(
+                    "Если у вас есть общая пара, она и вся переписка удалятся. " +
+                        "Отменить блокировку в приложении нельзя.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text("Заблокировать", color = MaterialTheme.colorScheme.error)
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
+    )
 }
 
 @OptIn(ExperimentalLayoutApi::class)

@@ -8,6 +8,7 @@ import app.befos.domain.model.PublicProfile
 import app.befos.domain.repository.DiscoveryRepository
 import app.befos.domain.repository.ProfileRepository
 import app.befos.domain.repository.SafetyRepository
+import app.befos.domain.safety.AnsweredUsers
 import app.befos.presentation.common.ReportReasonLabels
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -21,7 +22,7 @@ data class PublicProfileUiState(
     val error: String? = null,
     val busy: Boolean = false,
     val match: LikeOutcome? = null,
-    val blocked: Boolean = false,
+    val blockDialog: Boolean = false,
     val reportDialog: Boolean = false,
     val reportReason: String = "",
     val reportDetails: String = "",
@@ -33,6 +34,7 @@ class PublicProfileViewModel(
     private val profileRepository: ProfileRepository,
     private val discoveryRepository: DiscoveryRepository,
     private val safetyRepository: SafetyRepository,
+    private val answeredUsers: AnsweredUsers,
     private val userId: String,
 ) : ViewModel() {
 
@@ -58,8 +60,11 @@ class PublicProfileViewModel(
         _uiState.update { it.copy(busy = true, error = null) }
         viewModelScope.launch {
             when (val result = discoveryRepository.like(userId)) {
-                is ApiResult.Success -> _uiState.update {
-                    if (result.data.matched) it.copy(busy = false, match = result.data) else it.copy(busy = false, gone = true)
+                is ApiResult.Success -> {
+                    answeredOnce()
+                    _uiState.update {
+                        if (result.data.matched) it.copy(busy = false, match = result.data) else it.copy(busy = false, gone = true)
+                    }
                 }
                 is ApiResult.Error -> _uiState.update { it.copy(busy = false, error = result.message) }
             }
@@ -71,22 +76,43 @@ class PublicProfileViewModel(
         _uiState.update { it.copy(busy = true, error = null) }
         viewModelScope.launch {
             when (val result = discoveryRepository.pass(userId)) {
-                is ApiResult.Success -> _uiState.update { it.copy(busy = false, gone = true) }
+                is ApiResult.Success -> {
+                    answeredOnce()
+                    _uiState.update { it.copy(busy = false, gone = true) }
+                }
                 is ApiResult.Error -> _uiState.update { it.copy(busy = false, error = result.message) }
             }
         }
     }
 
-    fun block() {
+    fun askBlock() = _uiState.update { it.copy(blockDialog = true, error = null) }
+
+    fun cancelBlock() = _uiState.update { it.copy(blockDialog = false) }
+
+    /**
+     * The block itself. It is reached only from the dialog, because the server deletes the
+     * pair with its whole message history and the app has no way to undo any of that.
+     */
+    fun confirmBlock() {
         if (_uiState.value.busy) return
-        _uiState.update { it.copy(busy = true, error = null) }
+        _uiState.update { it.copy(blockDialog = false, busy = true, error = null) }
         viewModelScope.launch {
             when (val result = safetyRepository.block(userId)) {
-                is ApiResult.Success -> _uiState.update { it.copy(busy = false, blocked = true, gone = true) }
+                is ApiResult.Success -> {
+                    answeredOnce()
+                    _uiState.update { it.copy(busy = false, gone = true) }
+                }
                 is ApiResult.Error -> _uiState.update { it.copy(busy = false, error = result.message) }
             }
         }
     }
+
+    /**
+     * Tells the deck this person is answered. The page of cards it holds in memory survives
+     * this screen, so without the signal the same person — now blocked, or already liked —
+     * is waiting as the next card.
+     */
+    private fun answeredOnce() = answeredUsers.publish(userId)
 
     fun openReport() = _uiState.update { it.copy(reportDialog = true, reportError = null) }
     fun closeReport() = _uiState.update { it.copy(reportDialog = false, reportError = null) }

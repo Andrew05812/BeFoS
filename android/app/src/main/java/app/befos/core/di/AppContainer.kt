@@ -18,6 +18,7 @@ import app.befos.domain.repository.MatchRepository
 import app.befos.domain.repository.ProfileRepository
 import app.befos.domain.repository.SafetyRepository
 import app.befos.domain.repository.TestRepository
+import app.befos.domain.safety.AnsweredUsers
 import io.ktor.client.HttpClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -27,6 +28,10 @@ class AppContainer(context: Context) {
     val appScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     val tokenStore: TokenStore = TokenStore(context.applicationContext)
+
+    // One instance for the whole process: the deck needs to hear that a person was answered
+    // on the profile screen, which is a different route with a different ViewModel.
+    val answeredUsers: AnsweredUsers = AnsweredUsers()
 
     // Building the HTTP stack costs well over a second (engine discovery, TLS
     // providers, coroutine dispatchers). Nothing is requested before the splash

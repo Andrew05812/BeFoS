@@ -6,6 +6,7 @@ import app.befos.core.network.ApiResult
 import app.befos.domain.model.DiscoveryCard
 import app.befos.domain.model.LikeOutcome
 import app.befos.domain.repository.DiscoveryRepository
+import app.befos.domain.safety.AnsweredUsers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -31,7 +32,10 @@ data class DiscoveryUiState(
     val isEmpty: Boolean get() = !loading && cards.isEmpty()
 }
 
-class DiscoveryViewModel(private val discoveryRepository: DiscoveryRepository) : ViewModel() {
+class DiscoveryViewModel(
+    private val discoveryRepository: DiscoveryRepository,
+    answeredUsers: AnsweredUsers,
+) : ViewModel() {
 
     private val _uiState = MutableStateFlow(DiscoveryUiState())
     val uiState: StateFlow<DiscoveryUiState> = _uiState.asStateFlow()
@@ -46,6 +50,28 @@ class DiscoveryViewModel(private val discoveryRepository: DiscoveryRepository) :
 
     init {
         load()
+        viewModelScope.launch {
+            answeredUsers.answered.collect(::forget)
+        }
+    }
+
+    /**
+     * Drop a card the viewer answered on the profile screen.
+     *
+     * The page in memory knows nothing about a like, a pass or a block performed there, so
+     * without this the person you just blocked comes back as the next card.
+     */
+    private fun forget(userId: String) {
+        _uiState.update { state ->
+            val position = state.cards.indexOfFirst { it.userId == userId }
+            if (position < 0) return@update state
+            state.copy(
+                cards = state.cards.filterNot { it.userId == userId },
+                // A card removed before the current one shifts it left; the current card
+                // being removed means the next one slides into the same slot.
+                index = if (position < state.index) state.index - 1 else state.index,
+            )
+        }
     }
 
     fun load() {

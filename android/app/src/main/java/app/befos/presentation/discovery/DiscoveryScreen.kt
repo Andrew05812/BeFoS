@@ -98,7 +98,9 @@ private const val DRAG_RESISTANCE = 0.35f
 
 @Composable
 fun DiscoveryScreen(onOpenMatch: (String) -> Unit, onOpenProfile: (String) -> Unit) {
-    val vm: DiscoveryViewModel = beFosViewModel { DiscoveryViewModel(it.discoveryRepository) }
+    val vm: DiscoveryViewModel = beFosViewModel {
+        DiscoveryViewModel(it.discoveryRepository, it.answeredUsers)
+    }
     val state by vm.uiState.collectAsState()
 
     state.match?.let { outcome ->
