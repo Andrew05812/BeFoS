@@ -70,8 +70,25 @@ android {
 
     signingConfigs {
         if (keystorePropsFile.exists()) {
+            val missingKeys = listOf("storeFile", "storePassword", "keyAlias", "keyPassword")
+                .filter { keystoreProps.getProperty(it).isNullOrBlank() }
+            if (missingKeys.isNotEmpty()) {
+                throw GradleException(
+                    "android/keystore.properties is missing ${missingKeys.joinToString()}. " +
+                        "Either fill all four keys (see keystore.properties.example) or delete " +
+                        "the file to build release unsigned.",
+                )
+            }
+            val store = file(keystoreProps.getProperty("storeFile"))
+            if (!store.exists()) {
+                throw GradleException(
+                    "android/keystore.properties points at storeFile=\"$store\", which does not " +
+                        "exist. Fix the path (it is resolved relative to android/app) or delete " +
+                        "the file to build release unsigned.",
+                )
+            }
             create("release") {
-                storeFile = file(keystoreProps.getProperty("storeFile"))
+                storeFile = store
                 storePassword = keystoreProps.getProperty("storePassword")
                 keyAlias = keystoreProps.getProperty("keyAlias")
                 keyPassword = keystoreProps.getProperty("keyPassword")
