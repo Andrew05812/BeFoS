@@ -174,7 +174,12 @@ private fun ProfileHero(photoUrl: String?, title: String, city: String, goal: St
                 Avatar(photoUrl, size = 76.dp, initials = title, contentDescription = title)
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                    Text(city, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    // A profile that never answered the city question reaches this screen
+                    // when the root gate times out; an empty row here would be a gap in
+                    // the hero with nothing to explain it.
+                    if (city.isNotBlank()) {
+                        Text(city, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                     // The hero panel fades from iris-soft, which is lighter than paper, so
                     // the fill ember here would read below 4.5:1 at labelLarge.
                     Text(goal, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)

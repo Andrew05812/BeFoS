@@ -71,7 +71,7 @@ import app.befos.core.di.beFosViewModel
 import app.befos.domain.model.PublicProfile
 import app.befos.presentation.common.CategoryScoreList
 import app.befos.presentation.common.ReportReasonLabels
-import app.befos.presentation.common.goalLabel
+import app.befos.presentation.common.identityLine
 import app.befos.presentation.compatibility.prettifySlug
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -296,7 +296,7 @@ private fun ProfileHero(p: PublicProfile) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                 Box(Modifier.size(7.dp).clip(CircleShape).background(SuccessGreen))
                 Text(
-                    "${p.city} · ${goalLabel(p.datingGoal)}",
+                    identityLine(p.city, p.datingGoal),
                     color = Color.White.copy(alpha = 0.85f),
                     style = MaterialTheme.typography.titleMedium,
                 )

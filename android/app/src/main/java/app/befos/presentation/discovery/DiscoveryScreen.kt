@@ -84,7 +84,7 @@ import app.befos.core.designsystem.scoreColor
 import app.befos.core.di.beFosViewModel
 import app.befos.domain.model.DiscoveryCard
 import app.befos.domain.model.LikeOutcome
-import app.befos.presentation.common.goalLabel
+import app.befos.presentation.common.identityLine
 import kotlinx.coroutines.launch
 
 /** Fraction of the card width past which a released card counts as like/pass. */
@@ -426,7 +426,7 @@ private fun CardOverlay(card: DiscoveryCard, onOpenProfile: () -> Unit) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                 Box(Modifier.size(7.dp).clip(CircleShape).background(SuccessGreen))
                 Text(
-                    text = "${card.city} · ${goalLabel(card.datingGoal)}",
+                    text = identityLine(card.city, card.datingGoal),
                     color = Color.White.copy(alpha = 0.82f),
                     style = MaterialTheme.typography.titleMedium,
                     maxLines = 1,
