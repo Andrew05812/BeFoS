@@ -31,7 +31,10 @@ class MatchService:
         await self._ensure_target(viewer_id, target_id)
 
         result = await self.compatibility.score_pair(viewer_id, target_id)
-        score = round(result.overall, 4)
+        # Stored as the engine produced it, not snapped to four decimals. The match list
+        # shows this value multiplied by 100 and rounded, and a rounded snapshot can land
+        # on the other side of that boundary from the number the live screen computes.
+        score = result.overall
 
         existing = await self.social.get_like(viewer_id, target_id)
         if existing is None:

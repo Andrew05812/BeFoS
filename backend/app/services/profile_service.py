@@ -10,6 +10,7 @@ from app.models import Photo, Profile
 from app.repositories.activity_repo import ActivityRepository
 from app.repositories.social_repo import DiscoveryRepository
 from app.repositories.user_repo import UserRepository
+from app.services.compatibility_service import CompatibilityService
 
 VALID_GENDERS = {"male", "female", "nonbinary", "other"}
 VALID_GOALS = {"relationship", "marriage", "friendship", "casual", "networking"}
@@ -151,6 +152,9 @@ class ProfileService:
                 await DiscoveryRepository(self.session).deck_invalidate(user_id)
             if touched_pair:
                 await ActivityRepository(self.session).invalidate_for_user(user_id)
+                # The goal and the interests are two of the three inputs a pair's percent is
+                # computed from, so the number the match list shows has just gone stale too.
+                await CompatibilityService(self.session).refresh_pair_scores(user_id)
             await self.session.commit()
         return profile
 

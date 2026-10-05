@@ -89,6 +89,12 @@ class SocialRepository:
         )
         return [row[0] for row in (await self.session.execute(stmt)).all()]
 
+    async def list_matches_for_user(self, user_id: uuid.UUID) -> list[Match]:
+        stmt = select(Match).where(
+            or_(Match.user_a_id == user_id, Match.user_b_id == user_id)
+        )
+        return list((await self.session.execute(stmt)).scalars().all())
+
     # --- Blocks ---
     async def is_blocked_either(self, a: uuid.UUID, b: uuid.UUID) -> bool:
         stmt = select(Block.id).where(

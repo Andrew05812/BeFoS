@@ -331,6 +331,19 @@ def main() -> int:
     sel = c.post(f"{BASE}/matches/{match_id}/recommendations/{top['activity']['id']}/select", headers=ha)
     check(sel.status_code in (200, 204), "select recommendation", str(sel.status_code))
 
+    # 12b. A re-takes the test with the other half of the answers. A pair's percent is a
+    # stored number that two screens read, so this is where the stored copy could be caught
+    # disagreeing with the compatibility screen, which computes live on every request.
+    retook = [{"question_id": q["id"], "option_id": q["options"][-1]["id"]} for q in qs if q["options"]]
+    c.post(f"{BASE}/tests/answers", headers=ha, json={"answers": retook})
+    comp_now = c.get(f"{BASE}/matches/{match_id}/compatibility", headers=ha).json()
+    row = next(m for m in c.get(f"{BASE}/matches", headers=ha).json()["matches"] if m["match_id"] == match_id)
+    check(
+        row["compatibility"] == comp_now["overall"],
+        "match list shows the percent the pair has now",
+        f"list={row['compatibility']} live={comp_now['overall']} (was {comp['overall']})",
+    )
+
     # 13. IDOR: B cannot read A's private match with someone else / cross-account safety
     # A blocked-user flow
     blk = c.post(f"{BASE}/users/{uid_b}/block", headers=ha)

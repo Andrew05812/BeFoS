@@ -13,6 +13,7 @@ from app.models import TestAnswer
 from app.repositories.activity_repo import ActivityRepository
 from app.repositories.social_repo import DiscoveryRepository
 from app.repositories.test_repo import TestRepository
+from app.services.compatibility_service import CompatibilityService
 
 
 class TestService:
@@ -91,6 +92,9 @@ class TestService:
         # The same goes for the pairs that were handed a page of activities scored against
         # the old answers: their next visit recomputes it instead of rereading it.
         await ActivityRepository(self.session).invalidate_for_user(user_id)
+        # And for the percent sitting on the match row, which the match list shows as if it
+        # were current. The answers behind it just changed, so it is rewritten from them.
+        await CompatibilityService(self.session).refresh_pair_scores(user_id)
         # This is a write and the request session commits nothing on its own; without this
         # line the deck is left holding the ranking the viewer just replaced.
         await self.session.commit()
