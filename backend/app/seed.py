@@ -23,6 +23,7 @@ from datetime import date, datetime, timedelta, timezone
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.compatibility.engine import CompatibilityInput, compute_compatibility
 from app.compatibility.traits import TRAIT_CATEGORIES_BY_KEY
 from app.compatibility.weights import ENGINE_VERSION
 from app.core.config import settings
@@ -251,6 +252,10 @@ async def run_seed(session: AsyncSession, *, force: bool = False) -> None:
 
     created_users: list[User] = []
     created_latents: dict[uuid.UUID, dict] = {}
+    # What each seeded person looks like to the engine. A match row's percent is read back by
+    # the match list, so a seeded pair has to carry the number the engine gives it, not a
+    # round number someone typed here.
+    created_inputs: dict[uuid.UUID, CompatibilityInput] = {}
 
     # Demo user first (fully featured)
     demo_birth = date(1996, 5, 14)
@@ -271,6 +276,11 @@ async def run_seed(session: AsyncSession, *, force: bool = False) -> None:
     )
     created_users.append(demo)
     created_latents[demo.id] = demo_latent
+    created_inputs[demo.id] = CompatibilityInput(
+        vector=_vector_from_traits(demo_latent),
+        interests=set(demo_interests),
+        dating_goal="relationship",
+    )
 
     # 50 additional users
     total_users = 50
@@ -298,21 +308,31 @@ async def run_seed(session: AsyncSession, *, force: bool = False) -> None:
         )
         created_users.append(user)
         created_latents[user.id] = latent
+        created_inputs[user.id] = CompatibilityInput(
+            vector=_vector_from_traits(latent),
+            interests=set(interests),
+            dating_goal=goal,
+        )
 
     await session.flush()
+
+    def pair_score(x: uuid.UUID, y: uuid.UUID) -> float:
+        return compute_compatibility(created_inputs[x], created_inputs[y]).overall
 
     # Likes + matches + messages for the demo user (for instant demonstration)
     others = [u for u in created_users if u.id != demo.id]
     demo_matches: list[Match] = []
     for target in others[:8]:
-        session.add(Like(from_user_id=demo.id, to_user_id=target.id, compatibility_score=0.8))
+        session.add(Like(from_user_id=demo.id, to_user_id=target.id,
+                         compatibility_score=pair_score(demo.id, target.id)))
         # First four like back -> mutual matches
     await session.flush()
 
     for target in others[:4]:
-        session.add(Like(from_user_id=target.id, to_user_id=demo.id, compatibility_score=0.8))
+        score = pair_score(demo.id, target.id)
+        session.add(Like(from_user_id=target.id, to_user_id=demo.id, compatibility_score=score))
         ua, ub = ordered_pair(demo.id, target.id)
-        match = Match(user_a_id=ua, user_b_id=ub, compatibility_score=0.82)
+        match = Match(user_a_id=ua, user_b_id=ub, compatibility_score=score)
         session.add(match)
         demo_matches.append(match)
     await session.flush()
@@ -341,7 +361,7 @@ async def run_seed(session: AsyncSession, *, force: bool = False) -> None:
     for a in others[:20]:
         for b in others[:5]:
             if a.id != b.id and rng.random() < 0.15:
-                session.add(Like(from_user_id=a.id, to_user_id=b.id, compatibility_score=round(rng.uniform(0.4, 0.9), 3)))
+                session.add(Like(from_user_id=a.id, to_user_id=b.id, compatibility_score=pair_score(a.id, b.id)))
     await session.flush()
 
     await session.commit()
