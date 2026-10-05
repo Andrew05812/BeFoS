@@ -77,6 +77,13 @@ users ─1:1─ profiles ─M:N─ interests   (через user_interests)
 ### `test_answers`
 `id` (UUID PK), `user_id` (FK, cascade), `question_id` (FK), `option_id` (FK). Ограничение `uq_user_question_answer (user_id, question_id)` — один ответ на вопрос; индекс `ix_answer_user_question`.
 
+Читается всегда с `ORDER BY question_id` (`TestRepository.list_answers`). Без порядка
+ответы приходят в порядке кучи, а `upsert_answer` — это `UPDATE`, то есть новая версия
+кортежа: перезапись одного ответа переносит его строку в конец таблицы (замерено на dev
+кластере: seq scan `1..21` превратился в `2..21,1` после обновления с тем же значением).
+Вектор совместимости — сумма float-ов по этому порядку, поэтому без `ORDER BY` те же
+самые ответы давали бы разные проценты в разных запросах.
+
 ### `test_results`
 `id` (UUID PK), `user_id` (FK, cascade), `category` (String 40), `score` (Float). `uq_user_category_result (user_id, category)` — агрегированная оценка по категории.
 
@@ -93,6 +100,15 @@ users ─1:1─ profiles ─M:N─ interests   (через user_interests)
 
 ### `matches`
 `user_a_id`, `user_b_id` (FK users, cascade, index), `compatibility_score` (Float, default 0). `uq_match_pair (user_a_id, user_b_id)`. Создаётся при взаимном лайке.
+
+`compatibility_score` — не архив, а то, что показывают список пар и заголовок пары.
+Пишется один раз при создании mutual-лайка (полным float-ом движка, не округлённым до 4
+знаков: при выдаче это значение умножается на 100 и округляется, и округлённый снимок может
+лечь по другую сторону границы, чем живой пересчёт той же пары) и перезаписывается при
+каждом пересчёте теста или правке `interests`/`dating_goal` у любого из пары. Движок
+симметричен (`compute(a, b) == compute(b, a)`, закреплено тестом), поэтому одной строки на
+пару достаточно и обновление с любой стороны даёт то же число. Замер до правки: после
+пересдачи одним человеком — `list=100 single=100 live=46`.
 
 ### `blocks`
 `blocker_id`, `blocked_id` (FK, cascade), `uq_block_pair`. Скрывает пару из подбора.

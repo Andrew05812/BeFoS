@@ -186,7 +186,20 @@
 | GET | `/matches/{match_id}` | — | `{match_id, compatibility, created_at, other_user: PublicProfile}` |
 | GET | `/matches/{match_id}/compatibility` | — | `CompatibilityOut` |
 | GET | `/matches/{match_id}/recommendations` | `force` | `{match_id, recommendations: [...]}` |
-| POST | `/matches/{match_id}/recommendations/{activity_id}/select` | — | `204` |
+| POST | `/matches/{match_id}/recommendations/{activity_id}/select` | — | `204`; `404`, если активности нет в каталоге |
+
+`score` совместимости и рекомендаций — процент `0..100`; границы объявлены в выходных
+Pydantic-схемах (`CategoryScoreOut.score`, `CompatibilityOut.overall`, `DiscoveryCard.
+compatibility`, `LikeResponse.compatibility`, `MatchSummary.compatibility`, `RecommendationOut.score`),
+поэтому оценка вне диапазона не уходит на экран, а валится на сериализации ответа.
+
+Процент в списке пар (`/matches`) и в заголовке пары (`/matches/{match_id}`) — тот же, что
+считает `/matches/{match_id}/compatibility`. Он хранится на строке матча, но перезаписывается
+когда меняется любой из входов движка: после пересдачи теста и после правки
+`interests`/`dating_goal` в профиле. До этой правки на одной паре было замерено расхождение
+`list=100 single=100 live=46`.
+Ответ `POST /users/{id}/like` остаётся честным описанием момента лайка: он говорит процент,
+на который лайк был поставлен, и не меняется задним числом.
 
 `MatchSummary`:
 
