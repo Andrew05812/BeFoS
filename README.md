@@ -35,6 +35,7 @@ FastAPI (Python, async)  →  Service  →  Repository  →  PostgreSQL
 - [`docs/API.md`](docs/API.md) — все REST/WebSocket эндпоинты с форматами запросов и ответов.
 - [`docs/DATABASE.md`](docs/DATABASE.md) — схема БД (22 таблицы + `alembic_version`), миграции, пул соединений.
 - [`docs/OPERATIONS.md`](docs/OPERATIONS.md) — эксплуатация: резервные копии и проверенный drill восстановления, миграции и откат, health-пробы и алерты, playbook аварий, формат логов и что в них не попадает.
+- [`docs/RELEASE.md`](docs/RELEASE.md) — выпуск: ключ подписи и его проверка, продуктовые адреса и почему они проверяются на сборке, артефакты с фактическими размерами, `mapping.txt`, чек-лист перед публикацией и что в этом пути ещё не сделано.
 - [`CONTINUATION.md`](CONTINUATION.md) — handover-документ для нового разработчика/AI: стек, конфигурация, тесты, ограничения.
 - [`DEMO.md`](DEMO.md) — сценарий демонстрации продукта на 5–10 минут (15 шагов).
 
@@ -92,6 +93,8 @@ export BEFOS_API_BASE_URL="https://api.example.com/" BEFOS_WS_BASE_URL="wss://ap
 ```
 
 Без `BEFOS_API_BASE_URL`/`BEFOS_WS_BASE_URL` сборка падает с внятным сообщением — «случайный» release с HTTP-адресом эмулятора невозможен. Проверяется не только наличие: адрес обязан быть `https://`/`wss://`, без логина-пароля внутри URL и не на `localhost`/`10.0.2.2`. Решение принимает граф задач, а не набранные на консоли слова: `./gradlew :app:assemble` падает, потому что в графе есть `packageRelease`, а `lintRelease` и `compileReleaseKotlin` работают без продуктовых адресов — они ничего не упаковывают.
+
+Подпись, проверка артефакта (`apksigner verify`), карта R8, правило версии и чек-лист перед публикацией — [`docs/RELEASE.md`](docs/RELEASE.md).
 
 ### Тесты
 
@@ -167,7 +170,7 @@ myapp/
 │       ├── data/       # model (DTO), remote (ApiService), repository, mapper
 │       ├── domain/     # model, repository (интерфейсы)
 │       └── presentation/  # экраны + ViewModel (auth, onboarding, test, discovery, matches, chat, compatibility, recommendations, profile, editprofile, publicprofile, settings, main, root, navigation)
-├── docs/               # ARCHITECTURE.md, API.md, DATABASE.md, OPERATIONS.md
+├── docs/               # ARCHITECTURE.md, API.md, DATABASE.md, OPERATIONS.md, RELEASE.md
 ├── CONTINUATION.md     # handover-документ для продолжающего разработчика
 ├── DEMO.md             # сценарий демонстрации на 5–10 минут
 ├── docker-compose.yml

@@ -403,7 +403,7 @@ Windows/adb-подводные камни (экономия времени):
 
 - Debug: `assembleDebug`, URL по умолчанию `http://10.0.2.2:8000/` (buildConfigField в debug-блоке).
 - Release: если в графе задач есть упаковщик release-артефакта (`assembleRelease`, `bundleRelease`, `packageRelease` — сюда попадают и простые `assemble`/`build`), сборка требует `BEFOS_API_BASE_URL`/`BEFOS_WS_BASE_URL` и проверяет их: схема `https`/`wss`, хост не `10.0.2.2`/`localhost`/`127.0.0.1`, нет credentials в URL. Задачи, которые ничего не упаковывают (`lintRelease`, `compileReleaseKotlin`), живут без продуктовых адресов. Текст ошибки называет причину словами. Замерено — §12.11.
-- Подпись: `android/keystore.properties` (вне git, см. `keystore.properties.example`: storeFile/storePassword/keyAlias/keyPassword + команда keytool). Без файла release собирается **unsigned** (`app-release-unsigned.apk`) — реальные секреты в репозитории отсутствуют намеренно и выдумывать их нельзя.
+- Подпись: `android/keystore.properties` (вне git, см. `keystore.properties.example`: storeFile/storePassword/keyAlias/keyPassword + команда keytool). Без файла release собирается **unsigned** (`app-release-unsigned.apk`) — реальные секреты в репозитории отсутствуют намеренно и выдумывать их нельзя. Процедура прогнана целиком на временном ключе вне репозитория (создан в `%TEMP%`, удалён после): подписанные `app-release.apk` 1 905 733 Б и `app-release.aab` 4 631 598 Б, `apksigner verify --print-certs` → v2 true / v1 false (при `minSdk` 26 v1 не нужен; поэтому `jarsigner` на этом APK говорит «jar is unsigned» и не является проверкой). Поломанный `keystore.properties` теперь ловится на конфигурации: отсутствие ключей и несуществующий `storeFile` дают сообщение с путем и способом выйти (проверено), а не падение после четырёх минут R8. Полный порядок — `docs/RELEASE.md`.
 
 ## 16. Production configuration
 
@@ -416,7 +416,7 @@ Windows/adb-подводные камни (экономия времени):
 1. **ASCII-путь для Android unit-тестов на Windows**: из кириллического пути Gradle test-worker падает (`sun.jnu.encoding=Cp1251`). Обход — копия проекта в ASCII-путь (например `<local-project-path>/befos_asciitest`, синхронизация `robocopy /MIR /XD build .gradle local.properties`). На сборку не влияет.
 2. **Нет push-уведомлений (FCM)** — realtime работает при открытом приложении. Осознанно вне объёма.
 3. **Нет офлайн-кэша сообщений**: при недоступном backend чат показывает пустое состояние + баннер переподключения; история восстанавливается после подключения. (Не добавлять без отдельного решения.)
-4. Подписанный релизный артефакт не собран — нет реальных signing-credentials.
+4. Боевого signing-credentials нет: путь подписки проверен от начала до конца на временном ключе, которого больше нет (§15, `docs/RELEASE.md` §3 и §6), но published-артефакт обязан быть подписан ключом, которого никогда не было в этой машине и в этой истории git. Публикация в Play не выполнена — аккаунта разработчика нет.
 5. Git remote не настроен — push не выполнялся.
 6. Сокет чата живёт в app-scope до конца процесса (закрытие per-chat не реализовано; на UX не влияет).
 7. Демо-данные сидируются в БД (`--if-empty`); для «чистого» прода — отключить demo и не сидировать домен.
