@@ -5,10 +5,16 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-befos}
+      # The default below is a development convenience, and `ENVIRONMENT=production` refuses
+      # to start while the DSN still carries it (app/core/config.py). Override it for
+      # anything that is not a laptop.
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-befos_password}
       POSTGRES_DB: ${POSTGRES_DB:-befos}
     ports:
-      - "5432:5432"
+      # Loopback only: the tests and `psql` on the host reach it as localhost:5432, while a
+      # server started from this file no longer answers on the network interface, where the
+      # shipped default password would be reachable by anybody who can route to the host.
+      - "127.0.0.1:5432:5432"
     volumes:
       - befos_pgdata:/var/lib/postgresql/data
     healthcheck:
