@@ -61,11 +61,17 @@ class ProfileService:
         goal = data.get("dating_goal", "relationship")
         if goal not in VALID_GOALS:
             raise ValidationError("Invalid dating goal.")
+        # The schema counts characters, so "   " reaches here as a three-character answer to
+        # a mandatory question. Stripping is what turns it into nothing, so the check that
+        # the answer means something belongs after the strip, not before it.
+        city = (data.get("city") or "").strip()
+        if not city:
+            raise ValidationError("City is required.")
 
         profile.name = name.strip()[:80]
         profile.birth_date = birth
         profile.gender = gender
-        profile.city = (data.get("city") or "").strip()[:120]
+        profile.city = city[:120]
         profile.about = (data.get("about") or None)
         profile.dating_goal = goal
         profile.lifestyle = data.get("lifestyle") or {}
@@ -92,7 +98,10 @@ class ProfileService:
             _validate_age(birth)
             profile.birth_date = birth
         if "city" in data and data["city"] is not None:
-            profile.city = data["city"].strip()[:120]
+            city = data["city"].strip()
+            if not city:
+                raise ValidationError("City cannot be empty.")
+            profile.city = city[:120]
         if "about" in data:
             profile.about = data["about"]
         if "gender" in data and data["gender"] is not None:
