@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -51,6 +52,9 @@ fun AuthScreen(onAuthed: () -> Unit) {
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .imePadding()
+            // This screen is not a Scaffold, so the last row — the sign-up/sign-in toggle —
+            // otherwise stops at the window edge and sits under the navigation bar.
+            .navigationBarsPadding()
             .padding(horizontal = Spacing.gutter),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
