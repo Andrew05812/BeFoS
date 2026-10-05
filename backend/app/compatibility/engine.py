@@ -69,7 +69,11 @@ def _clamp01(value: float) -> float:
 
 def _trait_similarity(a: dict[str, float], b: dict[str, float]) -> tuple[float, bool]:
     """Mean similarity across shared traits. Returns (score, has_data)."""
-    shared = [k for k in a.keys() & b.keys()]
+    # Sorted, not straight out of the set: a float sum depends on the order the terms
+    # come in, and set order is decided by hash randomisation. Without the sort the same
+    # two answers can mean out one ulp apart in two processes, which is enough to move a
+    # percent sitting on a rounding boundary.
+    shared = sorted(a.keys() & b.keys())
     if not shared:
         return NEUTRAL_SCORE, False
     total = 0.0

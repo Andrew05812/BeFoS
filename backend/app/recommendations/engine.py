@@ -65,7 +65,9 @@ def _clamp01(v: float) -> float:
 
 
 def _trait_similarity(vec_a: dict[str, float], vec_b: dict[str, float]) -> float:
-    shared = vec_a.keys() & vec_b.keys()
+    # Sorted for the same reason as the compatibility engine: the sum of the terms is
+    # order-sensitive in binary floating point, and a set iterates in hash order.
+    shared = sorted(vec_a.keys() & vec_b.keys())
     if not shared:
         return 0.5
     total = sum(1.0 - abs(_clamp01(vec_a[k]) - _clamp01(vec_b[k])) for k in shared)

@@ -43,7 +43,15 @@ class TestRepository:
         return await self.session.get(TestOption, option_id)
 
     async def list_answers(self, user_id: uuid.UUID) -> list[TestAnswer]:
-        stmt = select(TestAnswer).where(TestAnswer.user_id == user_id)
+        # Ordered by question, not left to the heap: re-tapping one answer writes a new
+        # tuple version and the row lands at the end of the table, so an unordered read
+        # hands the vector builder the same answers in a different order. Its sums are
+        # floats, and a float sum changes with the order of its terms.
+        stmt = (
+            select(TestAnswer)
+            .where(TestAnswer.user_id == user_id)
+            .order_by(TestAnswer.question_id)
+        )
         return list((await self.session.execute(stmt)).scalars().all())
 
     async def upsert_answer(
