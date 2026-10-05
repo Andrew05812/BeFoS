@@ -1,13 +1,21 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ConflictError, NotFoundError, ValidationError
-from app.models import Photo, User
+from app.models import (
+    ActivityPreference,
+    CompatibilityProfile,
+    DiscoveryQueue,
+    Photo,
+    TestAnswer,
+    TestResult,
+    User,
+)
 from app.repositories.social_repo import SocialRepository
 from app.repositories.token_repo import TokenRepository
 from app.repositories.user_repo import UserRepository
@@ -15,6 +23,13 @@ from app.services import photo_service
 from app.websocket.manager import manager
 
 VALID_REASONS = {"spam", "harassment", "inappropriate", "fake", "minor", "other"}
+
+# What a column that no longer describes anyone holds. `birth_date`, `gender` and
+# `dating_goal` are NOT NULL, so erasure writes a value that is nobody's real answer and
+# could not have come from the form.
+ERASED_BIRTH_DATE = date(1900, 1, 1)
+ERASED_GENDER = "erased"
+ERASED_DATING_GOAL = "erased"
 
 
 class SafetyService:
@@ -69,6 +84,13 @@ class SafetyService:
             profile.city = ""
             profile.is_hidden = True
             profile.lifestyle = {}
+            profile.birth_date = ERASED_BIRTH_DATE
+            profile.gender = ERASED_GENDER
+            profile.dating_goal = ERASED_DATING_GOAL
+            profile.age_min = 18
+            profile.age_max = 18
+            profile.gender_preference = []
+            profile.city_preference = None
             await self.users.set_profile_interests(profile.id, [])
         # Hiding the profile stops every route from serving it, which is not the same
         # statement as "the photographs are gone": `/uploads` is a public static mount, so
@@ -79,6 +101,16 @@ class SafetyService:
         )
         if photo_urls:
             await self.session.execute(delete(Photo).where(Photo.user_id == user_id))
+        # The questionnaire is the most personal thing this app holds, and it is the part a
+        # person did not type with their hands but revealed by answering. Accounts are never
+        # hard-deleted, so the schema's ON DELETE CASCADE never fires and these rows stay
+        # unless the erasure says so: nothing reads them for a deleted account, because
+        # every route that could asks for a live user first. The deck rows are the record of
+        # who this person was shown, and the activity preferences are part of the same
+        # portrait; both go with the account.
+        for row in (TestAnswer, TestResult, CompatibilityProfile, ActivityPreference):
+            await self.session.execute(delete(row).where(row.user_id == user_id))
+        await self.session.execute(delete(DiscoveryQueue).where(DiscoveryQueue.viewer_id == user_id))
         user.is_deleted = True
         user.is_active = False
         user.deleted_at = datetime.now(timezone.utc)
