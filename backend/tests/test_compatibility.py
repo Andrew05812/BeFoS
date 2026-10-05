@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import math
+import uuid
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.compatibility.engine import CompatibilityInput, compute_compatibility
 from app.compatibility.explanation import build_explanation
 from app.compatibility.weights import build_weight_config
+from app.models import Match
 from .conftest import (
     answer_all_questions,
     auth_headers,
@@ -259,4 +262,34 @@ async def test_a_changed_goal_moves_the_percent_in_the_list(client: AsyncClient)
     shown = await _shown_percent(client, a["token"], match_id)
     assert shown["list"] == shown["live"], f"the list still says {shown['list']}: {shown}"
     assert shown["match"] == shown["live"]
+
+
+async def test_a_patch_that_changes_nothing_repairs_a_percent_seeded_wrong(
+    client: AsyncClient, session: AsyncSession
+):
+    # docs/OPERATIONS.md §16 tells an operator to repair a stand seeded before the engine
+    # was fixed by PATCHing a field back to the value it already has: the refresh seam keys
+    # on the field being sent, not on its value changing. Narrow _REC_FIELDS and that
+    # recipe becomes a silent no-op, so the recipe is pinned here instead of trusted.
+    a = await _tested(client, "seedfix_a@befos.app", "Аня", "female", 0)
+    b = await _tested(client, "seedfix_b@befos.app", "Боря", "male", 0)
+    match_id = await _match_a_pair(client, a, b)
+
+    stale = await session.get(Match, uuid.UUID(match_id))
+    stale.compatibility_score = 0.82
+    await session.commit()
+
+    before = await _shown_percent(client, a["token"], match_id)
+    assert before["list"] == 82, f"the row should read as the old seed literal: {before}"
+    assert before["live"] != 82, f"nothing to repair if the engine also says 82: {before}"
+
+    edited = await client.patch(
+        "/api/v1/users/me", json={"city": "Москва"}, headers=auth_headers(a["token"])
+    )
+    assert edited.status_code == 200, edited.text
+    assert edited.json()["city"] == "Москва", "the profile itself must not have moved"
+
+    after = await _shown_percent(client, a["token"], match_id)
+    assert after["list"] == after["live"], f"the runbook patch left {after['list']}: {after}"
+    assert after["match"] == after["live"]
 

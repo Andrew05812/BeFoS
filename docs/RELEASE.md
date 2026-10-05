@@ -145,7 +145,7 @@ Signer #1 certificate SHA-256 digest: 8e979e69b90e36386bfa64e547e13d0186e2419011
       `DEMO_ENABLED=false`. Каждое нарушение — контейнер не поднимается (`docs/OPERATIONS.md` §11).
 - [ ] Миграции применены (`alembic upgrade head`), откат прогонян на копии по `docs/OPERATIONS.md`.
 - [ ] Резервная копия и drill восстановления сделаны до выпуска, а не после (`docs/OPERATIONS.md` §6).
-- [ ] Тесты: backend **188/188**, Android **131/131**, живой путь **64/64** (`CONTINUATION.md` §13).
+- [ ] Тесты: backend **189/189**, Android **131/131**, живой путь **64/64** (`CONTINUATION.md` §13).
 - [ ] Сборка release прошла с реальными адресами; `apksigner verify --print-certs` показывает
       ожидаемый сертификат, а не тестовый.
 - [ ] `mapping.txt` сохранена рядом с артефактом.
