@@ -1,6 +1,6 @@
 # База данных BeFoS
 
-PostgreSQL 16, SQLAlchemy 2.0 (async) + asyncpg. Миграции — Alembic (`backend/alembic/versions/`). Первичная миграция `03f0ea587029_initial_schema` создаёт 21 таблицу, `4f2a1c9d7b30_discovery_deck_and_indexes` добавляет колоду подбора и индексы, нужные горячим чтением, `9c1f5b7d2a40_message_idempotency_key` — ключ повторяемости отправки в `messages`.
+PostgreSQL 16, SQLAlchemy 2.0 (async) + asyncpg. Миграции — Alembic (`backend/alembic/versions/`). Первичная миграция `03f0ea587029_initial_schema` создаёт 21 таблицу, `4f2a1c9d7b30_discovery_deck_and_indexes` добавляет колоду подбора и индексы, нужные горячим чтением, `9c1f5b7d2a40_message_idempotency_key` — ключ повторяемости отправки в `messages`, `b7e3d0a9c421_onboarding_completed_at` — отметку законченного онбординга в `profiles` (head на 2026-10-05, `alembic check` чист).
 
 Все таблицы наследуют `TimestampMixin` (`created_at`, `updated_at`), кроме чисто справочных. Первичные ключи пользователей и связанных сущностей — `UUID`; справочники — `INTEGER` (autoincrement). Внешние ключи на `users.id` используют `ON DELETE CASCADE`.
 
@@ -34,7 +34,19 @@ users ─1:1─ profiles ─M:N─ interests   (через user_interests)
 | deleted_at | timestamptz | nullable |
 
 ### `profiles` (1:1 с `users`)
-`user_id` (FK users, unique, cascade), `name` (String 80), `birth_date` (Date), `gender` (String 20), `city` (String 120), `about` (Text, null), `dating_goal` (String), `age_min`/`age_max` (Integer, 18/60), `gender_preference` (JSON массив), `city_preference` (String, null), `lifestyle` (JSONB, default `{}`), `is_hidden` (Boolean). Индекс `ix_profiles_city_lower_birth (lower(city), birth_date)` — подбор фильтрует город без учёта регистра и возраст диапазоном, три обычных индекса по `city`/`dating_goal` (были в первой миграции) этому чтению не служили и удалены в `4f2a1c9d7b30`.
+`user_id` (FK users, unique, cascade), `name` (String 80), `birth_date` (Date), `gender` (String 20), `city` (String 120), `about` (Text, null), `dating_goal` (String), `age_min`/`age_max` (Integer, 18/60), `gender_preference` (`ARRAY(String(20))` — массив, не JSON: пустой список сюда пишется как `'{}'::varchar[]`, и `[]'::jsonb` — это ошибка типа, а не тихая подмена), `city_preference` (String, null), `lifestyle` (JSONB, default `{}`), `is_hidden` (Boolean), `onboarding_completed_at` (timestamptz, null). Индекс `ix_profiles_city_lower_birth (lower(city), birth_date)` — подбор фильтрует город без учёта регистра и возраст диапазоном, три обычных индекса по `city`/`dating_goal` (были в первой миграции) этому чтению не служили и удалены в `4f2a1c9d7b30`.
+
+`onboarding_completed_at` (`b7e3d0a9c421`) ставится один раз онбордингом. Регистрация оставляет
+оболочку — имя из адреса, дата-заглушка, `lifestyle` пустой; оболочка не согласие быть
+показанной, поэтому колода требует эту отметку (`social_repo._candidate_conditions`), а не
+угадывает готовность анкеты по заполненным полям. Без неё новый пользователь попадал в чужие
+ленты, а процент совместимости считывался с профиля, в котором не было ни одного ответа.
+
+`birth_date`, `gender` и `dating_goal` — NOT NULL, поэтому удаление аккаунта не может оставить
+в них NULL и пишет значения, которые не могут прийти с формы: `date '1900-01-01'`,
+`'erased'`, `'erased'` (`safety_service.ERASED_*`). Строка при этом остаётся — удаление
+мягкое, `ON DELETE CASCADE` в схеме не срабатывает никогда, и всё, что стирается, перечислено
+кодом (`docs/OPERATIONS.md` §13, включая одноразовый backfill `backend/ops/anonymize_deleted_users.sql`).
 
 ### `photos`
 `user_id` (FK, cascade, index), `url` (String 500), `is_primary` (Boolean), `position` (Integer).

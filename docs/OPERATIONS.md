@@ -34,7 +34,8 @@ docker exec befos_postgres sh -c "pg_dump -U befos -d befos --format=custom --co
 docker cp befos_postgres:/tmp/befos.dump "C:/backups/befos-$(Get-Date -Format yyyyMMdd-HHmmss).dump"
 ```
 
-Измерено: 0.9 с, 310 КБ на выходе (база 12 МБ, 23 таблицы, 75 индексов).
+Измерено 2026-10-05 (после backfill из раздела 13): 0.9 с, 236 КБ на выходе (база 12 МБ,
+23 таблицы, 75 индексов).
 
 Фотки — архивом тома, на снимке только для чтения, чтобы записи во время копирования не
 дали смешанный набор файлов:
@@ -43,7 +44,7 @@ docker cp befos_postgres:/tmp/befos.dump "C:/backups/befos-$(Get-Date -Format yy
 docker run --rm -v myapp_befos_uploads:/data:ro -v C:/backups:/out alpine tar czf /out/uploads-$(date +%Y%m%d-%H%M%S).tgz -C /data .
 ```
 
-Измерено: 2.6 МБ, 131 файл.
+Измерено 2026-10-05: 2.5 МиБ, 51 файл — ровно по числу строк в `photos`.
 
 Дамп — это персональные данные: тексты чатов, адреса, ссылки на фотографии, хэши паролей.
 Файл не кладётся в git (проверка: `git status` после снятия копии должен быть чистым —
@@ -336,13 +337,126 @@ docker exec befos_postgres psql -U befos -d befos -tAc "select count(*) from pho
 docker exec befos_backend sh -c "ls /app/uploads | wc -l"
 ```
 
-Измерено 2026-10-04: 58 строк против 131 файла (3.9 МБ). Удаление — отдельное осознанное
+Измерено 2026-10-05 (после разборки мусора от QA-прогонов): 51 строка против 51 файла, 2.8 МБ;
+сличение по именам — 0 осиротевших файлов и 0 строк без файла. Удаление — отдельное осознанное
 действие, потому что файл в томе может относиться к ещё не накатанной строке, к копии,
 которую кто-то распаковал, или к загрузке, чьё тело не дошло: прежде чем резать, сличите
 список с дампом. Никакого планировщика чистки в репозитории нет, и появляться он без
 решения о гонке «файл записан, строка ещё нет» не должен.
 
-## 13. Что здесь честно не сделано
+## 13. Удаление аккаунта: что стирается, а что остаётся
+
+«Удалить аккаунт» — единственное обещание в приложении, которое пользователь не может
+отменить сам, поэтому оно должно быть про данные, а не про экран. Реального `DELETE FROM users`
+нет: схема оставляет строку (мягкое удаление), значит `ON DELETE CASCADE` в ней не срабатывает
+никогда, и всё, что не стёрто кодом, переживает нажатие.
+
+Что делает `safety_service.delete_account` (всё в одной транзакции, файлы — после commit):
+
+- анонимизирует `profiles`: `name → 'Deleted User'`, `about → NULL`, `city → ''`,
+  `lifestyle → {}`, `interests` очищаются, `is_hidden = true`;
+- стирает ответы, которые нельзя вырезать без значения в колонке: `birth_date → 1900-01-01`,
+  `gender → 'erased'`, `dating_goal → 'erased'`, `age_min/age_max → 18/18`,
+  `gender_preference → []`, `city_preference → NULL`. Это не «реальные» данные — это значения,
+  которые не могут прийти с формы, поэтому строку нельзя ни показать, ни подобрать;
+- удаляет строки: `photos` (+ файлы с диска), `test_answers`, `test_results`,
+  `compatibility_profiles`, `activity_preferences`, `discovery_queue` (свои карточки просмотра);
+- гасит пары и переписку (`purge_social_graph`), закрывает сокет комнаты;
+- `users`: `is_deleted/is_active = false`, `email → deleted_<uuid>@deleted.befos.local`,
+  `password_hash → '!deleted'`, все `refresh_tokens` отзываются.
+
+Что остаётся намеренно:
+
+- строка `users` и `reports`, поданные этим человеком или на него. Отчёт переживает уход
+  того, на кого подан, иначе «Удалить аккаунт» становится способом сбежать от жалобы на
+  harassment;
+- анонимизированный профиль — он больше никого не описывает и никем не читается (все пути
+  сначала спрашивают живого пользователя).
+
+Проверено тестами (`backend/tests/test_privacy_lifecycle.py`, 3 теста): до удаления ответы,
+результаты, вектор совместимости, аффинность активностей и колода существуют — после всех
+пяти групп 0 строк, чужой аккаунт при этом не тронут; колонки-сентинелы стоят ровно те, что
+написаны выше; репорт на удалившего аккаунт остаётся `open`.
+
+**Backfill для аккаунтов, удалённых до этой правки.** Правка действует на будущее, поэтому в
+dev-БД до неё висело на 126 уже удалённых аккаунтах: `test_answers=1974`, `test_results=470`,
+`compatibility_profiles=94`, `activity_preferences=37`, `discovery_queue=1922`, один `match`
+и два `like` с их участием, и у всех 126 профилей — настоящие `birth_date` и `gender`.
+`backend/ops/anonymize_deleted_users.sql` приводит старые аккаунты к тому же обещанию. Порядок
+— как с любой правкой данных: копия (раздел 2), прогоны на восстановленной копии, и только
+затем рабочая база.
+
+```powershell
+docker exec befos_postgres sh -c "pg_dump -U befos -d befos --format=custom -f /tmp/pre_backfill.dump"
+docker cp befos_postgres:/tmp/pre_backfill.dump "C:/backups/befos-pre-backfill-$(Get-Date -Format yyyyMMdd-HHmmss).dump"
+docker exec befos_postgres psql -U befos -d postgres -c "create database befos_anon_drill owner befos"
+docker cp backend/ops/anonymize_deleted_users.sql befos_postgres:/tmp/anon.sql
+docker exec befos_postgres pg_restore -U befos -d befos_anon_drill --no-owner /tmp/pre_backfill.dump
+docker exec -i befos_postgres psql -U befos -d befos_anon_drill -v ON_ERROR_STOP=1 -f /tmp/anon.sql
+```
+
+Дальше — тот же запрос-сверка, что и ниже, и только после нулей повторить две последние
+команды с `-d befos` (и убрать `befos_anon_drill`).
+
+```powershell
+docker exec befos_postgres psql -U befos -d befos -c "select count(*) from test_answers ta join users u on u.id = ta.user_id where u.is_deleted"
+```
+
+Пройдено 2026-10-05: на копии — `DELETE 1974/470/94/37/1922`, `DELETE 1` (match), `DELETE 2`
+(likes), `UPDATE 126`, `COMMIT`; после прогона все шесть счётчиков по нулям, живых аккаунтов 92,
+репортов 2 (не тронуты). На рабочей dev-БД тот же скрипт дал ровно те же числа. `user_interests`
+сошлись в ноль: интересы очищал и старый код удаления.
+
+Два места, где SQL не угадывается, и скрипт это ловит по факту (первый прогон упал на первом
+же и откатился целиком):
+
+- `profiles.gender_preference` — это `varchar[]`, а не `jsonb`, поэтому пустота сюда пишется
+  как `'{}'::character varying[]`; `'[]'::jsonb` — ошибка типа, а не тихая замена;
+- `profiles.lifestyle` — наоборот `jsonb`, там `'{}'::jsonb` и должен быть.
+
+Снимки такими аккаунтами: файлы уходят кодом только при удалении, а для старых аккаунтов
+это отдельная проверка — сличение из раздела 12 покажет, остались ли сироты (2026-10-05:
+51 строка / 51 файл / 0 сирот, то есть ни одного файла от удалённого аккаунта не осталось).
+
+## 14. Модерация: прочитать репорт и снять блокировку
+
+В приложении нет админ-поверхности (см. раздел 15), поэтому единственный читатель `reports` —
+человек с `psql`. Статусы: `open` → `reviewed` / `resolved` / `dismissed`; меняются только
+руками, и это надо осознавать, потому что статус — вся память о том, что жалобу разобрали.
+
+```powershell
+docker exec befos_postgres psql -U befos -d befos -c "
+select r.id, r.reason, r.status, r.created_at,
+       rep.email as reporter, rb.email as reported, r.details
+from reports r
+  join users rep on rep.id = r.reporter_id
+  join users rb  on rb.id = r.reported_id
+where r.status = 'open'
+order by r.created_at;"
+```
+
+На 2026-10-05 в dev-БД: 2 репорта, оба `open`. Разбор — поставить статус и при необходимости
+записать действие в `details` (там текст пользователя, поэтому в дампах он есть, а в логах — нет):
+
+```powershell
+docker exec befos_postgres psql -U befos -d befos -c "update reports set status = 'resolved' where id = '<uuid>';"
+```
+
+Блокировку приложение не снимает («Отменить блокировку в приложении нельзя» — это и про UI,
+и про API). Если партнёры нужны оба — только SQL, и он убирает ровно стену: пару и переписку
+он не возвращает, они были удалены при блокировке.
+
+```powershell
+docker exec befos_postgres psql -U befos -d befos -c "delete from blocks where blocker_id = '<blocker>' and blocked_id = '<blocked>';"
+```
+
+Дальше всё обычным путём, и это следует из кода, а не из обещания: подбор исключает пару
+anti-join'ом по `blocks` (`social_repo._acted_conditions`), а `like` проверяет
+`is_blocked_either` (`match_service`), поэтому без строки блокировки человек снова приходит
+в ленту, а `like` с обеих сторон создаёт новый `match` — с новым `id`, старую переписку не
+поднимет уже ничего.
+
+## 15. Что здесь честно не сделано
 
 - Нет PITR: точка восстановления — момент последнего дампа, а не произвольная секунда.
   Для этого нужны `archive_mode`/`wal_level=replica` и хранилище вне хоста.
@@ -357,3 +471,15 @@ docker exec befos_backend sh -c "ls /app/uploads | wc -l"
 - Проверка копии здесь исполняется руками. Как только появится планировщик, drill
   (`restore → compare → drop`) должен запускаться по расписанию, потому что копия,
   которую не проверяли, портится незаметно.
+- Удаление аккаунта не удаляет строку `users` (раздел 13): мягкое удаление держит FK и
+  историю пар, поэтому «стёрто» означает «ничего, что описывает человека», а не «строки нет».
+  Планировщика, который превращает анонимизированные строки в `DELETE`, нет, и без решения
+  о сроках хранения появляться он не должен.
+- Разблокировки в приложении нет: снятие блокировки — только SQL из раздела 14, и он не
+  возвращает ни пару, ни переписку.
+- У `reports` нет читателя в приложении: нет админ-панели, нет уведомления, сменить статус
+  можно только через `psql`. Ровно поэтому репорт переживает удаление аккаунта — иначе
+  жалоба остаётся в таблице, которую никто не открывает.
+- `/uploads` — статика без авторизации: любой, кто знает url, получит снимок, пока лежит
+  файл. Приватность здесь держится на непредсказуемости имени и на удалении файла вместе
+  с аккаунтом, а не на проверке права.

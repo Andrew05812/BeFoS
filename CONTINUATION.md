@@ -47,7 +47,7 @@ Python 3.12, FastAPI, Pydantic 2.10 + pydantic-settings, SQLAlchemy 2.0 async, a
 
 ## 6. Database
 
-PostgreSQL 16, 22 доменная таблица (users, profiles, photos, interests/user_interests, test_questions/test_options/test_answers/test_results, compatibility_profiles, activity_preferences, discovery_queue, likes, passes, matches, messages, message_reads, activities, recommendations, blocks, reports, refresh_tokens + `alembic_version`). Индексы на горячих путях (`ix_likes_from/to_user_id`, уникальность `uq_like_pair`, `ix_profiles_city_lower_birth`, `ix_message_reads_reader_message`, `ix_discovery_queue_viewer_status_rank`). Миграции — Alembic; актуальная head в `backend/alembic/`, `alembic check` чист (см. §12.2).
+PostgreSQL 16, 22 доменная таблица (users, profiles, photos, interests/user_interests, test_questions/test_options/test_answers/test_results, compatibility_profiles, activity_preferences, discovery_queue, likes, passes, matches, messages, message_reads, activities, recommendations, blocks, reports, refresh_tokens + `alembic_version`). Индексы на горячих путях (`ix_likes_from/to_user_id`, уникальность `uq_like_pair`, `ix_profiles_city_lower_birth`, `ix_message_reads_reader_message`, `ix_discovery_queue_viewer_status_rank`). Миграции — Alembic; актуальная head — `b7e3d0a9c421` (отметка `profiles.onboarding_completed_at`), `alembic check` чист (проверено в контейнере: «No new upgrade operations detected»; см. §12.2).
 
 ## 7. Authentication
 
@@ -85,6 +85,7 @@ REST — надёжная запись (история/отправка/проч
 - Config-гарды production (`core/config.py` model_validator): плейсхолдер-секреты, короткие секреты, совпадение JWT_SECRET/REFRESH, CORS `*` и `http://` — приложение не стартует.
 - Rate limiting (отдельный лимитер /auth), JWT в query только для WS, секреты только в `.env` (в git — `.env.example` с плейсхолдерами), в логи — без паролей/токенов.
 - Загрузки изображений — перекодирование Pillow; тело читается с лимитом, а не целиком, а удалённый аккаунт не оставляет снимков ни в базе, ни на диске (см. §12.3).
+- Блокировка — серверная стена (404 обеим сторонам, закрытие сокета по `WS 1008`), а в приложении она требует подтверждения; удаление аккаунта стирает всё, что описывает человека, и намеренно оставляет репорты (см. §12.8).
 - Release-бинарник не может содержать http-адрес эмулятора: без `BEFOS_API_BASE_URL`/`BEFOS_WS_BASE_URL` сборка падает (fail-fast).
 - Протухшая сессия не является тупиком: `bearer`-плагин при неудачном refresh очищает токены, `TokenStore.clear()` публикует событие `signedOut`, а `BeFosNavHost` по нему уводит на экран входа с очисткой стека. Без этого пользователь оставался на «Сессия истекла. Войдите снова.» с кнопкой «Повторить», которая не может сработать никогда. Проверено на устройстве: ротация `JWT_SECRET` в `.env` + перезапуск backend → тап по вкладке «Профиль» → экран входа с предзаполненным email → повторный вход возвращает в подбор.
 
@@ -156,13 +157,76 @@ REST — надёжная запись (история/отправка/проч
 - **Покрытие.** Android unit — **111/111**: `MatchesViewModelTest` (5), `ProfileViewModelTest` (5), `DiscoveryViewModelTest` (+3), `SettingsViewModelTest` (4), `EditProfileViewModelTest` (3, включая «retry каталога не трогает набранный ответ»), `BackendErrorTextTest` (+4: 403 без совета повторить, одна формулировка на три дороги, фолбэк не ярлык и не цифры, неизвестное исключение не обвиняет сеть). Проверка на устройстве отдельно от юнитов: HTML-502 без JSON доходит до экрана пар как новая строка, «Повторить» возвращает список; баннеры пересняты на 320 dp.
 - **Границы вывода.** Один AVD, instrumented-тестов нет (§17.12); прокси-стенд — одноразовый скрипт, а не часть репозитория. Числа 12.8 с и «18 / 40» относятся к этому стенду и этому аккаунту; порядок (потолок чтения, курсор не двигается до успеха) — свойство кода, а не стенда.
 
+## 12.8. Блокировка как стена, отмена как диалог и то, что остаётся после удаления
+
+- **Класс дефекта: необратимое действие за одним тапом.** Блокировка открывалась с той же
+  кнопки, которая закрывает экран, — один тап по крестику в топбаре удалял пару, чат и
+  закрывал сокет. Сервер при этом был прав уже давно: оба направления получают 404 на историю
+  и отправку, профиль заблокированного не читается, повторный `like` не создаёт пару,
+  рукопожатие WebSocket и каждый кадр в уже открытой комнате перепроверяются (`WS 1008`).
+  Сломано было не обещание, а форма его принятия: теперь тап открывает
+  `BlockDialog` («Заблокировать?» / «<имя> больше не появится в подборе.» / «Если у вас есть
+  общая пара, она и вся переписка удалятся. Отменить блокировку в приложении нельзя.» /
+  «Отмена» / окрашенная в error «Заблокировать»), и `vm.confirmBlock()` вызывается только из
+  него.
+- **Второй дефект был не виден ни на одном экране по отдельности.** Страница карточек живёт в
+  памяти `DiscoveryViewModel`, а лайк/пас/блок с открытого профиля уходят по другому роуту и в
+  другом ViewModel — колода об этом не узнавала, и заблокированный человек оставался следующей
+  картой, тап по которой отвечал «Профиль не найден». Правка — общий на процесс сигнал
+  `domain/safety/AnsweredUsers` (`MutableSharedFlow`, `extraBufferCapacity = 32`, replay 0) в
+  `AppContainer`: `PublicProfileViewModel.like/pass/confirmBlock` публикуют id на
+  `ApiResult.Success`, `DiscoveryViewModel` подписан на него в `init` и в `forget()` снимает
+  карту с поправкой индекса, чтобы колода не отъехала назад и не указала за конец.
+- **Про `SharedFlow` тут важно ровно одно.** При replay 0 публикация без подписчика
+  теряется молча — тестом это не ловится, если тест подписан заранее. Диагностикой был
+  `subscriptionCount` (`publish <uid> accepted=true subscribers=1` в logcat): `accepted=true`
+  ничего не обещает, и «карта не пропала» без этой строки читалось как дефект клиента.
+- **Ловушка фикстур, на которой я потерял один ложный диагноз.** Проба искала цель по имени,
+  а два сгенерированных персоны носили одно имя «QA Гриша» — скрипт заблокировал не тот
+  аккаунт и вернул «карта осталась». Единственные имена (`QA Гриша <stamp>`) + проверка
+  `current_card_is_target()` до и после — после этого проба прошла честно:
+  `CONFIRM: back on the deck`, `DECK: blocked card absent`, скриншот «Анкеты закончились».
+- **Удаление аккаунта — обещание про данные, а не про экран.** `delete_account` мягкий:
+  строка `users` остаётся, поэтому `ON DELETE CASCADE` в схеме не срабатывает никогда, и всё
+  неперечисленное переживает нажатие. До правки в нём не было ни стиражения `birth_date` /
+  `gender` / `dating_goal` / предпочтений, ни удаления анкетных строк. Измерено в dev-БД перед
+  backfill: на 126 уже удалённых аккаунтах висело `test_answers=1974`, `test_results=470`,
+  `compatibility_profiles=94`, `activity_preferences=37`, `discovery_queue=1922`, один `match`
+  и два `like`, и у всех 126 профилей — настоящие дата рождения и пол. Теперь стирается
+  перечисленное, а NOT NULL-колонки получают значения, которые не могут прийти с формы
+  (`ERASED_BIRTH_DATE = 1900-01-01`, `ERASED_GENDER/ERASED_DATING_GOAL = 'erased'`).
+  Намеренно переживают уход: строка `users` и `reports` — иначе «Удалить аккаунт» стал бы
+  способом сбежать от жалобы на harassment.
+- **Backfill прогнан по правилам копии** (`docs/OPERATIONS.md` §13): дамп → восстановление в
+  `befos_anon_drill` → скрипт → сверка → только потом рабочая `befos`. Первый прогон упал по
+  факту, а не по удаче: `profiles.gender_preference` — это `varchar[]`, а не `jsonb`, и
+  `'[]'::jsonb` дал ошибку типа с полным откатом транзакции (в документации по схемам это
+  было записано неверно — исправлено в `docs/DATABASE.md`). После правки на копии: `DELETE
+  1974/470/94/37/1922`, `DELETE 1` match, `DELETE 2` like, `UPDATE 126`, `COMMIT`; счётчики
+  по нулям, 92 живых аккаунта и 2 репорта не тронуты. Тот же скрипт на dev-БД дал ровно те же
+  числа.
+- **Покрытие.** Backend — `tests/test_safety_block.py` (4: стена в обе стороны по REST, стена в
+  уже открытом сокете, отказ самоблокировки, 409 на повторный репорт с той же причиной) и
+  `tests/test_privacy_lifecycle.py` (3: ничего описывающего не остаётся + чужой аккаунт не
+  задет; сентинелы вместо NOT NULL-колонок; репорт переживает уход описанного аккаунта).
+  Android — `DiscoveryViewModelTest` (+5: карта, отвеченная на другом экране, уходит из колоды;
+  следующая встанет на её место; ответ про уже виденную карту не откатывает колоду; посторонний
+  id не меняет ничего; последняя карта, отвеченная вне колоды, заканчивает её, а не указывает
+  за конец) и `PublicProfileViewModelTest` (+5: блок/пас/лайк/матч публикуют id, отказ
+  не публикует). `AnsweredUsers` в тестах — реальный объект, а не mockk: проверяется именно
+  доставка через общий flow, а не вызов метода.
+- **Границы вывода.** Один AVD, instrumented-тестов нет (§17.12); числа прогона пробы относятся
+  к `emulator-5554` и билду на `10.0.2.2:8000`. В приложении нет админ-поверхности для репортов и
+  нет отмены блокировки — оба остались только SQL-путом (`docs/OPERATIONS.md` §14), и это
+  зафиксировано в списке честных ограничений, а не подано как сделанное.
+
 ## 13. Текущие результаты тестов (воспроизводимо)
 
 | Набор | Команда | Результат |
 |---|---|---|
-| Backend unit+integration | `cd backend && ./.venv/Scripts/python.exe -m pytest -q` (нужен запущенный `docker compose up -d`; тестовая БД `befos_test`) — **один набор за раз**: два одновременных прогона делят `befos_test`, а `conftest` чистит доменные таблицы между тестами, поэтому второй прогон видит чужие строки и падения не означают поломки кода | **156/156** (187 с на хосте, 135 с в контейнере: `docker exec -e BEFOS_TEST_PG_HOST=postgres befos_backend python -m pytest /app/tests -q`) |
+| Backend unit+integration | `cd backend && ./.venv/Scripts/python.exe -m pytest -q` (нужен запущенный `docker compose up -d`; тестовая БД `befos_test`) — **один набор за раз**: два одновременных прогона делят `befos_test`, а `conftest` чистит доменные таблицы между тестами, поэтому второй прогон видит чужие строки и падения не означают поломки кода. Убитый посреди прогона процесс оставляет в `befos_test` «idle in transaction», и следующий прогон **висит на его блокировках** без единого сообщения (признак — пустой `pg_stat_activity` по `befos` и `wait_event=transactionid` у `DELETE FROM test_results`): снять можно `select pg_terminate_backend(<pid>)` | **167/167** (212 с на хосте; в контейнер тесты не монтируются — `/app/tests` это снимок образа, 14 файлов без последних, поэтому цифра хоста и есть цифра набора) |
 | Живой journey | `PYTHONIOENCODING=utf-8 backend/.venv/Scripts/python.exe backend/e2e_journey.py` | **63/63** — из них 13 проверок WebSocket: presence на входе, доставка сокета и REST-отправки в открытую комнату, квитанция отправителю, повтор под тем же именем, выживание после мусорного кадра, отказ чужому токену и удалённому аккаунту. Оба аккаунта прогон удаляет за собой (`delete account A/B`), в dev-БД не остаётся probe-строк |
-| Android unit | `cd android && ./gradlew :app:testDebugUnitTest` — **только из ASCII-пути** (см. §17.1) | **111/111** (11 — `BackendErrorTextTest`, 8 — `ChatSocketFailureTest`, 8 — `DiscoveryViewModelTest`, 5 — `MatchesViewModelTest`, 5 — `ProfileViewModelTest`, 4 — `SettingsViewModelTest`, 3 — `EditProfileViewModelTest`, 10 — `ContrastPolicyTest`, 7 — `ImeActionRoutingTest`) |
+| Android unit | `cd android && ./gradlew :app:testDebugUnitTest` — **только из ASCII-пути** (см. §17.1) | **131/131** (21 класс; 14 — `ChatViewModelTest`, 13 — `DiscoveryViewModelTest`, 11 — `BackendErrorTextTest`, 10 — `ContrastPolicyTest`, 9 — `PublicProfileViewModelTest`, 8 — `ChatSocketFailureTest`, 7 — `AuthViewModelTest`, 7 — `ImeActionRoutingTest`, 6 — `RootViewModelTest`, 6 — `IdentityLineTest`; суммы считываются из `app/build/test-results/testDebugUnitTest/*.xml`) |
 | Release | `BEFOS_API_BASE_URL=… BEFOS_WS_BASE_URL=… ./gradlew :app:assembleRelease :app:bundleRelease` | APK 1.88 МБ + AAB 4.60 МБ (R8); без `android/keystore.properties` — `app-release-unsigned.apk`, что и проверялось |
 | On-device E2E | эмулятор `befos_avd` | пройден полностью, см. §14 |
 
@@ -218,8 +282,10 @@ Windows/adb-подводные камни (экономия времени):
 8. **Холодный старт зависит от типа сборки, а не от кода приложения**: на одном и том же эмуляторе debug-APK — `Displayed +31s662ms` (JIT без AOT/R8, `performTraversals` компилируется ~12 с), release-APK — `am start -W` TotalTime 6.1 с в первый запуск и 4.6 с во второй. Тяжёлый HTTP-стек (OkHttp/TLS) уже вынесен в `by lazy` в `AppContainer`, чтобы не платить его цену в `Application.onCreate`; дальнейший разгон — это baseline profile + release, а не правки приложения.
 9. **Копии снимаются и проверяются руками**: командные рецепты, отпечаток и drill задокументированы и исполнены (`docs/OPERATIONS.md`), но планировщика нет и копии нет вне хоста — для выгрузки нужны адрес и ключ, которых в этом репозитории намеренно нет. Точка восстановления — момент последнего дампа, PITR нет.
 10. **Лимита размера тела на границе нет**: читается с пределом только RAM-часть (`read_upload_capped`), а multipart-парсер пишет тело во временный файл до первого байта хэндлера, так что диск ограничивает reverse proxy (`client_max_body_size`) — в репозитории его нет, потому что нет и самого прокси.
-11. **В томе фото остаются файлы без строк** (неудачные загрузки, снимки до правки tombstone, распакованные копии): 58 строк против 131 файла на 2026-10-04. Read-only сличение задокументировано, автоматической чистки нет — она требует решения о гонке «файл записан, строка ещё нет».
-12. **Нет instrumented-тестов на Android**: в проекте только JVM-unit-тесты (75), source set `androidTest` отсутствует, и в offline-кэше Gradle нет `androidx.test.ext` / `ui-test-junit4`. Всё, что живёт в реальной layout-системе (геометрия чипов подбора, клиппинг при `font_scale`, поведение IME), проверяется измерением на эмуляторе через `uiautomator`, а не тестом — см. §14.
+11. **В томе фото могут остаться файлы без строк** (неудачные загрузки, снимки до правки tombstone, распакованные копии): автоматической чистки нет — она требует решения о гонке «файл записан, строка ещё нет». Read-only сличение задокументировано (`docs/OPERATIONS.md` §12), и на 2026-10-05 оно даёт 51 строка / 51 файл / 0 сирот, то есть в текущем стенде таких файлов нет вовсе.
+12. **Нет instrumented-тестов на Android**: в проекте только JVM-unit-тесты (131), source set `androidTest` отсутствует, и в offline-кэше Gradle нет `androidx.test.ext` / `ui-test-junit4`. Всё, что живёт в реальной layout-системе (геометрия чипов подбора, клиппинг при `font_scale`, поведение IME) и реальная навигация между экранами (карта, отвеченная на чужом экране, уходит из колоды), проверяется измерением на эмуляторе через `uiautomator`, а не тестом — см. §14.
+13. **Блокировка не отменяется в приложении, а репорты никто не читает**: ни экрана разблокировки, ни админ-поверхности у `reports` нет — и то, и другое существует только как SQL-рецепт (`docs/OPERATIONS.md` §14). Диалог блокировки говорит про это честно, но процесс модерации остаётся ручным.
+14. **Анонимизированные строки не имеют срока**: удаление стирает всё, что описывает человека, но не удаляет строку `users` и `reports`, и планировщика, который превращает их в `DELETE`, нет. Обещание потому и сформулировано как «ничего, что описывает», а не «строки нет».
 
 ## 18. Возможные следующие задачи (не начаты, по убыванию ценности)
 
