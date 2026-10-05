@@ -141,11 +141,15 @@ Signer #1 certificate SHA-256 digest: 8e979e69b90e36386bfa64e547e13d0186e2419011
 - [ ] `docker compose up -d --build backend` на целевом стенде; `/api/v1/health` отвечает `ok`,
       `environment` — `production`.
 - [ ] `.env` прода: `ENVIRONMENT=production`, сильные и разные `JWT_SECRET`/`JWT_REFRESH_SECRET`,
-      свой `DATABASE_URL`, `CORS_ORIGINS` только `https://` без `*`, `DEBUG=false`,
+      свой `DATABASE_URL`, **переопределённый `POSTGRES_PASSWORD`** (compose собирает из него
+      `DATABASE_URL`, и прод отказывает стартовать, пока в DSN сидит `befos_password`),
+      `CORS_ORIGINS` только `https://` без `*`, `DEBUG=false`,
       `DEMO_ENABLED=false`. Каждое нарушение — контейнер не поднимается (`docs/OPERATIONS.md` §11).
+- [ ] Порт базы наружу не смотрит: в compose postgres опубликован как `127.0.0.1:5432:5432`,
+      и на целевом хосте `netstat`/`ss` обязан показать только loopback-listener.
 - [ ] Миграции применены (`alembic upgrade head`), откат прогонян на копии по `docs/OPERATIONS.md`.
 - [ ] Резервная копия и drill восстановления сделаны до выпуска, а не после (`docs/OPERATIONS.md` §6).
-- [ ] Тесты: backend **189/189**, Android **131/131**, живой путь **64/64** (`CONTINUATION.md` §13).
+- [ ] Тесты: backend **191/191**, Android **131/131**, живой путь **64/64** (`CONTINUATION.md` §13).
 - [ ] Сборка release прошла с реальными адресами; `apksigner verify --print-certs` показывает
       ожидаемый сертификат, а не тестовый.
 - [ ] `mapping.txt` сохранена рядом с артефактом.

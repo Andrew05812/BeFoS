@@ -84,7 +84,7 @@ REST — надёжная запись (история/отправка/проч
 ## 12. Security (текущий уровень)
 
 - IDOR: все эндпоинты с чужими ID проверяют membership/принадлежность; набор `backend/tests/test_idor_authorization.py` (11 тестов: чтение/отправка/read/compatibility/recommendations/select чужого match → 403/404, чужой валидный токен не получает сокет-комнату, скрытая и заблокированная анкета не читается по узна́нному id, написанный рукой курсор подбора отвергается, `before_id` из другой пары не открывает ту пару; партнёр доступ сохраняет). Подробности — §12.12.
-- Config-гарды production (`core/config.py`): `ENVIRONMENT` только из понятного списка (иначе опечатка читается как «не production» и снимает все гарды); плейсхолдер-секреты, короткие секреты, совпадение JWT_SECRET/REFRESH, CORS `*` и `http://`, shipped `DATABASE_URL`, `DEBUG=true`, `DEMO_ENABLED=true` — приложение не стартует (`test_security_config.py`, 15 тестов).
+- Config-гарды production (`core/config.py`): `ENVIRONMENT` только из понятного списка (иначе опечатка читается как «не production» и снимает все гарды); плейсхолдер-секреты, короткие секреты, совпадение JWT_SECRET/REFRESH, CORS `*` и `http://`, shipped `DATABASE_URL` — как целиком, так и по компоненту пароля, потому что compose собирает другой адрес с тем же `befos_password`; `DEBUG=true`, `DEMO_ENABLED=true` — приложение не стартует (`test_security_config.py`, 17 тестов).
 - Rate limiting (отдельный лимитер /auth), JWT в query только для WS, секреты только в `.env` (в git — `.env.example` с плейсхолдерами), в логи — без паролей/токенов.
 - Загрузки изображений — перекодирование Pillow; тело читается с лимитом, а не целиком, а удалённый аккаунт не оставляет снимков ни в базе, ни на диске (см. §12.3).
 - Блокировка — серверная стена (404 обеим сторонам, закрытие сокета по `WS 1008`), а в приложении она требует подтверждения; удаление аккаунта стирает всё, что описывает человека, и намеренно оставляет репорты (см. §12.8).
@@ -369,7 +369,9 @@ REST — надёжная запись (история/отправка/проч
   понятным; выключенный переключатель сеет каталоги и не сеет людей (падало на прежнем seed —
   `1 failed`, проверено на временной копии файла). Базовый словарь фикстуры теперь описывает
   корректный прод-конфиг, чтобы каждый тест проверял ровно одну ошибку, а не ловил первую
-  сработавшую.
+  сработавшую. Позднее +2 (`test_production_rejects_the_shipped_password_even_on_another_host`,
+  `test_production_accepts_a_database_with_its_own_password`): пароль из репозитория отвергается
+  в DSN на любом хосте, включая форму с `%5F`, а DSN со своим паролем стартует.
 
 ## 12.12. Чужие идентификаторы: проверка стража, а не надежда на него (§27)
 
@@ -401,11 +403,41 @@ REST — надёжная запись (история/отправка/проч
   ввёл и дыру не чинил — живой дыры при инвентаризации не нашлось. `activity_id` рекомендации
   остаётся под прежним тестом той же файла.
 
+## 12.13. Что мешало показать этот репозиторий людям (§6–§10 публикации)
+
+- **Что мерилось, а не предполагалось.** Инвентаризация всей истории: 224 файла в HEAD, 303
+  пути когда-либо, 1859 blob, 117 коммитов; 13 семейств regex (JWT/refresh, `AIza…`,
+  `sk-…`, TG token, AWS, Stripe, SendGrid, PEM, keystore, DSN, bearer в тексте, пароли в
+  `.env`, длинные high-entropy строки) плюс Shannon-entropy по каждому blob. Настоящего
+  секрета не найдено ни в одном коммите: `.env`, keystore, APK/AAB, дампов и ключей в истории
+  нет вовсе (`git log --all -- <пути>` пуст для каждого из них). Персональное — только
+  metadata коммитов (личный Gmail в author/committer всех 117) и один путь внутри
+  `CONTINUATION.md` (22 blob той же книги).
+- **Дефект, который публикация превращает в дыру.** `befos_password` напечатан в
+  `.env.example` и в `docker-compose.yml`, а прежний прод-гард сравнивал `DATABASE_URL` со
+  строкой-литералом из `config.py`. URL, который собирает compose, другой (`…@postgres:5432/…`)
+  и проходил гард. Теперь сравнивается компонент пароля DSN; измерено живым контейнером:
+  прод с композовым URL не поднимается, прод со своим паролем поднимается.
+- **Второй эшелон.** 5432 публиковался на всех интерфейсах; стал `127.0.0.1:5432:5432`.
+  Хост доступ не потерял (`tests/conftest.py` берёт `localhost:5432`), сервер — да. Проверено
+  `netstat`, `/api/v1/health` и `/api/v1/health/db`.
+- **`.gitignore`.** `!debug.keystore` отменял правило о keystore — снято; добавлены
+  `*.env`, `*.dump`, `*.sqlite`, `*.hprof`, `/tmp/`, `/.qoder/`, `/uploads/`,
+  `/android/app/release/`, `/.kotlin/`. `git ls-files -i -c --exclude-standard` пуст, то есть
+  ни один отслеживаемый файл эти строки не осиротили.
+- **Лицензии.** MIT/Apache не класть: репозиторий публичный как портфолио, прав на reuse не
+  даёт (`LICENSE` = All Rights Reserved, формулировка автора, не юридическое заключение).
+  `THIRD_PARTY_NOTICES.md` собран из метаданных установленных пакетов и POM зависимостей, а
+  не по памяти; уведомление DejaVu извлечено из nameID 13 самого TTF и лежит рядом с файлом
+  (`LICENSE.DejaVu`) — шрифт, разумеется, на месте: seed рисует им кириллицу, встроенный
+  bitmap-шрифт Pillow её не имеет.
+- **Итог прогонов:** backend **191/191** (268 с), `test_security_config.py` 17/17.
+
 ## 13. Текущие результаты тестов (воспроизводимо)
 
 | Набор | Команда | Результат |
 |---|---|---|
-| Backend unit+integration | `cd backend && ./.venv/Scripts/python.exe -m pytest -q` (нужен запущенный `docker compose up -d`; тестовая БД `befos_test`) — **один набор за раз**: два одновременных прогона делят `befos_test`, а `conftest` чистит доменные таблицы между тестами, поэтому второй прогон видит чужие строки и падения не означают поломки кода. Симптомы пережиты буквально: два прогона рядом дали `deadlock detected` на `DELETE FROM refresh_tokens`, каскад `401 User no longer exists`, FK-нарушения на `user_interests`/`compatibility_profiles` и `KeyError: 'match_id'` — 16 падений при полностью целом коде; тишина вместо этих сообщений — второй вариант той же болезни. Убитый посреди прогона процесс оставляет в `befos_test` «idle in transaction», и следующий прогон **висит на его блокировках** без единого сообщения (признак — пустой `pg_stat_activity` по `befos` и `wait_event=transactionid` у `DELETE FROM test_results`): снять можно `select pg_terminate_backend(<pid>)`. Тот же запрет касается фоновых прогонов: `run_in_background` не предупреждает, что набор ещё жив, поэтому перед повтором проверяют, что предыдущий процесс завершился | **189/189** (289 с на хосте; в контейнер тесты не монтируются — `/app/tests` это снимок образа, 14 файлов без последних, поэтому цифра хоста и есть цифра набора) |
+| Backend unit+integration | `cd backend && ./.venv/Scripts/python.exe -m pytest -q` (нужен запущенный `docker compose up -d`; тестовая БД `befos_test`) — **один набор за раз**: два одновременных прогона делят `befos_test`, а `conftest` чистит доменные таблицы между тестами, поэтому второй прогон видит чужие строки и падения не означают поломки кода. Симптомы пережиты буквально: два прогона рядом дали `deadlock detected` на `DELETE FROM refresh_tokens`, каскад `401 User no longer exists`, FK-нарушения на `user_interests`/`compatibility_profiles` и `KeyError: 'match_id'` — 16 падений при полностью целом коде; тишина вместо этих сообщений — второй вариант той же болезни. Убитый посреди прогона процесс оставляет в `befos_test` «idle in transaction», и следующий прогон **висит на его блокировках** без единого сообщения (признак — пустой `pg_stat_activity` по `befos` и `wait_event=transactionid` у `DELETE FROM test_results`): снять можно `select pg_terminate_backend(<pid>)`. Тот же запрет касается фоновых прогонов: `run_in_background` не предупреждает, что набор ещё жив, поэтому перед повтором проверяют, что предыдущий процесс завершился | **191/191** (268 с на хосте; в контейнер тесты не монтируются — `/app/tests` это снимок образа, 14 файлов без последних, поэтому цифра хоста и есть цифра набора) |
 | Живой journey | `PYTHONIOENCODING=utf-8 backend/.venv/Scripts/python.exe backend/e2e_journey.py` | **64/64** — из них 13 проверок WebSocket: presence на входе, доставка сокета и REST-отправки в открытую комнату, квитанция отправителю, повтор под тем же именем, выживание после мусорного кадра, отказ чужому токену и удалённому аккаунту; шаг 12b сверяет процент из списка пар с живым после пересдачи (§12.10). Оба аккаунта прогон удаляет за собой (`delete account A/B`), в dev-БД не остаётся probe-строк |
 | Android unit | `cd android && ./gradlew :app:testDebugUnitTest` — **только из ASCII-пути** (см. §17.1) | **131/131** (21 класс; 14 — `ChatViewModelTest`, 13 — `DiscoveryViewModelTest`, 11 — `BackendErrorTextTest`, 10 — `ContrastPolicyTest`, 9 — `PublicProfileViewModelTest`, 8 — `ChatSocketFailureTest`, 7 — `AuthViewModelTest`, 7 — `ImeActionRoutingTest`, 6 — `RootViewModelTest`, 6 — `IdentityLineTest`; суммы считываются из `app/build/test-results/testDebugUnitTest/*.xml`) |
 | Release | `BEFOS_API_BASE_URL=… BEFOS_WS_BASE_URL=… ./gradlew :app:assembleRelease :app:bundleRelease` | APK 1.88 МБ + AAB 4.60 МБ (R8); без `android/keystore.properties` — `app-release-unsigned.apk`, что и проверялось. Отказ перечитан на текущем дереве (2026-10-05): без адресов → `BUILD FAILED` за 4 с «it is not set, and the local emulator default must not ship»; `http://api.example.com/` → «it must use the https:// scheme, not "http"» |
@@ -454,7 +486,7 @@ Windows/adb-подводные камни (экономия времени):
 
 ## 16. Production configuration
 
-`.env` (не в git): `ENVIRONMENT=production`, сильные `JWT_SECRET`/`JWT_REFRESH_SECRET` (≥32, разные), свой `DATABASE_URL` (не тот, что лежит в репозитории), `CORS_ORIGINS=https://…` (без `*` и `http://`), `DEBUG=false`, `DEMO_ENABLED=false`. При нарушении любого правила приложение не стартует (тесты `test_security_config.py`, 15 штук). `ENVIRONMENT` при этом обязан быть одним из понятных значений (`development`/`dev`/`test`/`staging`/`production`/`prod`): непронятое слово равняется «не production» и выключало бы все перечисленные проверки, поэтому оно тоже ошибка старта. HTTPS терминировать на reverse proxy (в репо не входит).
+`.env` (не в git): `ENVIRONMENT=production`, сильные `JWT_SECRET`/`JWT_REFRESH_SECRET` (≥32, разные), свой `DATABASE_URL` (не тот, что лежит в репозитории) и переопределённый `POSTGRES_PASSWORD` (compose собирает из него `DATABASE_URL`, и прод отказывает стартовать, пока в DSN сидит `befos_password`), `CORS_ORIGINS=https://…` (без `*` и `http://`), `DEBUG=false`, `DEMO_ENABLED=false`. При нарушении любого правила приложение не стартует (тесты `test_security_config.py`, 17 штук). `ENVIRONMENT` при этом обязан быть одним из понятных значений (`development`/`dev`/`test`/`staging`/`production`/`prod`): непронятое слово равняется «не production» и выключало бы все перечисленные проверки, поэтому оно тоже ошибка старта. HTTPS терминировать на reverse proxy (в репо не входит). Порт базы наружу не смотрит: postgres опубликован как `127.0.0.1:5432:5432`, так что поднятый с этого файла сервер не отвечает на 5432 наружным интерфейсом (`netstat` на стенде — единственный loopback-listener).
 
 Ловушка, из-за которой «смена секрета ничего не делает»: `docker-compose.yml` интерполирует `${JWT_SECRET}`/`${JWT_REFRESH_SECRET}` из **корневого** `.env`, а `backend/.env` читает только процесс, запущенный вне Docker. При пересоздании контейнера (`docker compose up -d`) compose подхватывает значения из корня; `--force-recreate` обязателен, иначе контейнер продолжит жить со старым окружением. `ACCESS_TOKEN_EXPIRE_MINUTES` в environment-блок compose не проброшен — в контейнере действует дефолт 30 минут.
 
