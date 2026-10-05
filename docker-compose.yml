@@ -43,7 +43,7 @@ services:
       - "8000:8000"
     healthcheck:
       # The process answering is a different claim from the database answering; the
-      # database half is /health/db and OPERATIONS.md says which one to alert on.
+      # database half is /api/v1/health/db and OPERATIONS.md says which one to alert on.
       test: ["CMD", "curl", "--fail", "--silent", "--max-time", "3", "http://localhost:8000/api/v1/health"]
       interval: 30s
       timeout: 5s
