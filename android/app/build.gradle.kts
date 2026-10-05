@@ -1,3 +1,4 @@
+import java.net.URI
 import java.util.Properties
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
@@ -23,8 +24,34 @@ val wsBaseUrl = envOrProp("BEFOS_WS_BASE_URL", "befos.wsBaseUrl")
 // Local emulator defaults; production backends are served over https/wss.
 val debugApiUrl = apiBaseUrl ?: "http://10.0.2.2:8000/"
 val debugWsUrl = wsBaseUrl ?: "ws://10.0.2.2:8000/"
-val requestingRelease = gradle.startParameter.taskNames.any {
-    it.contains("Release", ignoreCase = true) || it.contains("Bundle", ignoreCase = true)
+
+// A release artifact is the only build that can reach a real phone, so its backend has to be
+// a real host on an encrypted channel. http:// is refused at build time rather than left to
+// surface on the device: res/xml/network_security_config.xml permits cleartext only to
+// 10.0.2.2, localhost and 127.0.0.1, so a release URL written as http:// would compile,
+// install, and then fail every single request with no clue where it went wrong.
+val localHosts = setOf("10.0.2.2", "localhost", "127.0.0.1", "::1")
+
+fun requireProductionUrl(name: String, gradleName: String, value: String?, secureScheme: String) {
+    val uri = if (value.isNullOrBlank()) null else runCatching { URI(value.trim()) }.getOrNull()
+    val host = uri?.host?.lowercase()
+    val problem = when {
+        value.isNullOrBlank() ->
+            "it is not set, and the local emulator default must not ship"
+        uri == null -> "\"$value\" is not a valid URI"
+        uri?.scheme?.lowercase() != secureScheme ->
+            "it must use the $secureScheme:// scheme, not \"${uri?.scheme ?: "no scheme"}\""
+        uri?.userInfo != null -> "it must not embed credentials in the URL"
+        host.isNullOrEmpty() -> "it must name a host"
+        host in localHosts -> "\"$host\" is a machine on someone's desk, not a production backend"
+        else -> null
+    }
+    if (problem != null) {
+        throw GradleException(
+            "$name is required for release builds: $problem. Set it with the environment " +
+                "variable or -P$gradleName=<url> pointing at the deployed backend.",
+        )
+    }
 }
 
 android {
@@ -74,13 +101,6 @@ android {
             if (keystorePropsFile.exists()) {
                 signingConfig = signingConfigs.getByName("release")
             }
-            if (requestingRelease && (apiBaseUrl == null || wsBaseUrl == null)) {
-                throw GradleException(
-                    "Release builds require BEFOS_API_BASE_URL and BEFOS_WS_BASE_URL " +
-                        "(env vars or -Pbefos.apiBaseUrl / -Pbefos.wsBaseUrl) pointing at your " +
-                        "https:// and wss:// backend. Local emulator defaults must not ship in release.",
-                )
-            }
             buildConfigField("String", "API_BASE_URL", "\"${apiBaseUrl ?: debugApiUrl}\"")
             buildConfigField("String", "WS_BASE_URL", "\"${wsBaseUrl ?: debugWsUrl}\"")
         }
@@ -95,6 +115,32 @@ android {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
+    }
+}
+
+// What decides whether a release artifact is being made is the task graph, not the words typed on
+// the command line. Matching a substring over the requested task names got both halves wrong, and
+// was measured on the previous version of this file: `:app:assemble --dry-run` with no
+// BEFOS_API_BASE_URL scheduled `packageRelease` and complained about nothing, so a release APK
+// carrying the emulator default built fine; `:app:lintRelease --dry-run` and
+// `:app:compileReleaseKotlin --dry-run` — neither produces an artifact — both failed the build.
+// The graph names the work that will actually run, including work pulled in by `assemble` and
+// `build`, which never say "Release".
+//
+// The names below are matched exactly, and that is the second measurement: `packageReleaseResources`
+// and friends compile the release variant's resources on nearly every release build without ever
+// packaging anything, so a `startsWith("packageRelease")` rule made `compileReleaseKotlin` fail
+// again. `installRelease` and the signing tasks need no entry here — they depend on packageRelease,
+// so it is already in the graph when they run.
+val releaseArtifactTasks = setOf("assembleRelease", "bundleRelease", "packageRelease")
+
+gradle.taskGraph.whenReady {
+    val shipsRelease = allTasks.any { task ->
+        task.project == project && task.name in releaseArtifactTasks
+    }
+    if (shipsRelease) {
+        requireProductionUrl("BEFOS_API_BASE_URL", "befos.apiBaseUrl", apiBaseUrl, "https")
+        requireProductionUrl("BEFOS_WS_BASE_URL", "befos.wsBaseUrl", wsBaseUrl, "wss")
     }
 }
 
