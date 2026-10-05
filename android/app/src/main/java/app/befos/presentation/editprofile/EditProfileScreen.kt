@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RangeSlider
@@ -19,6 +20,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.ImeAction
 import app.befos.core.designsystem.AppButton
 import app.befos.core.designsystem.AppCard
 import app.befos.core.designsystem.AppTextField
@@ -73,8 +75,20 @@ fun EditProfileScreen(onBack: () -> Unit) {
                         modifier = Modifier.padding(Spacing.xl),
                         verticalArrangement = Arrangement.spacedBy(Spacing.md),
                     ) {
-                        AppTextField(state.name, vm::onNameChange, label = "Имя", modifier = Modifier.fillMaxWidth())
-                        AppTextField(state.city, vm::onCityChange, label = "Город", modifier = Modifier.fillMaxWidth())
+                        AppTextField(
+                            value = state.name,
+                            onValueChange = vm::onNameChange,
+                            label = "Имя",
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        AppTextField(
+                            value = state.city,
+                            onValueChange = vm::onCityChange,
+                            label = "Город",
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
                         AppTextField(
                             state.about,
                             vm::onAboutChange,

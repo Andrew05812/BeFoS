@@ -191,6 +191,7 @@ private fun StepAbout(state: OnboardingUiState, vm: OnboardingViewModel) {
             value = state.name,
             onValueChange = vm::onNameChange,
             label = "Имя",
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
             modifier = Modifier.fillMaxWidth(),
         )
         AppTextField(

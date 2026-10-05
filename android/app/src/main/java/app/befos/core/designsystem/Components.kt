@@ -55,6 +55,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -62,6 +63,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -70,6 +72,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -1002,6 +1005,40 @@ fun OverlayIconButton(
     }
 }
 
+/**
+ * Routes the keyboard's action key to the action the field actually declared.
+ *
+ * Compose keeps every IME action in its own callback, so a field that declares
+ * [ImeAction.Next] while the primitive wires only `onDone` shows an arrow that goes nowhere:
+ * measured on the sign-up form, the password field's arrow closed the keyboard and left focus
+ * on nothing that the user asked for. Next and Previous are focus moves, never submits —
+ * submitting from the middle of a three-field form fails on a field the user has not reached.
+ */
+internal fun imeActionsFor(
+    imeAction: ImeAction,
+    onAction: () -> Unit,
+    onForward: () -> Unit,
+    onBackward: () -> Unit,
+): KeyboardActions = when (imeAction) {
+    ImeAction.Next -> KeyboardActions(onNext = { onForward() })
+    ImeAction.Previous -> KeyboardActions(onPrevious = { onBackward() })
+    ImeAction.Done -> KeyboardActions(onDone = { onAction() })
+    ImeAction.Go -> KeyboardActions(onGo = { onAction() })
+    ImeAction.Search -> KeyboardActions(onSearch = { onAction() })
+    ImeAction.Send -> KeyboardActions(onSend = { onAction() })
+    else -> KeyboardActions.Default
+}
+
+/**
+ * How many focus steps the action key has to take to reach the next field.
+ *
+ * A password field composes its own reveal toggle inside the same row, and that toggle is the
+ * next node in the traversal order: one step lands focus on an icon, which also drops the
+ * keyboard. Measured on emulator-5554 — the arrow from the register password field moved focus
+ * to the toggle spanning x 397..463, y 549..615, instead of the confirmation field below it.
+ */
+internal fun imeForwardSteps(isPassword: Boolean): Int = if (isPassword) 2 else 1
+
 /** Filled tonal input with animated focus — the form primitive for the whole app. */
 @Composable
 fun AppTextField(
@@ -1021,6 +1058,7 @@ fun AppTextField(
 ) {
     var focused by remember { mutableStateOf(false) }
     var revealed by remember { mutableStateOf(false) }
+    val focusManager = LocalFocusManager.current
     val shape = MaterialTheme.shapes.small
     val borderColor = when {
         error != null -> MaterialTheme.colorScheme.error
@@ -1062,8 +1100,16 @@ fun AppTextField(
                         if (isPassword && !revealed) PasswordVisualTransformation() else visualTransformation,
                     keyboardOptions =
                         if (isPassword) keyboardOptions.copy(keyboardType = KeyboardType.Password) else keyboardOptions,
-                    keyboardActions =
-                        if (onImeAction != null) KeyboardActions(onDone = { onImeAction() }) else KeyboardActions.Default,
+                    keyboardActions = imeActionsFor(
+                        imeAction = keyboardOptions.imeAction,
+                        onAction = { onImeAction?.invoke() },
+                        onForward = {
+                            repeat(imeForwardSteps(isPassword)) {
+                                focusManager.moveFocus(FocusDirection.Next)
+                            }
+                        },
+                        onBackward = { focusManager.moveFocus(FocusDirection.Previous) },
+                    ),
                     textStyle = MaterialTheme.typography.bodyLarge.copy(
                         color = MaterialTheme.colorScheme.onSurface,
                     ),
