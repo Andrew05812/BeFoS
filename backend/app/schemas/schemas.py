@@ -171,7 +171,11 @@ class ProgressOut(BaseModel):
 class CategoryScoreOut(BaseModel):
     category: str
     label: str
-    score: int  # 0..100
+    # A percent, and the contract the screens are written against: the engine clamps every
+    # category into 0..1 and rounds, so anything outside this range is a bug rather than a
+    # low score. Declaring it here means the bug fails on the way out instead of showing
+    # a user "-3%".
+    score: int = Field(ge=0, le=100)
     weight: float
 
 
@@ -189,7 +193,7 @@ class ExplanationItemOut(BaseModel):
 
 
 class CompatibilityOut(BaseModel):
-    overall: int
+    overall: int = Field(ge=0, le=100)
     engine_version: int
     categories: list[CategoryScoreOut]
     strengths: list[ExplanationItemOut] = []
@@ -207,7 +211,7 @@ class DiscoveryCard(BaseModel):
     dating_goal: str
     photo_url: str | None
     interests: list[str] = []
-    compatibility: int
+    compatibility: int = Field(ge=0, le=100)
     shared_interests_count: int
     highlight: str | None = None
 
@@ -220,7 +224,7 @@ class LikeResponse(BaseModel):
     liked: bool
     match: bool
     match_id: str | None = None
-    compatibility: int | None = None
+    compatibility: int | None = Field(default=None, ge=0, le=100)
 
 
 class PassResponse(BaseModel):
@@ -235,7 +239,7 @@ class MatchSummary(BaseModel):
     age: int
     city: str
     photo_url: str | None
-    compatibility: int
+    compatibility: int = Field(ge=0, le=100)
     last_message: str | None
     last_message_at: datetime | None
     unread: int
@@ -288,7 +292,7 @@ class ActivityOut(ORMModel):
 
 class RecommendationOut(BaseModel):
     activity: ActivityOut
-    score: int
+    score: int = Field(ge=0, le=100)
     position: int
     reasons: list[str]
 
