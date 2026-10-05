@@ -84,11 +84,11 @@ REST — надёжная запись (история/отправка/проч
 ## 12. Security (текущий уровень)
 
 - IDOR: все эндпоинты с чужими ID проверяют membership/принадлежность; набор `backend/tests/test_idor_authorization.py` (6 тестов: чтение/отправка/read/compatibility/recommendations/select чужого match → 403/404; партнёр доступ сохраняет).
-- Config-гарды production (`core/config.py` model_validator): плейсхолдер-секреты, короткие секреты, совпадение JWT_SECRET/REFRESH, CORS `*` и `http://` — приложение не стартует.
+- Config-гарды production (`core/config.py`): `ENVIRONMENT` только из понятного списка (иначе опечатка читается как «не production» и снимает все гарды); плейсхолдер-секреты, короткие секреты, совпадение JWT_SECRET/REFRESH, CORS `*` и `http://`, shipped `DATABASE_URL`, `DEBUG=true`, `DEMO_ENABLED=true` — приложение не стартует (`test_security_config.py`, 15 тестов).
 - Rate limiting (отдельный лимитер /auth), JWT в query только для WS, секреты только в `.env` (в git — `.env.example` с плейсхолдерами), в логи — без паролей/токенов.
 - Загрузки изображений — перекодирование Pillow; тело читается с лимитом, а не целиком, а удалённый аккаунт не оставляет снимков ни в базе, ни на диске (см. §12.3).
 - Блокировка — серверная стена (404 обеим сторонам, закрытие сокета по `WS 1008`), а в приложении она требует подтверждения; удаление аккаунта стирает всё, что описывает человека, и намеренно оставляет репорты (см. §12.8).
-- Release-бинарник не может содержать http-адрес эмулятора: без `BEFOS_API_BASE_URL`/`BEFOS_WS_BASE_URL` сборка падает (fail-fast).
+- Release-бинарник не может содержать http-адрес эмулятора: сборка, в графе которой есть упаковщик release-артефакта, требует `BEFOS_API_BASE_URL`/`BEFOS_WS_BASE_URL` и проверяет их (`https`/`wss`, не локальный хост, без credentials в URL) — fail-fast на сборке, а не отказ на телефоне. Подробности — §12.11.
 - Протухшая сессия не является тупиком: `bearer`-плагин при неудачном refresh очищает токены, `TokenStore.clear()` публикует событие `signedOut`, а `BeFosNavHost` по нему уводит на экран входа с очисткой стека. Без этого пользователь оставался на «Сессия истекла. Войдите снова.» с кнопкой «Повторить», которая не может сработать никогда. Проверено на устройстве: ротация `JWT_SECRET` в `.env` + перезапуск backend → тап по вкладке «Профиль» → экран входа с предзаполненным email → повторный вход возвращает в подбор.
 
 ## 12.1. Наблюдаемость (корреляция, длительность, lifecycle сокетов)
@@ -315,11 +315,57 @@ REST — надёжная запись (история/отправка/проч
   четырёх демо-матчей, `mismatched seeded matches: 0`. Процент из ответа `POST /like`
   остался описанием момента лайка и намеренно не меняется задним числом.
 
+## 12.11. Прод-конфиг, который нельзя собрать и нельзя включить ошибочно (§24)
+
+- **Что было не так.** Обе половины выпуска проверяли не конфиг, а аккуратность человека.
+  На backend `DEMO_ENABLED` был объявлен в `Settings`, стоял в `.env`, `.env.example`,
+  `docker-compose.yml` и был назван в README/DEMO/CONTINUATION переключателем, который не
+  пускает демо-аккаунт в развёртывание, — и не читался никем: seed сеял демо всегда.
+  `ENVIRONMENT` решал всё сравнением строк, поэтому любое непронятое значение (`Productionn`,
+  `live`, пустая строка) читалось как «не production» и снимало разом все гарды. На Android
+  gate искал слово `Release` в набранных именах задач: `./gradlew :app:assemble` со скрытым
+  `packageRelease` в графе не жаловался ни на что и собирал release-API с адресом эмулятора,
+  а `lintRelease`/`compileReleaseKotlin`, которые ничего не упаковывают, падали.
+- **Замерено до правки.** `:app:assemble --dry-run` без `BEFOS_API_BASE_URL` → в графе
+  `packageRelease`, сборка зелёная; `:app:lintRelease --dry-run` без адресов → `GradleException`.
+  Первый случай и есть «release с неверным прод-конфигом выходит тихо».
+- **Как чинится.** `environment` валидируется по списку понятных значений и нормализуется;
+  production дополнительно отказывает на shipped `DATABASE_URL`, `DEBUG=true` (на этом уровне
+  asyncio и httpx пишут свои внутренности в тот же поток — видно в логах стенда) и
+  `DEMO_ENABLED=true` (пароль демо напечатан в этом репозитории, значит это общий доступ).
+  Seed уважает переключатель: каталоги (интересы, вопросы, активности) сеются всегда, люди —
+  только когда `DEMO_ENABLED=true`. Android проверяет граф задач по трём именам, которые
+  действительно выпускают artifact (`assembleRelease`, `bundleRelease`, `packageRelease`), и
+  валидирует URL: схема `https`/`wss`, отсутствие логина-пароля в адресе, хост не
+  `10.0.2.2`/`localhost`/`127.0.0.1`/`::1`. http отказывается на сборке, а не на телефоне:
+  `network_security_config` разрешает клиртект только локальным хостам, поэтому `http://` в
+  release установился бы и падал на каждом запросе без подсказки, где сломалось.
+- **Точность условия — второй замер.** `startsWith("packageRelease")` ловил
+  `packageReleaseResources`, который крутится почти в любой сборке release-варианта и ничего
+  не упаковывает: `compileReleaseKotlin` краснел снова. Имена сверяются целиком.
+  `installRelease` и подписывающие задачи отдельного пункта не требуют — они зависят от
+  `packageRelease` и приводят его в граф сами.
+- **Проверено.** Матрица на gradle: `assemble`/`bundleRelease` без адресов → падение с текстом
+  по делу; `assembleRelease` с `ws://` → «must use the wss:// scheme, not "ws"»;
+  `https://10.0.2.2:8000` → «a machine on someone's desk»; `https://admin:s3cret@…` → «must not
+  embed credentials»; `compileReleaseKotlin`/`lintRelease` без адресов → зелёные; реальный
+  `assembleRelease` с `https://`+`wss://` → `app-release-unsigned.apk` 1.89 МБ за 4м05с.
+  В контейнере: `ENVIRONMENT=production` со shipped-секретами → старт отклонён,
+  `ENVIRONMENT=Productionn` → «is not one of ['dev', 'development', 'prod', 'production',
+  'staging', 'test']»; dev-стенд после пересборки поднят, `/api/v1/health` ok, вход
+  `demo@befos.app` работает (в dev `DEMO_ENABLED=true`).
+- **Покрытие.** `tests/test_security_config.py` +6: прод не принимает демо-аккаунт, `DEBUG`,
+  репозиторный `DATABASE_URL`; непронятое `ENVIRONMENT` отвергается, `staging` остаётся
+  понятным; выключенный переключатель сеет каталоги и не сеет людей (падало на прежнем seed —
+  `1 failed`, проверено на временной копии файла). Базовый словарь фикстуры теперь описывает
+  корректный прод-конфиг, чтобы каждый тест проверял ровно одну ошибку, а не ловил первую
+  сработавшую.
+
 ## 13. Текущие результаты тестов (воспроизводимо)
 
 | Набор | Команда | Результат |
 |---|---|---|
-| Backend unit+integration | `cd backend && ./.venv/Scripts/python.exe -m pytest -q` (нужен запущенный `docker compose up -d`; тестовая БД `befos_test`) — **один набор за раз**: два одновременных прогона делят `befos_test`, а `conftest` чистит доменные таблицы между тестами, поэтому второй прогон видит чужие строки и падения не означают поломки кода. Убитый посреди прогона процесс оставляет в `befos_test` «idle in transaction», и следующий прогон **висит на его блокировках** без единого сообщения (признак — пустой `pg_stat_activity` по `befos` и `wait_event=transactionid` у `DELETE FROM test_results`): снять можно `select pg_terminate_backend(<pid>)` | **177/177** (243 с на хосте; в контейнер тесты не монтируются — `/app/tests` это снимок образа, 14 файлов без последних, поэтому цифра хоста и есть цифра набора) |
+| Backend unit+integration | `cd backend && ./.venv/Scripts/python.exe -m pytest -q` (нужен запущенный `docker compose up -d`; тестовая БД `befos_test`) — **один набор за раз**: два одновременных прогона делят `befos_test`, а `conftest` чистит доменные таблицы между тестами, поэтому второй прогон видит чужие строки и падения не означают поломки кода. Симптомы пережиты буквально: два прогона рядом дали `deadlock detected` на `DELETE FROM refresh_tokens`, каскад `401 User no longer exists`, FK-нарушения на `user_interests`/`compatibility_profiles` и `KeyError: 'match_id'` — 16 падений при полностью целом коде; тишина вместо этих сообщений — второй вариант той же болезни. Убитый посреди прогона процесс оставляет в `befos_test` «idle in transaction», и следующий прогон **висит на его блокировках** без единого сообщения (признак — пустой `pg_stat_activity` по `befos` и `wait_event=transactionid` у `DELETE FROM test_results`): снять можно `select pg_terminate_backend(<pid>)`. Тот же запрет касается фоновых прогонов: `run_in_background` не предупреждает, что набор ещё жив, поэтому перед повтором проверяют, что предыдущий процесс завершился | **183/183** (242 с на хосте; в контейнер тесты не монтируются — `/app/tests` это снимок образа, 14 файлов без последних, поэтому цифра хоста и есть цифра набора) |
 | Живой journey | `PYTHONIOENCODING=utf-8 backend/.venv/Scripts/python.exe backend/e2e_journey.py` | **64/64** — из них 13 проверок WebSocket: presence на входе, доставка сокета и REST-отправки в открытую комнату, квитанция отправителю, повтор под тем же именем, выживание после мусорного кадра, отказ чужому токену и удалённому аккаунту; шаг 12b сверяет процент из списка пар с живым после пересдачи (§12.10). Оба аккаунта прогон удаляет за собой (`delete account A/B`), в dev-БД не остаётся probe-строк |
 | Android unit | `cd android && ./gradlew :app:testDebugUnitTest` — **только из ASCII-пути** (см. §17.1) | **131/131** (21 класс; 14 — `ChatViewModelTest`, 13 — `DiscoveryViewModelTest`, 11 — `BackendErrorTextTest`, 10 — `ContrastPolicyTest`, 9 — `PublicProfileViewModelTest`, 8 — `ChatSocketFailureTest`, 7 — `AuthViewModelTest`, 7 — `ImeActionRoutingTest`, 6 — `RootViewModelTest`, 6 — `IdentityLineTest`; суммы считываются из `app/build/test-results/testDebugUnitTest/*.xml`) |
 | Release | `BEFOS_API_BASE_URL=… BEFOS_WS_BASE_URL=… ./gradlew :app:assembleRelease :app:bundleRelease` | APK 1.88 МБ + AAB 4.60 МБ (R8); без `android/keystore.properties` — `app-release-unsigned.apk`, что и проверялось |
@@ -356,12 +402,12 @@ Windows/adb-подводные камни (экономия времени):
 ## 15. Release build & signing
 
 - Debug: `assembleDebug`, URL по умолчанию `http://10.0.2.2:8000/` (buildConfigField в debug-блоке).
-- Release: требует env `-P`-свойств `BEFOS_API_BASE_URL`/`BEFOS_WS_BASE_URL` (только https/wss по смыслу; иначе GradleException с внятным текстом).
+- Release: если в графе задач есть упаковщик release-артефакта (`assembleRelease`, `bundleRelease`, `packageRelease` — сюда попадают и простые `assemble`/`build`), сборка требует `BEFOS_API_BASE_URL`/`BEFOS_WS_BASE_URL` и проверяет их: схема `https`/`wss`, хост не `10.0.2.2`/`localhost`/`127.0.0.1`, нет credentials в URL. Задачи, которые ничего не упаковывают (`lintRelease`, `compileReleaseKotlin`), живут без продуктовых адресов. Текст ошибки называет причину словами. Замерено — §12.11.
 - Подпись: `android/keystore.properties` (вне git, см. `keystore.properties.example`: storeFile/storePassword/keyAlias/keyPassword + команда keytool). Без файла release собирается **unsigned** (`app-release-unsigned.apk`) — реальные секреты в репозитории отсутствуют намеренно и выдумывать их нельзя.
 
 ## 16. Production configuration
 
-`.env` (не в git): `ENVIRONMENT=production`, сильные `JWT_SECRET`/`JWT_REFRESH_SECRET` (≥32, разные), `DATABASE_URL`, `CORS_ORIGINS=https://…` (без `*` и `http://`), `DEMO_ENABLED=false`. При нарушении любого правила приложение не стартует (тесты `test_security_config.py`). HTTPS терминировать на reverse proxy (в репо не входит).
+`.env` (не в git): `ENVIRONMENT=production`, сильные `JWT_SECRET`/`JWT_REFRESH_SECRET` (≥32, разные), свой `DATABASE_URL` (не тот, что лежит в репозитории), `CORS_ORIGINS=https://…` (без `*` и `http://`), `DEBUG=false`, `DEMO_ENABLED=false`. При нарушении любого правила приложение не стартует (тесты `test_security_config.py`, 15 штук). `ENVIRONMENT` при этом обязан быть одним из понятных значений (`development`/`dev`/`test`/`staging`/`production`/`prod`): непронятое слово равняется «не production» и выключало бы все перечисленные проверки, поэтому оно тоже ошибка старта. HTTPS терминировать на reverse proxy (в репо не входит).
 
 Ловушка, из-за которой «смена секрета ничего не делает»: `docker-compose.yml` интерполирует `${JWT_SECRET}`/`${JWT_REFRESH_SECRET}` из **корневого** `.env`, а `backend/.env` читает только процесс, запущенный вне Docker. При пересоздании контейнера (`docker compose up -d`) compose подхватывает значения из корня; `--force-recreate` обязателен, иначе контейнер продолжит жить со старым окружением. `ACCESS_TOKEN_EXPIRE_MINUTES` в environment-блок compose не проброшен — в контейнере действует дефолт 30 минут.
 

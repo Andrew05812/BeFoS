@@ -214,7 +214,7 @@
 - Демо-вход seed-аккаунтом: `demo@befos.app` / `Demo12345` (`DEMO_ENABLED=true`).
 - Прогон полной цепочки на живом backend без UI:
   ```bash
-  cd backend && ./.venv/Scripts/python.exe e2e_journey.py   # 63/63 проверки
+  cd backend && ./.venv/Scripts/python.exe e2e_journey.py   # 64/64 проверки
   ```
   Показывает ровно ту же продуктовую цепочку через API, если эмулятор подведёт.
 - Типовые проблемы эмулятора (Windows): сеть «Network is unreachable» → 
