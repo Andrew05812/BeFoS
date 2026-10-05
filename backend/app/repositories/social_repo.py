@@ -182,6 +182,12 @@ class DiscoveryRepository:
             User.is_deleted.is_(False),
             User.is_active.is_(True),
             Profile.is_hidden.is_(False),
+            # An account that registered and never answered the setup questions still owns
+            # a profile row -- the shell registration writes it, with the email local part
+            # as the name and a placeholder birth date. It is not a person somebody agreed
+            # to be shown, and a compatibility score read off a shell is a number about
+            # nothing, so the deck waits for onboarding to have happened.
+            Profile.onboarding_completed_at.is_not(None),
             subject != viewer_id,
         ]
 

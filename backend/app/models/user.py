@@ -76,6 +76,14 @@ class Profile(TimestampMixin, Base):
 
     is_hidden: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
+    # Set once by onboarding. Registration leaves a shell behind (a name taken from the
+    # email, a placeholder birth date, nothing else), and a shell is not a person anybody
+    # agreed to be shown, so the deck asks for this stamp instead of guessing from the
+    # fields that happen to be filled.
+    onboarding_completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     user: Mapped["User"] = relationship(back_populates="profile")
     interests: Mapped[list["Interest"]] = relationship(
         secondary="user_interests", back_populates="users", lazy="selectin"

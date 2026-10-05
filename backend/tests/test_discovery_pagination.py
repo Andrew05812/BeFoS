@@ -20,6 +20,7 @@ from sqlalchemy import insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Interest, Profile, User, UserInterest
+from app.models.base import utcnow
 from app.models.discovery import DiscoveryQueue
 from app.services.discovery_service import DECK_BATCH
 
@@ -69,6 +70,9 @@ async def _seed_candidates(session: AsyncSession, count: int, *, tag: str) -> li
                 "dating_goal": "relationship",
                 "lifestyle": {},
                 "is_hidden": False,
+                # These rows stand in for people who finished signing up; the deck only
+                # serves profiles carrying this stamp.
+                "onboarding_completed_at": utcnow(),
             }
             for i, uid in enumerate(ids)
         ],

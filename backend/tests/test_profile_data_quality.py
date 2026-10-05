@@ -57,3 +57,28 @@ async def test_padded_answers_are_stored_without_the_padding(client: AsyncClient
     )
     assert resp.status_code == 200
     assert resp.json()["city"] == "Сочи"
+
+async def test_a_profile_that_never_finished_onboarding_is_not_a_card(client: AsyncClient):
+    viewer = await register_and_auth(client, "dq-viewer@befos.app")
+    await complete_onboarding(client, viewer["token"], name="Зря", gender="male")
+
+    shell = await register_and_auth(client, "dq-shell-never-onboarded@befos.app")
+
+    first = await client.get(
+        "/api/v1/discover", params={"limit": 50}, headers=auth_headers(viewer["token"])
+    )
+    assert first.status_code == 200
+    shown = [c["user_id"] for c in first.json()["items"]]
+    assert shell["user_id"] not in shown, "a shell profile was served as somebody's card"
+
+    # The same account once it has answered: the deck is a stored queue, so the newcomer
+    # has to arrive through the refill that runs when the queue has nothing left.
+    await complete_onboarding(client, shell["token"], name="Всё есть", gender="female")
+
+    second = await client.get(
+        "/api/v1/discover", params={"limit": 50}, headers=auth_headers(viewer["token"])
+    )
+    assert second.status_code == 200
+    assert shell["user_id"] in [c["user_id"] for c in second.json()["items"]]
+    card = next(c for c in second.json()["items"] if c["user_id"] == shell["user_id"])
+    assert card["city"] == "Москва"

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -80,6 +80,11 @@ class ProfileService:
         if profile.age_min > profile.age_max:
             profile.age_min, profile.age_max = profile.age_max, profile.age_min
         profile.gender_preference = self._clean_genders(data.get("gender_preference") or [])
+        # The stamp is what makes this profile showable to anybody else. A re-submitted
+        # onboarding keeps the first answer's timestamp: the second one does not change
+        # the fact that the person finished, and it must not look like they only just did.
+        if profile.onboarding_completed_at is None:
+            profile.onboarding_completed_at = datetime.now(timezone.utc)
 
         await self._set_interests(profile, data.get("interests") or [])
         await self.session.commit()

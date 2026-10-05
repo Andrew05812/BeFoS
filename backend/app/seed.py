@@ -18,7 +18,7 @@ import argparse
 import asyncio
 import random
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -173,6 +173,7 @@ async def _create_user(
         gender_preference=[],
         lifestyle={},
         is_hidden=False,
+        onboarding_completed_at=datetime.now(timezone.utc),
     )
     session.add(profile)
     await session.flush()

@@ -42,7 +42,10 @@ class AuthService:
         except IntegrityError:
             await self.session.rollback()
             raise ConflictError("An account with this email already exists.")
-        # Create an empty profile shell so downstream code always has one.
+        # Create an empty profile shell so downstream code always has one. It stays out of
+        # everybody's deck until onboarding stamps it: this row has a name copied from an
+        # email and a birth date copied from a constant, and a card is supposed to be a
+        # person who answered.
         profile = Profile(
             user_id=user.id,
             name=email.split("@")[0][:80],
