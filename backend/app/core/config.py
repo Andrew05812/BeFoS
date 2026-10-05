@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from urllib.parse import unquote, urlsplit
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -10,11 +11,31 @@ _INSECURE_DEFAULTS = {
     "change-me-access-secret-key-min-32-chars",
     "change-me-refresh-secret-key-min-32-chars",
 }
+# The password the development database of this repository is created with. It is printed
+# in .env.example, in docker-compose.yml as a default, and in the README's local-run steps,
+# so a deployment that kept it has a database password anybody with the repository knows.
+_INSECURE_DB_PASSWORDS = {"befos_password"}
 _MIN_SECRET_LEN = 32
 # The deployment reads as production only when it says so in one of these two words. A
 # typo here silently turns every guard below off, so an unknown value is a startup error.
 _KNOWN_ENVIRONMENTS = {"development", "dev", "test", "staging", "production", "prod"}
 _DEFAULT_DATABASE_URL = "postgresql+asyncpg://befos:befos_password@localhost:5432/befos"
+
+
+def _database_password(database_url: str) -> str | None:
+    """The password component of a DSN, or None when there is nothing to compare.
+
+    A DSN this function cannot read is not a security question: asyncpg fails on it when
+    the app first tries to connect, and refusing startup here would turn a typo in a
+    password containing '@' into a mystery.
+    """
+    try:
+        password = urlsplit(database_url).password
+    except ValueError:
+        return None
+    if password is None:
+        return None
+    return unquote(password)
 
 
 class Settings(BaseSettings):
@@ -100,6 +121,18 @@ class Settings(BaseSettings):
             raise ValueError(
                 "DATABASE_URL still points at the development database shipped in this "
                 "repository; production must name its own."
+            )
+        db_password = _database_password(self.database_url)
+        if db_password in _INSECURE_DB_PASSWORDS:
+            # Comparing the whole URL, as the check above does, is not enough: the URL
+            # docker-compose.yml assembles is `...@postgres:5432/befos`, which differs from
+            # the literal in this file while carrying the same shipped password.
+            raise ValueError(
+                "DATABASE_URL still carries the development database password this "
+                "repository ships ('befos_password'). docker-compose.yml builds the URL from "
+                "${POSTGRES_PASSWORD:-befos_password}, so a stand started from that file as "
+                "is gives a production app a database password anybody who read the "
+                "repository can use."
             )
         if self.debug:
             raise ValueError(

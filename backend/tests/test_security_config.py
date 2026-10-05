@@ -95,6 +95,26 @@ def test_production_rejects_the_database_this_repository_ships() -> None:
         _settings(DATABASE_URL="postgresql+asyncpg://befos:befos_password@localhost:5432/befos")
 
 
+def test_production_rejects_the_shipped_password_even_on_another_host() -> None:
+    # The check above compares whole URLs, and docker-compose.yml assembles a different one:
+    # same password, host `postgres`. So the guard that matters is the password component,
+    # not the string, otherwise a stand started from the shipped compose file passes.
+    for url in (
+        "postgresql+asyncpg://befos:befos_password@postgres:5432/befos",
+        "postgresql+asyncpg://befos:befos%5Fpassword@db.internal:5432/befos",
+        "postgresql://app:befos_password@10.0.0.5:5432/app",
+    ):
+        with pytest.raises(ValidationError, match="befos_password|development database password"):
+            _settings(DATABASE_URL=url)
+
+
+def test_production_accepts_a_database_with_its_own_password() -> None:
+    s = _settings(
+        DATABASE_URL="postgresql+asyncpg://befos_prod:S8tr0ngPassw0rdValue@db.internal:5432/befos"
+    )
+    assert s.is_production is True
+
+
 def test_an_environment_nobody_spelled_right_is_refused() -> None:
     # Every guard above is behind `if not is_production`. A deployment that says PRODUCTION
     # with a trailing space still has to be production, and one that says anything else has
