@@ -14,6 +14,12 @@ import kotlinx.coroutines.launch
 
 data class SettingsUiState(
     val hidden: Boolean = false,
+    /**
+     * The server never answered which way visibility is, so the switch shows the local
+     * default rather than the account's real state. A privacy setting drawn from a guess has
+     * to say so: the user cannot tell an off switch from a hidden profile.
+     */
+    val visibilityUnknown: Boolean = false,
     val busy: Boolean = false,
     val message: String? = null,
     val messageIsError: Boolean = false,
@@ -39,8 +45,10 @@ class SettingsViewModel(
     fun load() {
         viewModelScope.launch {
             when (val result = profileRepository.me()) {
-                is ApiResult.Success -> _uiState.update { it.copy(hidden = result.data.isHidden) }
-                is ApiResult.Error -> Unit
+                is ApiResult.Success -> _uiState.update {
+                    it.copy(hidden = result.data.isHidden, visibilityUnknown = false)
+                }
+                is ApiResult.Error -> _uiState.update { it.copy(visibilityUnknown = true) }
             }
         }
     }
@@ -51,7 +59,14 @@ class SettingsViewModel(
         viewModelScope.launch {
             when (val result = safetyRepository.setVisibility(hidden)) {
                 is ApiResult.Success -> _uiState.update {
-                    it.copy(busy = false, hidden = hidden, messageIsError = false, message = if (hidden) "Вы скрыты из подбора." else "Вы снова видны в подборе.")
+                    it.copy(
+                        busy = false,
+                        hidden = hidden,
+                        // The server just told us which way it is, so the switch is no longer a guess.
+                        visibilityUnknown = false,
+                        messageIsError = false,
+                        message = if (hidden) "Вы скрыты из подбора." else "Вы снова видны в подборе.",
+                    )
                 }
                 is ApiResult.Error -> _uiState.update { it.copy(busy = false, messageIsError = true, message = result.message) }
             }

@@ -112,6 +112,15 @@ fun SettingsScreen(onBack: () -> Unit, onLoggedOut: () -> Unit) {
                         )
                     }
                 }
+                // An off switch and a hidden profile look the same, so when the server never
+                // answered which way it is, the screen has to say the position is unverified.
+                if (state.visibilityUnknown) {
+                    InlineNotice(
+                        "Не удалось проверить, скрыты ли вы из подбора.",
+                        actionLabel = "Повторить",
+                        onAction = vm::load,
+                    )
+                }
             }
 
             state.message?.let { message ->

@@ -147,6 +147,15 @@ fun EditProfileScreen(onBack: () -> Unit) {
                         )
                     }
                 }
+                // An empty picker is otherwise indistinguishable from a profile with no
+                // interests, and the user would leave without any.
+                if (state.interestsFailed) {
+                    InlineNotice(
+                        "Список интересов не загрузился.",
+                        actionLabel = "Повторить",
+                        onAction = vm::loadInterests,
+                    )
+                }
             }
 
             state.error?.let { InlineNotice(it) }

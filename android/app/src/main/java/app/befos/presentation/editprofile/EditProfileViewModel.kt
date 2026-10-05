@@ -27,6 +27,11 @@ data class EditProfileUiState(
     val genderPreference: Set<String> = emptySet(),
     val error: String? = null,
     val loadFailed: Boolean = false,
+    /**
+     * The interest catalogue did not arrive, so the picker is empty for a reason the user can
+     * act on. Without it the section reads as a screen that lost their interests.
+     */
+    val interestsFailed: Boolean = false,
     val saved: Boolean = false,
 )
 
@@ -64,9 +69,21 @@ class EditProfileViewModel(private val profileRepository: ProfileRepository) : V
                     it.copy(loading = false, loadFailed = true, error = result.message)
                 }
             }
+            loadInterests()
+        }
+    }
+
+    /**
+     * Kept apart from [load] on purpose: a retry of the catalogue must not re-read the
+     * profile, which would overwrite what the user has already typed.
+     */
+    fun loadInterests() {
+        viewModelScope.launch {
             when (val interests = profileRepository.interests()) {
-                is ApiResult.Success -> _uiState.update { it.copy(allInterests = interests.data) }
-                is ApiResult.Error -> Unit
+                is ApiResult.Success -> _uiState.update {
+                    it.copy(allInterests = interests.data, interestsFailed = false)
+                }
+                is ApiResult.Error -> _uiState.update { it.copy(interestsFailed = true) }
             }
         }
     }
