@@ -32,6 +32,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.befos.core.designsystem.AppButton
@@ -100,7 +102,14 @@ fun SettingsScreen(onBack: () -> Unit, onLoggedOut: () -> Unit) {
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
-                        Switch(checked = state.hidden, onCheckedChange = vm::setHidden, enabled = !state.busy)
+                        // The visible title lives in the sibling column, so the switch itself
+                        // carries no text: without this TalkBack announces it as "switch".
+                        Switch(
+                            checked = state.hidden,
+                            onCheckedChange = vm::setHidden,
+                            enabled = !state.busy,
+                            modifier = Modifier.semantics { contentDescription = "Скрыть из подбора" },
+                        )
                     }
                 }
             }

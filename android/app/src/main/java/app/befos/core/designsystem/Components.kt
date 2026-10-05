@@ -949,6 +949,8 @@ fun OverlayIconButton(
     content: @Composable () -> Unit,
 ) {
     val interaction = remember { MutableInteractionSource() }
+    // Held in a local so the assignment below cannot read back the parameter it shadows.
+    val label = contentDescription
     Box(
         modifier = modifier
             .then(pressModifier(interaction))
@@ -956,7 +958,14 @@ fun OverlayIconButton(
             .clip(CircleShape)
             .background(containerColor)
             .border(1.dp, Color.White.copy(alpha = 0.25f), CircleShape)
-            .semantics { role = Role.Button }
+            // The icon inside is drawn over a photo and marked decorative, so without
+            // this the button carries the parameter but announces nothing. `this.` is
+            // required: the parameter of the same name otherwise wins and the assignment
+            // targets a val.
+            .semantics {
+                role = Role.Button
+                if (label != null) this.contentDescription = label
+            }
             .clickable(interactionSource = interaction, indication = null, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
@@ -1028,6 +1037,10 @@ fun AppTextField(
                     ),
                     modifier = Modifier
                         .weight(1f)
+                        // The visible label is a sibling above the box, so it is not part of the
+                        // field's own accessibility subtree: without this an empty field is
+                        // announced with nothing but "edit box".
+                        .semantics { contentDescription = label }
                         .onFocusChanged { focused = it.isFocused },
                     decorationBox = { inner ->
                         Box(contentAlignment = Alignment.CenterStart) {
