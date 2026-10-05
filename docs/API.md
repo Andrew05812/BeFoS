@@ -75,7 +75,7 @@
 
 ```json
 {
-  "user_id": "uuid", "name": "Андрей", "age": 30, "city": "Москва",
+  "user_id": "uuid", "name": "Алекс", "age": 30, "city": "Москва",
   "gender": "male", "about": "…", "dating_goal": "relationship",
   "photos": [{ "id": "uuid", "url": "/uploads/x.png", "is_primary": true, "position": 0 }],
   "interests": [{ "slug": "hiking", "name": "Походы", "category": "active" }],
@@ -87,7 +87,7 @@
 
 ```json
 {
-  "name": "Андрей", "birth_date": "1996-05-10", "city": "Москва",
+  "name": "Алекс", "birth_date": "1996-05-10", "city": "Москва",
   "gender": "male", "about": "…", "dating_goal": "relationship",
   "interests": ["hiking", "cinema", "coffee"], "lifestyle": {},
   "age_min": 18, "age_max": 60, "gender_preference": ["female"]

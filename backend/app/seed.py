@@ -274,7 +274,7 @@ async def run_seed(session: AsyncSession, *, force: bool = False) -> None:
         session, rng,
         email=settings.demo_email,
         password_hash=hash_password(settings.demo_password),
-        name="Андрей",
+        name="Алекс",
         gender="male",
         city="Москва",
         birth_date=demo_birth,
