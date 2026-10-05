@@ -22,7 +22,21 @@ data class StoredAuth(
     val userId: String,
 )
 
-class TokenStore(private val context: Context) {
+/**
+ * What the HTTP stack needs from the session: whose token goes on a request, and how a
+ * refresh or a sign-out writes the answer back. Declared apart from [TokenStore] because
+ * which token leaves the device on which request is exactly the kind of thing that has to
+ * be tested, and a DataStore needs an Android Context to exist.
+ */
+interface SessionTokens {
+    suspend fun current(): StoredAuth?
+
+    suspend fun updateTokens(accessToken: String, refreshToken: String)
+
+    suspend fun clear()
+}
+
+class TokenStore(private val context: Context) : SessionTokens {
 
     private val _signedOut = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
 
@@ -52,7 +66,7 @@ class TokenStore(private val context: Context) {
         }
     }
 
-    suspend fun current(): StoredAuth? = auth.first()
+    override suspend fun current(): StoredAuth? = auth.first()
 
     suspend fun save(auth: StoredAuth, email: String? = null) {
         context.authDataStore.edit { prefs ->
@@ -66,14 +80,14 @@ class TokenStore(private val context: Context) {
     /** Email from the last successful sign-in; survives logout so the auth screen can prefill it. */
     suspend fun lastEmail(): String? = context.authDataStore.data.first()[Keys.EMAIL]
 
-    suspend fun updateTokens(accessToken: String, refreshToken: String) {
+    override suspend fun updateTokens(accessToken: String, refreshToken: String) {
         context.authDataStore.edit { prefs ->
             prefs[Keys.ACCESS] = accessToken
             prefs[Keys.REFRESH] = refreshToken
         }
     }
 
-    suspend fun clear() {
+    override suspend fun clear() {
         context.authDataStore.edit { prefs ->
             prefs.remove(Keys.ACCESS)
             prefs.remove(Keys.REFRESH)

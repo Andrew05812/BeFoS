@@ -5,8 +5,11 @@ import app.befos.data.model.RefreshRequest
 import app.befos.data.model.TokenPairDto
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
+import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.plugins.api.SendingRequest
+import io.ktor.client.plugins.api.createClientPlugin
 import io.ktor.client.plugins.auth.Auth
 import io.ktor.client.plugins.auth.providers.BearerTokens
 import io.ktor.client.plugins.auth.providers.bearer
@@ -17,6 +20,7 @@ import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
 import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.json.Json
@@ -56,7 +60,36 @@ val befosJson = Json {
     isLenient = true
 }
 
-fun createHttpClient(tokenStore: TokenStore): HttpClient = HttpClient(OkHttp) {
+/** Routes that are answered without a session, so no bearer token belongs on them. */
+internal fun isPublicAuthRoute(url: String): Boolean =
+    url.contains("/auth/login") || url.contains("/auth/register") || url.contains("/auth/refresh")
+
+/**
+ * Which token leaves the device is decided by the session, not by what the bearer provider
+ * happened to remember: that provider caches the first token it loaded, and no DataStore write
+ * invalidates the cache. Signing out, or signing in as somebody else without restarting the
+ * process, therefore kept sending the previous account's token — the backend answered for the
+ * wrong user while the interface showed the new one.
+ *
+ * Runs at the last moment before the request goes out, which is also after the retry that
+ * follows a refresh: a retried request never re-enters the request hooks.
+ */
+private fun currentSessionBearer(tokens: SessionTokens) = createClientPlugin("CurrentSessionBearer") {
+    on(SendingRequest) { request, _ ->
+        if (isPublicAuthRoute(request.url.buildString())) return@on
+        val accessToken = tokens.current()?.accessToken
+        if (accessToken == null) {
+            request.headers.remove(HttpHeaders.Authorization)
+        } else {
+            request.headers.set(HttpHeaders.Authorization, "Bearer $accessToken")
+        }
+    }
+}
+
+fun createHttpClient(
+    tokens: SessionTokens,
+    engine: HttpClientEngine = OkHttp.create(),
+): HttpClient = HttpClient(engine) {
     expectSuccess = false
 
     // Fail fast when the backend is unreachable; the socket defaults hang for ~10s each,
@@ -78,10 +111,10 @@ fun createHttpClient(tokenStore: TokenStore): HttpClient = HttpClient(OkHttp) {
     install(Auth) {
         bearer {
             loadTokens {
-                tokenStore.current()?.let { BearerTokens(it.accessToken, it.refreshToken) }
+                tokens.current()?.let { BearerTokens(it.accessToken, it.refreshToken) }
             }
             refreshTokens {
-                val current = tokenStore.current() ?: return@refreshTokens null
+                val current = tokens.current() ?: return@refreshTokens null
                 // A refresh fails for reasons that say nothing about the session: the backend is
                 // restarting, the network dropped, the auth limiter tripped. Erasing the stored
                 // tokens on any of those logs a signed-in user out over a transient hiccup, so
@@ -97,24 +130,23 @@ fun createHttpClient(tokenStore: TokenStore): HttpClient = HttpClient(OkHttp) {
                 }
                 val status = response.status.value
                 if (status == 401 || status == 403) {
-                    tokenStore.clear()
+                    tokens.clear()
                     return@refreshTokens null
                 }
                 if (status !in 200..299) return@refreshTokens null
                 // A proxy or a half-broken server can answer with HTML where a TokenPair is due.
-                val tokens = runCatching { response.body<TokenPairDto>() }.getOrNull()
+                val pair = runCatching { response.body<TokenPairDto>() }.getOrNull()
                     ?: return@refreshTokens null
-                tokenStore.updateTokens(tokens.accessToken, tokens.refreshToken)
-                BearerTokens(tokens.accessToken, tokens.refreshToken)
+                tokens.updateTokens(pair.accessToken, pair.refreshToken)
+                BearerTokens(pair.accessToken, pair.refreshToken)
             }
             sendWithoutRequest { request ->
-                val path = request.url.buildString()
-                !path.contains("/auth/login") &&
-                    !path.contains("/auth/register") &&
-                    !path.contains("/auth/refresh")
+                !isPublicAuthRoute(request.url.buildString())
             }
         }
     }
+
+    install(currentSessionBearer(tokens))
 
     defaultRequest {
         contentType(ContentType.Application.Json)
