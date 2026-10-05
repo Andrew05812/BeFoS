@@ -116,13 +116,6 @@ class SocialRepository:
         ).scalar()
         return dissolved
 
-    async def list_blocked_ids(self, user_id: uuid.UUID) -> set[uuid.UUID]:
-        stmt = select(Block.blocked_id).where(Block.blocker_id == user_id)
-        ids = {row[0] for row in (await self.session.execute(stmt)).all()}
-        stmt2 = select(Block.blocker_id).where(Block.blocked_id == user_id)
-        ids |= {row[0] for row in (await self.session.execute(stmt2)).all()}
-        return ids
-
     async def purge_social_graph(self, user_id: uuid.UUID) -> list[uuid.UUID]:
         """Delete every edge that points at an account which no longer represents a person.
 
