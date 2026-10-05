@@ -26,6 +26,11 @@ data class ChatUiState(
     val partnerName: String? = null,
     val historyError: String? = null,
     val sendError: String? = null,
+    /**
+     * Why the socket is not live, in the same product voice as every other failure. Null until
+     * the dial answers: a drop that ended cleanly leaves the generic reconnecting line.
+     */
+    val socketReason: String? = null,
 )
 
 class ChatViewModel(
@@ -94,7 +99,7 @@ class ChatViewModel(
                     }
                     is ChatEvent.Presence -> _uiState.update { it.copy(otherOnline = event.online) }
                     is ChatEvent.Connected -> {
-                        _uiState.update { it.copy(connected = true) }
+                        _uiState.update { it.copy(connected = true, socketReason = null) }
                         if (socketWasDown) {
                             socketWasDown = false
                             fillGap()
@@ -104,7 +109,12 @@ class ChatViewModel(
                         socketWasDown = true
                         _uiState.update { it.copy(connected = false, otherTyping = false) }
                     }
-                    is ChatEvent.Error -> Unit
+                    // A frame the server refused while the socket is healthy says nothing the
+                    // user can act on; the same text while the socket is down is the reason the
+                    // reconnect has not finished, and the status line says it for them.
+                    is ChatEvent.Error -> _uiState.update {
+                        if (it.connected) it else it.copy(socketReason = event.message)
+                    }
                 }
             }
         }

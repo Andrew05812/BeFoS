@@ -4,6 +4,9 @@ import app.befos.core.network.ApiConfig
 import app.befos.core.network.ApiResult
 import app.befos.core.network.TokenStore
 import app.befos.core.network.befosJson
+import app.befos.core.network.defaultHttpMessage
+import app.befos.core.network.friendlyNetworkMessage
+import app.befos.core.network.localizeBackendError
 import app.befos.core.network.map
 import app.befos.data.mapper.toDomain
 import app.befos.data.remote.ApiService
@@ -131,7 +134,10 @@ class ChatSocket(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (e: Exception) {
-                _events.tryEmit(ChatEvent.Error(e.message ?: "Ошибка соединения"))
+                _events.tryEmit(ChatEvent.Error(socketFailureMessage(e)))
+                // An authorization answer is the pair's state, not the network's: no amount of
+                // redialling turns a refused handshake into a room.
+                if (!retryAfterDialFailure(e)) return
             } finally {
                 session = null
                 _connected.value = false
@@ -187,11 +193,44 @@ class ChatSocket(
                 userId = obj["user_id"]?.jsonPrimitive?.content ?: "",
                 online = obj["online"]?.jsonPrimitive?.boolean ?: false,
             )
-            "error" -> ChatEvent.Error(obj["message"]?.jsonPrimitive?.content ?: "Ошибка")
+            // A frame error concerns a frame this client sent while the socket was healthy, so
+            // it is worded as a refused request, never as a lost connection.
+            "error" -> ChatEvent.Error(
+                localizeBackendError(obj["message"]?.jsonPrimitive?.content.orEmpty(), "invalid_request", 400),
+            )
             else -> null
         }
     }
 }
+
+/**
+ * The status a websocket handshake was refused with, or null when the dial never got an
+ * answer. Measured against the live API with this same Ktor/OkHttp stack: a pair the server
+ * will not grant — deleted match, blocked caller, expired session — surfaces as
+ * `java.net.ProtocolException: Expected HTTP 101 response but was '403 Forbidden'`. The
+ * status survives only inside that English sentence, so it is read out here instead of being
+ * handed to the screen as the engine wrote it.
+ */
+internal fun handshakeStatus(e: Throwable): Int? =
+    generateSequence(e) { it.cause }
+        .firstNotNullOfOrNull { Regex("was '(\\d{3})").find(it.message.orEmpty())?.groupValues?.get(1)?.toIntOrNull() }
+
+/**
+ * Product copy for a dial that failed. A refused handshake answers with the reason the pair
+ * is gone, and everything else goes through the same network wording the REST calls use, so
+ * no English protocol text reaches the UI from either path.
+ */
+internal fun socketFailureMessage(e: Throwable): String = when (val status = handshakeStatus(e)) {
+    null -> friendlyNetworkMessage(e)
+    401 -> "Сессия истекла. Войдите снова."
+    403 -> CHAT_CLOSED
+    else -> defaultHttpMessage(status)
+}
+
+/** Whether the dial loop may pay for another attempt: a server that answered 401 or 403 will answer the same way. */
+internal fun retryAfterDialFailure(e: Throwable): Boolean = handshakeStatus(e) !in setOf(401, 403)
+
+private const val CHAT_CLOSED = "Этот чат больше недоступен."
 
 /**
  * A dropped socket that never opened is retried 4, 8, 16 and then 30 s apart rather than

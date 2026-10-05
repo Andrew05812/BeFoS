@@ -70,6 +70,22 @@ class BackendErrorTextTest {
     }
 
     @Test
+    fun `the socket answers a refused frame with advice, not with the contract text`() {
+        // The live socket refuses single frames this client sent. It never says the connection
+        // is down — the socket is up and answering — so each of these reads as advice about the
+        // message, never as a network problem.
+        val cases = mapOf(
+            "Invalid frame." to "Сервер не понял это сообщение. Попробуйте ещё раз.",
+            "Invalid message body." to "Сообщение не принято. Проверьте текст и отправьте ещё раз.",
+            "Unknown message type: typing" to "Сообщение не отправлено. Попробуйте ещё раз.",
+            "client_msg_id is longer than 64 characters." to "Сообщение не отправлено. Попробуйте ещё раз.",
+        )
+        cases.forEach { (backend, expected) ->
+            assertEquals(expected, localizeBackendError(backend, "invalid_request", 400))
+        }
+    }
+
+    @Test
     fun `transport status copy stays untouched`() {
         assertEquals(defaultHttpMessage(401), localizeBackendError("", "", 401))
         assertEquals(defaultHttpMessage(429), localizeBackendError("", "", 429))

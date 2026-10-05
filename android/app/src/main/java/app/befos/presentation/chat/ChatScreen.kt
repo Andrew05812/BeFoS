@@ -145,7 +145,9 @@ fun ChatScreen(
                 ) {
                     Box(Modifier.size(7.dp).clip(CircleShape).background(WarningAmber))
                     Text(
-                        "Соединение восстанавливается",
+                        // The dot already says the socket is down; the words say why, so the
+                        // user learns it is the network, the server or a pair that is gone.
+                        state.socketReason ?: "Соединение восстанавливается",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

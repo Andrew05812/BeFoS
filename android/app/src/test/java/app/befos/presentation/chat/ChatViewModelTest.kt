@@ -232,6 +232,62 @@ class ChatViewModelTest {
     }
 
     @Test
+    fun `a socket that will not open says why on the status line`() = runTest {
+        coEvery { repo.history("m1", any()) } returns ApiResult.Success(emptyList())
+        coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
+        coEvery { repo.sendTyping(any(), any()) } returns Unit
+
+        val vm = ChatViewModel(repo, matchRepo, "m1")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        // Nothing is connected yet, so the generic line stands until the dial answers.
+        assertEquals(null, vm.uiState.value.socketReason)
+
+        events.tryEmit(ChatEvent.Error("Этот чат больше недоступен."))
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        // The reason replaces the promise of a recovery that cannot happen.
+        assertEquals("Этот чат больше недоступен.", vm.uiState.value.socketReason)
+        assertEquals(false, vm.uiState.value.connected)
+    }
+
+    @Test
+    fun `a socket that came back stops repeating the old reason`() = runTest {
+        coEvery { repo.history("m1", any()) } returns ApiResult.Success(emptyList())
+        coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
+        coEvery { repo.sendTyping(any(), any()) } returns Unit
+
+        val vm = ChatViewModel(repo, matchRepo, "m1")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        events.tryEmit(ChatEvent.Error("Сервер не отвечает. Попробуйте ещё раз."))
+        events.tryEmit(ChatEvent.Connected)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(true, vm.uiState.value.connected)
+        assertEquals(null, vm.uiState.value.socketReason)
+    }
+
+    @Test
+    fun `a frame the server refuses over a live socket does not claim the link is down`() = runTest {
+        coEvery { repo.history("m1", any()) } returns ApiResult.Success(emptyList())
+        coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
+        coEvery { repo.sendTyping(any(), any()) } returns Unit
+
+        val vm = ChatViewModel(repo, matchRepo, "m1")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        events.tryEmit(ChatEvent.Connected)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        events.tryEmit(ChatEvent.Error("Сообщение не отправлено. Попробуйте ещё раз."))
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        // The socket is up and answered; a status line about a lost connection would be false.
+        assertEquals(true, vm.uiState.value.connected)
+        assertEquals(null, vm.uiState.value.socketReason)
+    }
+
+    @Test
     fun `a reconnect reads the messages that arrived while the socket was down`() = runTest {
         coEvery { repo.history("m1", any()) } returnsMany listOf(
             ApiResult.Success(listOf(message("1", false, "привет"))),

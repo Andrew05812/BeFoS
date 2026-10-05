@@ -53,6 +53,10 @@ private val translated: Map<String, String> = mapOf(
     "you are not a participant of this chat." to "Этот чат больше недоступен.",
     "you are not a participant of this match." to "Этот чат больше недоступен.",
     "match not found." to "Пара не найдена. Обновите список.",
+    // Frames the live socket refuses. Reached only when this client sends something the
+    // server cannot use; the wording stays advice-shaped, never the English contract text.
+    "invalid frame." to "Сервер не понял это сообщение. Попробуйте ещё раз.",
+    "invalid message body." to "Сообщение не принято. Проверьте текст и отправьте ещё раз.",
 
     // discovery + matches
     "you cannot act on your own profile." to "Это ваша анкета.",
@@ -89,6 +93,8 @@ private val translatedPrefixes: List<Pair<String, String>> = listOf(
     "Question " to "Тест обновился. Перезагрузите страницу.",
     "Option " to "Тест обновился. Перезагрузите страницу.",
     "Test is not finished yet" to "Пройдите тест до конца, чтобы увидеть результат.",
+    "client_msg_id" to "Сообщение не отправлено. Попробуйте ещё раз.",
+    "Unknown message type" to "Сообщение не отправлено. Попробуйте ещё раз.",
 )
 
 /** Second layer: the envelope's machine code covers messages this file has never seen. */
