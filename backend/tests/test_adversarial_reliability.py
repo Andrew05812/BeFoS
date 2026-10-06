@@ -429,3 +429,43 @@ async def test_a_photo_upload_never_ends_the_request_with_a_500(client: AsyncCli
     stored = Image.open(os.path.join(settings.upload_dir, url.removeprefix("/uploads/")))
     assert max(stored.size) <= 1600, "an oversized photo is scaled, not refused"
 
+
+
+async def test_the_default_bucket_gates_an_ordinary_route(
+    client: AsyncClient, monkeypatch
+) -> None:
+    """A limiter attached to nothing is a class with unit tests and no effect.
+
+    ``_default_limiter`` was configured from ``RATE_LIMIT_PER_MINUTE`` and its window, its
+    eviction and its choice of key were all pinned below — while every router except
+    ``/auth`` was mounted without it, so the suite stayed green with the guard switched off
+    and an authenticated loop could hit discovery, likes, uploads and messages without a
+    ceiling. This asks an ordinary authenticated route rather than the class.
+    """
+    from app.core import rate_limit
+
+    account = await register_and_auth(client, "bucket_wired@befos.app")
+    monkeypatch.setattr(rate_limit._default_limiter, "limit", 2)
+    for _ in range(2):
+        ok = await client.get("/api/v1/users/me", headers=auth_headers(account["token"]))
+        assert ok.status_code == 200, ok.text
+
+    blocked = await client.get("/api/v1/users/me", headers=auth_headers(account["token"]))
+    assert blocked.status_code == 429, blocked.text
+    assert blocked.json()["error"]["code"] == "rate_limited"
+
+
+async def test_health_keeps_answering_while_the_rest_of_the_api_is_throttled(
+    client: AsyncClient, monkeypatch
+) -> None:
+    """The one route left unthrottled, and on purpose.
+
+    A load balancer or a monitor that gets a 429 reports the service as down, so a busy
+    minute turns into an outage nobody caused. Pinning the carve-out also stops it from
+    being "fixed" by whoever wires the routers up next.
+    """
+    from app.core import rate_limit
+
+    monkeypatch.setattr(rate_limit._default_limiter, "limit", 1)
+    for _ in range(3):
+        assert (await client.get("/api/v1/health")).status_code == 200
