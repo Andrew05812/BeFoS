@@ -1,0 +1,16 @@
+# Test-only dependencies. The production image never installs this file.
+#
+# -r requirements.txt: the tests exercise the same runtime versions the container runs, so
+# there is one source of truth for those pins and no way for a test pass to go green on a
+# library version production does not have.
+#
+# pytest 9.1.1 closes GHSA-6w46-j5rx-g56g (first patched at 9.0.3). pytest-asyncio had to
+# move with it: 0.25.0 declares `pytest<9,>=8.2`, and 1.4.0 is the release that declares
+# `pytest>=8.4,<10`. httpx stays put — no alert, and it is the client the live journey
+# script (e2e_journey.py) runs against a deployed backend.
+
+-r requirements.txt
+
+pytest==9.1.1
+pytest-asyncio==1.4.0
+httpx==0.28.1

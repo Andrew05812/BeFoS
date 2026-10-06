@@ -1,10 +1,19 @@
+# Runtime dependencies of the backend container.
+#
+# Pinned exactly: the image that serves traffic must be the image these versions were
+# tested against. Nothing here is a test tool — pytest, pytest-asyncio and httpx live in
+# requirements-dev.txt, so a container built from this file carries no test runner.
+#
+# Updated 2026-10-06 in the dependency security hardening pass; see docs/DEPENDENCIES.md
+# for the alerts each bump closes and for the packages deliberately left alone.
+
 # Core web framework
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
 pydantic==2.10.4
 pydantic-settings==2.7.0
 email-validator==2.2.0
-python-multipart==0.0.20
+python-multipart==0.0.32
 
 # Database
 SQLAlchemy[asyncio]==2.0.36
@@ -13,11 +22,6 @@ alembic==1.14.0
 greenlet==3.1.1
 
 # Auth & security
-PyJWT==2.10.1
+PyJWT==2.15.1
 bcrypt==4.2.1
-pillow==11.0.0
-
-# Testing
-pytest==8.3.4
-pytest-asyncio==0.25.0
-httpx==0.28.1
+pillow==12.3.0
