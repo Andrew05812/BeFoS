@@ -18,6 +18,12 @@ The history is kept whole rather than squashed into a showcase: the early versio
 redesign, the bugs found by breaking the app and the fixes they produced are all addressable by
 commit.
 
+Every hash quoted here is read from the published branch. The identity and local-path
+sanitization pass rewrote all 128 commits — messages, author dates, committer dates, order and
+count stayed identical, and the tree of every commit is byte-for-byte the same — so a hash from
+a note written before that pass addresses a different commit object than the same commit does
+now.
+
 ## Timeline
 
 | Stage | Dates (from git) | Commits | What changed |
@@ -37,7 +43,7 @@ WebSocket chat, recommendations — does not map one-to-one onto days. The first
 already contained the API layer, JWT auth with rotating refresh tokens, the compatibility
 engine and the recommendation engine together, and the first Android commit already contained
 the whole client flow. Those stages are real, but they were authored as single large commits
-(`d90d602`, `be4b83f`) rather than as a sequence, so the timeline above records them as
+(`7eb8af3`, `f884eb0`) rather than as a sequence, so the timeline above records them as
 delivered instead of inventing intermediate milestones.
 
 What did arrive as separate stages, in order, is the harder part of the history: the visual
