@@ -5,7 +5,7 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics.tracker import Event, tracker
-from app.core.exceptions import ForbiddenError, NotFoundError
+from app.core.exceptions import NotFoundError
 from app.models import Match
 from app.recommendations.engine import ActivitySignal, UserSignal, recommend
 from app.repositories.activity_repo import ActivityRepository
@@ -20,10 +20,11 @@ class RecommendationService:
 
     async def _require_match(self, match_id: uuid.UUID, user_id: uuid.UUID) -> Match:
         match = await self.session.get(Match, match_id)
-        if match is None:
+        # The same row answered through the same route family has to give the same refusal as
+        # `ChatService._require_membership` and `GET /matches/{id}`; a 403 here would say "this
+        # pair exists, you are just not in it".
+        if match is None or not (match.user_a_id == user_id or match.user_b_id == user_id):
             raise NotFoundError("Match not found.")
-        if not (match.user_a_id == user_id or match.user_b_id == user_id):
-            raise ForbiddenError("You are not a participant of this match.")
         return match
 
     async def _signal(self, user_id: uuid.UUID) -> UserSignal:

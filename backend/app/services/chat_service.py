@@ -5,7 +5,7 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics.tracker import Event, tracker
-from app.core.exceptions import ForbiddenError, NotFoundError, ValidationError
+from app.core.exceptions import NotFoundError, ValidationError
 from app.repositories.chat_repo import ChatRepository
 
 
@@ -16,10 +16,11 @@ class ChatService:
 
     async def _require_membership(self, match_id: uuid.UUID, user_id: uuid.UUID):
         match = await self.repo.get_match(match_id)
-        if match is None:
+        # One answer for "this row is not yours" and "this row does not exist": a 403 on the
+        # chat routes while `GET /matches/{id}` answers 404 for the same row on the same
+        # condition turns the difference into an oracle that says which pairings are real.
+        if match is None or not (match.user_a_id == user_id or match.user_b_id == user_id):
             raise NotFoundError("Match not found.")
-        if not (match.user_a_id == user_id or match.user_b_id == user_id):
-            raise ForbiddenError("You are not a participant of this chat.")
         return match
 
     async def send(
