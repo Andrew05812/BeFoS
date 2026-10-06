@@ -153,8 +153,7 @@ class ChatSocket(
      * access token before the socket dials, avoiding a 403 reconnect loop.
      */
     private suspend fun freshAccessToken(): String? {
-        val probe = ApiConfig.api("users/me")
-        if (probe != null) runCatching { client.get(probe).body<JsonObject>() }
+        runCatching { client.get(ApiConfig.api("users/me")).body<JsonObject>() }
         return tokenStore.current()?.accessToken
     }
 
