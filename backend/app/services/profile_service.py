@@ -95,6 +95,17 @@ class ProfileService:
         await self._set_interests(profile, data.get("interests") or [])
         await self.session.commit()
         await self.session.refresh(profile)
+        # Onboarding answers the whole preference set in one request — age band, genders,
+        # goal, city, interests — and every one of those is an input to the deck, to the
+        # cached activity page, and to the percent a stored match row carries. `update()`
+        # drops exactly those three when the same fields change there; without the same
+        # block here a deck built while the profile was still a shell (the feed answers as
+        # soon as a profile row exists) stays ranked by an answer nobody gave, and a person
+        # who re-answers after matching keeps showing their match list the old percent.
+        await DiscoveryRepository(self.session).deck_invalidate(user_id)
+        await ActivityRepository(self.session).invalidate_for_user(user_id)
+        await CompatibilityService(self.session).refresh_pair_scores(user_id)
+        await self.session.commit()
         return profile
 
     async def update(self, user_id: uuid.UUID, data: dict) -> Profile:

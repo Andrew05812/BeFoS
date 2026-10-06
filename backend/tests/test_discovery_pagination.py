@@ -506,6 +506,56 @@ async def test_seen_rows_are_what_survives(client: AsyncClient, session: AsyncSe
     assert sorted(uid for uid, _ in served) == sorted(seeded)
 
 
+async def test_answering_the_setup_questions_drops_the_deck_ranked_before_them(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """Onboarding changes what the viewer wants, so it has to invalidate like any change.
+
+    The feed starts answering as soon as a profile row exists, which means a viewer who
+    opens discovery before finishing signup is handed a deck built from the defaults —
+    18 to 60, any gender. The claim path re-checks hiding, blocking and deletion, and
+    nothing else, so a card the real answers now exclude is still delivered. Every other
+    write of these fields goes through ``ProfileService.update``, which drops the deck;
+    onboarding writes the same fields and did not.
+
+    The first page asks for two of six candidates on purpose: rows still queued are the
+    ones the fix has to throw away, and a page that consumed the whole deck would pass
+    for the wrong reason.
+    """
+    await _seed_candidates(session, 6, tag="pre_onb")
+    creds = await register_and_auth(client, "deck_pre_onb_v@befos.app")
+
+    before = await _page(client, creds["token"], limit=2)
+    assert len(before["items"]) == 2, "a shell profile must still be served a deck"
+    assert before["has_more"], "two of six candidates have to leave the rest queued"
+
+    onboarded = await client.post(
+        "/api/v1/users/me/onboarding",
+        headers=auth_headers(creds["token"]),
+        json={
+            "name": "Вера",
+            "birth_date": "1996-05-10",
+            "city": "Москва",
+            "gender": "female",
+            "dating_goal": "relationship",
+            "interests": [],
+            "lifestyle": {},
+            # Every seeded candidate was born in 1994, so from this answer on nothing that
+            # is still queued is somebody this viewer could be shown.
+            "age_min": 18,
+            "age_max": 20,
+            "gender_preference": ["male"],
+        },
+    )
+    assert onboarded.status_code == 200, onboarded.text
+
+    after = await _page(client, creds["token"], limit=20)
+    assert after["items"] == [], (
+        "cards the new age band excludes are still being served: "
+        f"{[c['name'] for c in after['items']]}"
+    )
+
+
 async def test_a_refill_landing_on_an_occupied_rank_loses_the_row_not_the_person(
     client: AsyncClient, session: AsyncSession
 ) -> None:
