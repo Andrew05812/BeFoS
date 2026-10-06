@@ -58,4 +58,12 @@ class DiscoveryQueue(Base):
         ),
         # The paging read: ready rows of one viewer, in deck order, past a cursor.
         Index("ix_discovery_queue_viewer_status_rank", "viewer_id", "status", "rank"),
+        # A rank is a position in a cursor, and the cursor advances with `rank > :after`.
+        # Two refills running at once both read `max(rank) + 1` as their ceiling, and when
+        # the candidate sets they picked differ by one row — somebody hid, somebody new
+        # joined — the second batch lands a fresh candidate on a rank the first batch
+        # already used. Both rows then sit behind the same cursor step and only one of them
+        # is ever claimed: the other is a person who silently vanishes from the deck. The
+        # pair constraint cannot see this, because the two rows are different pairs.
+        Index("uq_discovery_queue_viewer_rank", "viewer_id", "rank", unique=True),
     )

@@ -353,7 +353,15 @@ class DiscoveryRepository:
     async def deck_append(
         self, viewer_id: uuid.UUID, ranked: list[tuple[uuid.UUID, int]], *, first_rank: int
     ) -> None:
-        """Add one batch to the end of the deck. A concurrent build loses quietly."""
+        """Add one batch to the end of the deck. A concurrent build loses quietly.
+
+        "Quietly" covers both collisions a concurrent refill can produce, so no constraint
+        is named as the arbiter: the same candidate queued twice by two builds (the pair
+        key), and a candidate landing on a rank another build already occupies (the rank
+        key). Losing the rank is the survivable half — the row never gets written, the
+        candidate stays outside the deck, and the next refill picks it up again, whereas a
+        duplicate rank would put it behind a cursor step that already passed.
+        """
         if not ranked:
             return
         values = [
@@ -368,9 +376,7 @@ class DiscoveryRepository:
             for offset, (candidate_id, score) in enumerate(ranked)
         ]
         await self.session.execute(
-            pg_insert(DiscoveryQueue).values(values).on_conflict_do_nothing(
-                constraint="uq_discovery_queue_pair"
-            )
+            pg_insert(DiscoveryQueue).values(values).on_conflict_do_nothing()
         )
 
     async def deck_claim(
