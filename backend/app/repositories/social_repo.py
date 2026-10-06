@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import calendar
 import uuid
+from datetime import date
 
 from sqlalchemy import and_, or_, select, func, delete, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -14,6 +16,18 @@ from app.models.discovery import READY, SEEN
 def ordered_pair(a: uuid.UUID, b: uuid.UUID) -> tuple[uuid.UUID, uuid.UUID]:
     """Return the pair sorted so matches are direction-independent & unique."""
     return (a, b) if str(a) <= str(b) else (b, a)
+
+
+def shift_years(today: date, years: int) -> date:
+    """The calendar date ``years`` before ``today``, keeping month and day when they exist.
+
+    ``date(today.year - years, today.month, today.day)`` is a crash waiting for Feb 29:
+    subtracting years lands on a February that has only 28 days, and the constructor raises
+    ``ValueError`` out of the discovery query that backs the app's main screen. The day is
+    clamped to the last real day of the target month, so a leap-day viewer still gets a deck.
+    """
+    year = today.year - years
+    return date(year, today.month, min(today.day, calendar.monthrange(year, today.month)[1]))
 
 
 class SocialRepository:
@@ -218,13 +232,14 @@ class DiscoveryRepository:
     def _preference_conditions(
         gender_pref: list[str], age_min: int, age_max: int, city: str | None
     ) -> list:
-        from datetime import date
-
         today = date.today()
-        # birth_date <= today - age_min years  AND  birth_date >= today - (age_max+1) years
-        max_birth = date(today.year - age_min, today.month, today.day)
-        min_birth = date(today.year - (age_max + 1), today.month, today.day)
-        conds = [Profile.birth_date <= max_birth, Profile.birth_date >= min_birth]
+        # age >= age_min  <=>  birth_date <= today - age_min years.
+        # age <= age_max  <=>  birth_date >  today - (age_max + 1) years, strictly: a
+        # candidate whose birthday lands exactly on that lower bound turns age_max + 1
+        # today, so an inclusive `>=` showed them at 31 to a viewer who asked for 30.
+        max_birth = shift_years(today, age_min)
+        min_birth = shift_years(today, age_max + 1)
+        conds = [Profile.birth_date <= max_birth, Profile.birth_date > min_birth]
         if gender_pref:
             conds.append(Profile.gender.in_(gender_pref))
         if city:

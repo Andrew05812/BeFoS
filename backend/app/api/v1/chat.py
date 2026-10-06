@@ -25,6 +25,15 @@ async def get_messages(
 ):
     service = ChatService(session)
     data = await service.history(match_id, current_user.id, limit=limit, before_id=before_id)
+    if data["marked_read"]:
+        # The reader consumed the backlog by opening the chat, so the receipt has to go out
+        # from here — the follow-up POST /read marks nothing new and stays silent. Same shape
+        # and same exclusion as the explicit endpoint, so the reader's own socket is not told
+        # to mark its own messages read.
+        await manager.broadcast_to_match(
+            match_id, {"type": "read", "user_id": str(current_user.id)},
+            exclude_user=current_user.id,
+        )
     return MessagePage(
         messages=[MessageOut(**m) for m in data["messages"]],
         has_more=data["has_more"],

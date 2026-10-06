@@ -54,11 +54,15 @@ class ChatService:
         messages = await self.repo.list_messages(match_id, limit=limit + 1, before_id=before_id)
         has_more = len(messages) > limit
         messages = messages[:limit]
-        await self.repo.mark_read(match_id, user_id)
+        marked = await self.repo.mark_read(match_id, user_id)
         await self.session.commit()
         return {
             "messages": [self._to_dto(m, user_id) for m in messages],
             "has_more": has_more,
+            # The count is reported so the caller can broadcast the receipt: opening a chat
+            # is how a reader consumes a backlog, and if the mark happens here in silence the
+            # follow-up POST /read finds nothing left and the sender never sees «прочитано».
+            "marked_read": marked,
         }
 
     async def mark_read(self, match_id: uuid.UUID, user_id: uuid.UUID) -> int:
