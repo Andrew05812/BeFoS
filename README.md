@@ -1,6 +1,6 @@
 # BeFoS
 
-**Explainable compatibility dating platform**
+**Платформа знакомств с объяснимой совместимостью**
 
 ![Android](https://img.shields.io/badge/Android-Kotlin_2.2-3DDC84?logo=android&logoColor=white)
 ![Compose](https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285F4?logo=jetpackcompose&logoColor=white)
@@ -13,155 +13,154 @@
 | | | |
 |---|---|---|
 | ![Auth](screenshots/01-auth.png) | ![Onboarding](screenshots/02-onboarding.png) | ![Test](screenshots/03-test.png) |
-| Auth | Onboarding | Compatibility test |
+| Вход | Анкета | Тест |
 | ![Test result](screenshots/04-test-result.png) | ![Discovery](screenshots/05-discovery.png) | ![Compatibility](screenshots/06-compatibility.png) |
-| Test result | Discovery | Compatibility breakdown |
+| Результат теста | Поиск | Разбор совместимости |
 | ![Match](screenshots/07-match.png) | ![Chat](screenshots/08-chat.png) | ![Recommendations](screenshots/09-recommendations.png) |
-| Mutual match | Chat | Date recommendations |
+| Взаимная симпатия | Чат | Рекомендации для свидания |
 
-> BeFoS is a dating platform built around explainable multi-factor compatibility rather than
-> opaque recommendations. Instead of ranking profiles by engagement, it scores a pair across
-> seven weighted categories, shows **why** two people match, and proposes concrete activities
-> the two of them can actually do together — computed from their real data, deterministically.
+> BeFoS — платформа знакомств, в которой совместимость считается по семи взвешенным
+> категориям и показывается человеку вместе с числом. Не «вот вам 87% и верьте на слово», а
+> «вот что у вас общего, вот в чём вы разошлись, и вот чем вам двоим заняться вместе». Всё это
+> вычисляется из реальных ответов профилей, детерминированно, без генерации текста.
 
-The compatibility score is an **engineering heuristic** built from questionnaires and a test.
-It is not a psychological or medical diagnosis, and it is not presented as one anywhere in the
-product.
+Процент совместимости — **инженерная эвристика**, построенная на опросниках и тесте. Это не
+психологическая или медицинская диагностика, и в продукте она нигде так не подаётся.
 
-## Overview
+## Что это за проект
 
-Two deliverables in one repository, both finished:
+В одном репозитории два законченных артефакта:
 
-- **`backend/`** — async FastAPI service: JWT auth with rotating refresh tokens, profile and
-  onboarding, a 21-question test, the compatibility engine, discovery with a stored deck and
-  cursor pagination, matches, a WebSocket chat gateway, activity recommendations, safety
-  (block/report), Alembic migrations over PostgreSQL 16.
-- **`android/`** — Kotlin / Jetpack Compose client (Material 3, Ktor, Navigation Compose,
-  DataStore, Coil) in a `data / domain / presentation` layering, covering every backend
-  capability above.
+- **`backend/`** — асинхронный FastAPI-сервис: JWT-аутентификация с ротацией refresh-токенов,
+  профиль и анкета, тест из 21 вопроса, движок совместимости, поиск с хранимой колодой и
+  пагинацией по курсору, пары, WebSocket-шлюз чата, рекомендации совместных активностей,
+  безопасность (блокировка и жалобы), миграции Alembic поверх PostgreSQL 16.
+- **`android/`** — клиент на Kotlin / Jetpack Compose (Material 3, Ktor, Navigation Compose,
+  DataStore, Coil) с разбиением `data / domain / presentation`, покрывающий каждую возможность
+  бэкенда выше.
 
-Nothing in the flow is a stub: no random percentages, no fake profiles behind the UI, no
-simulated realtime path. The seeded accounts exist so the product can be demoed, and they are
-labelled as seeded.
+В этом потоке нет заглушек: ни случайных процентов, ни фейковых профилей за интерфейсом, ни
+имитации realtime-канала. Засеянные аккаунты существуют, чтобы продукт можно было показать, и
+они помечены как засеянные.
 
-## Why BeFoS
+## Почему BeFoS, а не очередное приложение для знакомств
 
-Mainstream dating apps optimise for time-in-app; the ranking that produces the deck is opaque,
-and a match tells you nothing about why it happened. BeFoS inverts that:
+Приложение для знакомств оптимизируют по времени в интерфейсе; ранжирование, которое даёт
+колоду, непрозрачно, а матч ничего не говорит о том, почему случился. BeFoS переворачивает это:
 
-- **The number is explainable.** Every category score is derived from stored answers, and the
-  API returns the breakdown, the strongest points of agreement, the real differences, and the
-  shared interests — all of it computed, none of it generated.
-- **The same input always gives the same output.** The engine is deterministic and versioned
-  (`engine_version` is persisted with each result), so a score can be reproduced and audited.
-- **Symmetry is a tested property.** A pair gets the same percentage from either side; that is
-  asserted by tests, not assumed.
-- **The recommendation is actionable.** Instead of "you two should talk", the app proposes a
-  specific activity from the catalogue that fits both profiles, their city and their answers.
-- **Refusals are real.** Blocking deletes the pair and its history on the server, in both
-  directions, including inside an already-open socket. It is not a feed filter.
+- **Число объяснимо.** Каждый балл категории выведен из сохранённых ответов, и API возвращает
+  разбор по категориям, точки совпадения, реальные расхождения и общие интересы — всё
+  вычислено, ничего не сгенерировано.
+- **Одинаковый вход даёт одинаковый выход.** Движок детерминирован и версионирован
+  (`engine_version` сохраняется вместе с каждым результатом), поэтому процент можно
+  воспроизвести и проверить.
+- **Симметрия — проверенное свойство.** Пара получает одинаковый процент с обеих сторон; это
+  утверждено тестами, а не принято по умолчанию.
+- **Рекомендация применима.** Вместо «вам стоит поговорить» приложение предлагает конкретную
+  активность из каталога, которая подходит обоим профилям, их городу и их ответам.
+- **Отказ реальный.** Блокировка удаляет пару и её историю на сервере, в обе стороны, включая
+  внутри уже открытого сокета. Это не фильтр ленты.
 
-## Product Flow
+## Продуктовый поток
 
 ```
-register → profile → interests → 21-question test → compatibility profile
-        → discovery deck → like / pass → mutual match → chat (WebSocket)
-        → compatibility breakdown → joint activity recommendation
+регистрация → профиль → интересы → тест из 21 вопроса → профиль совместимости
+        → колода поиска → симпатия / пропуск → взаимный матч → чат (WebSocket)
+        → разбор совместимости → рекомендация совместной активности
 ```
 
-Routing after login depends on how complete the profile is: a finished profile lands in the
-main tab, an unfinished one goes back to onboarding rather than onto a screen that cannot work.
+После входа маршрутизация зависит от того, насколько заполнен профиль: законченный попадает на
+главную вкладку, незаполненный — обратно в анкету, а не на экран, который не может работать.
 
-## Screenshots
+## Экраны
 
-Captured from the running app on an emulator (1080×2280) against the Docker backend, with
-seeded demo data only. The interface language is Russian — the product was built for a Russian
-speaking market, and screen strings live in the Compose code rather than in a resource bundle,
-so there is no locale switch to show. Catalogue content (interests, questions, activities) is
-Russian for the same reason.
+Сняты с работающего приложения на эмуляторе (1080×2280) против Docker-бэкенда, только на
+засеянных демо-данных. Язык интерфейса — русский: продукт делался для русскоязычного рынка, а
+строки экранов живут в коде Compose, а не в ресурсном бандле, поэтому переключателя локали нет.
+Содержимое каталогов (интересы, вопросы, активности) по той же причине русское.
 
-| Screen | File | What it shows |
+| Экран | Файл | Что на нём |
 |---|---|---|
-| Auth | [`01-auth.png`](screenshots/01-auth.png) | Sign-in / sign-up form |
-| Onboarding | [`02-onboarding.png`](screenshots/02-onboarding.png) | Step 1 of 3: name, birth date, city, gender, about |
-| Test | [`03-test.png`](screenshots/03-test.png) | Question 1 of 21, with the progress bar and four options |
-| Test result | [`04-test-result.png`](screenshots/04-test-result.png) | Per-category profile after the test |
-| Discovery | [`05-discovery.png`](screenshots/05-discovery.png) | Candidate card with score ring, shared interests and the data-derived reason it was shown |
-| Compatibility | [`06-compatibility.png`](screenshots/06-compatibility.png) | Overall percent plus the seven category bars |
-| Match | [`07-match.png`](screenshots/07-match.png) | Mutual-like moment with the pair's score |
-| Chat | [`08-chat.png`](screenshots/08-chat.png) | Realtime conversation inside a pair |
-| Recommendations | [`09-recommendations.png`](screenshots/09-recommendations.png) | Scored joint activities for the pair |
-| Profile | [`10-profile.png`](screenshots/10-profile.png) | Own profile, test state, interests, privacy entry |
+| Вход | [`01-auth.png`](screenshots/01-auth.png) | Форма входа и регистрации |
+| Анкета | [`02-onboarding.png`](screenshots/02-onboarding.png) | Шаг 1 из 3: имя, дата рождения, город, пол, о себе |
+| Тест | [`03-test.png`](screenshots/03-test.png) | Вопрос 1 из 21, с прогресс-баром и четырьмя вариантами |
+| Результат теста | [`04-test-result.png`](screenshots/04-test-result.png) | Профиль по категориям после теста |
+| Поиск | [`05-discovery.png`](screenshots/05-discovery.png) | Карточка кандидата с кольцом процента, общими интересами и причиной показа, выведенной из данных |
+| Совместимость | [`06-compatibility.png`](screenshots/06-compatibility.png) | Общий процент и семь полос категорий |
+| Матч | [`07-match.png`](screenshots/07-match.png) | Момент взаимной симпатии с процентом пары |
+| Чат | [`08-chat.png`](screenshots/08-chat.png) | Живой диалог внутри пары |
+| Рекомендации | [`09-recommendations.png`](screenshots/09-recommendations.png) | Оценённые для пары совместные активности |
+| Профиль | [`10-profile.png`](screenshots/10-profile.png) | Свой профиль, состояние теста, интересы, вход в приватность |
 
-## Key Features
+## Что умеет
 
-**Auth and session.** Access token plus refresh token; the refresh token is stored as a
-SHA-256 hash and rotated on use. An expired session is treated as recoverable state: a failed
-refresh clears tokens and the navigator returns the user to the sign-in screen with the email
-prefilled, while a 5xx or a network failure keeps the session and leaves the user on a screen
-where "Retry" can actually succeed. Verified on device by rotating the backend JWT secret.
+**Аутентификация и сессия.** Access-токен плюс refresh-токен; refresh хранится как SHA-256 хеш
+и ротится при каждом использовании. Протухшая сессия — восстановимое состояние: неудачный
+refresh очищает токены, а навигатор возвращает человека на экран входа с уже подставленной
+почтой; 5xx или сетевой сбой, наоборот, сессию сохраняют и оставляют на экране, где «Повторить»
+может сработать. Проверено на устройстве подменой JWT-секрета бэкенда.
 
-**Profile and onboarding.** Three steps, validated where the thumb already is; interests chosen
-from a 40-item catalogue with stable chip geometry (selecting one never moves its neighbours).
+**Профиль и анкета.** Три шага, валидация там, где уже находится большой палец; интересы из
+каталога на 40 позиций со стабильной геометрией чипов (выбор одного не сдвигает соседей).
 
-**Test.** 21 questions across seven categories, auto-advance, auto-submit on the last answer,
-re-testable at any time; answers are stored per option and feed the engine.
+**Тест.** 21 вопрос в семи категориях, автопереход, автоотправка на последнем ответе, перепройти
+можно в любой момент; ответы хранятся по вариантам и питают движок.
 
-**Discovery.** Candidates come from a stored, ranked deck read with cursor pagination, so
-pages stay stable while the pool changes; a user who never answered the test is nobody's card.
-Each card carries a `highlight` derived from the two profiles, not from a template.
+**Поиск.** Кандидаты берутся из хранимой ранжированной колоды и читаются курсором, поэтому
+страницы не съезжают, пока пул меняется; тот, кто не проходил тест, не становится чьей-то
+карточкой. На каждой карточке лежит `highlight`, выведенный из двух профилей, а не из шаблона.
 
-**Matches and chat.** A mutual like creates a pair and stores the score the engine gives that
-pair today. Messages are sent over REST and broadcast into the pair's WebSocket, so both
-clients see them without a reload; a retried send reuses its idempotency key, so one tap stores
-one message, and a reconnect reads the gap it missed.
+**Пары и чат.** Взаимная симпатия создаёт пару и сохраняет процент, который движок даёт этой
+паре сегодня. Сообщения уходят через REST и рассылаются в WebSocket пары, так что оба клиента
+видят их без перезагрузки; повтор отправки переиспользует ключ идемпотентности, поэтому одно
+касание — одно сообщение, а переподключение дозагружает пропущенный разрыв.
 
-**Compatibility detail.** Overall percent, seven category bars, strengths, differences, shared
-interests — computed from both profiles.
+**Разбор совместимости.** Общий процент, семь полос категорий, сильные стороны, расхождения,
+общие интересы — считается по обоим профилям.
 
-**Recommendations.** Activities scored against both profiles, their city and their answers, and
-refreshed when either profile changes.
+**Рекомендации.** Активности, оценённые по обоим профилям, их городу и ответам, и обновляются,
+когда меняется любой из профилей.
 
-**Safety.** Block (server-side, both directions, re-checked on every socket frame), report with
-sendable reasons, profile visibility switch, account deletion that erases the data.
+**Безопасность.** Блокировка (на сервере, в обе стороны, перепроверяется на каждом кадре
+сокета), жалобы с пересылаемыми причинами, переключатель видимости профиля, удаление
+аккаунта, которое стирает данные.
 
-## Compatibility Engine
+## Движок совместимости
 
 ```
 Score = Σ ( normalize(component_i) × weight_i ),   Σ weight_i = 1.0
 ```
 
-| Category | Weight | Computed from |
+| Категория | Вес | Из чего считается |
 |---|---|---|
-| values | 0.25 | Trait similarity in the normalised answer vector (family, career, growth, stability, adventure) |
-| personality | 0.15 | Trait similarity (extraversion, openness, planning, optimism) |
-| interests | 0.15 | Overlap of the two users' interest sets — not the vector |
-| communication | 0.15 | Trait similarity in the communication category |
-| lifestyle | 0.15 | Trait similarity in the lifestyle category |
-| leisure | 0.10 | Trait similarity in the leisure category |
-| goals | 0.05 | Compatibility of the two declared dating goals — not the vector |
+| values | 0.25 | Близость черт в нормализованном векторе ответов (семья, карьера, рост, стабильность, приключения) |
+| personality | 0.15 | Близость черт (экстраверсия, открытость, планирование, оптимизм) |
+| interests | 0.15 | Пересечение множеств интересов двух людей — не вектора |
+| communication | 0.15 | Близость черт в категории общения |
+| lifestyle | 0.15 | Близость черт в категории уклада жизни |
+| leisure | 0.10 | Близость черт в категории досуга |
+| goals | 0.05 | Совместимость двух названных целей знакомства — не вектора |
 
-Weights live in `backend/app/compatibility/weights.py` and are validated to sum to 1.0; the
-engine version is written into every stored result, so a score records the rules that produced
-it. Alongside the percent the API returns the category breakdown, strengths, differences and
-shared interests. Scoring is a pure synchronous function of the two vectors — no database, no
-clock, no randomness inside the engine — which is what makes the determinism and symmetry tests
-cheap to run.
+Веса лежат в `backend/app/compatibility/weights.py` и проверены на сумму 1.0; версия движка
+записывается в каждый сохранённый результат, то есть число хранит правила, по которым оно
+посчитано. Кроме процента API отдаёт разбор по категориям, сильные стороны, расхождения и общие
+интересы. Оценивание — чистая синхронная функция двух векторов: без базы, без часов, без
+случайности внутри движка. Именно поэтому тесты детерминизма и симметрии дёшевы в запуске.
 
-## Architecture
+## Архитектура
 
 ```mermaid
 flowchart TD
-    A["Android client<br/>Kotlin · Jetpack Compose · Material 3<br/>Ktor HTTP + WebSocket · DataStore · Coil"]
+    A["Клиент Android<br/>Kotlin · Jetpack Compose · Material 3<br/>Ktor HTTP + WebSocket · DataStore · Coil"]
 
-    subgraph BE["FastAPI application — one async process"]
-        API["API layer<br/>auth · users · tests · discover · matches · chat · safety · health"]
-        WS["WebSocket gateway<br/>/ws/chat/:match_id"]
-        SVC["Service layer"]
-        CE["Compatibility engine<br/>deterministic, versioned"]
-        RE["Recommendation engine"]
-        SF["Safety<br/>block · report · visibility"]
-        REPO["Repository layer"]
+    subgraph BE["Приложение FastAPI — один асинхронный процесс"]
+        API["Слой API<br/>auth · users · tests · discover · matches · chat · safety · health"]
+        WS["WebSocket-шлюз<br/>/ws/chat/:match_id"]
+        SVC["Слой сервисов"]
+        CE["Движок совместимости<br/>детерминированный, версионированный"]
+        RE["Движок рекомендаций"]
+        SF["Безопасность<br/>блокировка · жалобы · видимость"]
+        REPO["Слой репозиториев"]
         API --> SVC
         WS --> SVC
         SVC --> CE
@@ -171,308 +170,343 @@ flowchart TD
     end
 
     A -->|"REST /api/v1"| API
-    A -->|"WebSocket, JWT-authorised"| WS
-    WS -.->|"frames: new message, receipt"| A
-    REPO -->|"SQLAlchemy 2.0 async + asyncpg"| DB[("PostgreSQL 16<br/>22 tables + alembic_version")]
-    REPO --> FS["/uploads files<br/>Pillow re-encode on ingest"]
-    A -->|"loads images"| FS
+    A -->|"WebSocket, авторизация по JWT"| WS
+    WS -.->|"кадры: новое сообщение, прочтение"| A
+    REPO -->|"SQLAlchemy 2.0 async + asyncpg"| DB[("PostgreSQL 16<br/>22 таблицы + alembic_version")]
+    REPO --> FS["файлы /uploads<br/>перенокодирование Pillow на приёме"]
+    A -->|"грузит изображения"| FS
 ```
 
-There is one backend process, one database and one object store for uploads: no queue, no
-cache tier, no microservice that does not exist. `docs/ARCHITECTURE.md` describes the layers,
-the engines and the socket lifecycle; `docs/DATABASE.md` the schema and the pool math;
-`docs/API.md` every endpoint. (Those three documents are written in Russian, and so is
-`docs/DEPENDENCIES.md` — the pinning policy, the advisory audit and what it measured.)
+Один процесс бэкенда, одна база и одно хранилище файлов для загрузок: ни очереди, ни кэш-слоя,
+ни микросервиса, которого не существует. [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) описывает
+слои, движки и жизнь сокета; [`docs/DATABASE.md`](docs/DATABASE.md) — схему и арифметику пула;
+[`docs/API.md`](docs/API.md) — каждый эндпоинт; [`docs/DEPENDENCIES.md`](docs/DEPENDENCIES.md) —
+политику пинов, аудит advisory и что именно он замерил.
 
-## Technology Stack
+## Технологический стек
 
-| Layer | Technology |
+| Слой | Технология |
 |---|---|
-| Backend | Python 3.12, FastAPI 0.115, Pydantic 2.10, SQLAlchemy 2.0 (async), asyncpg, Alembic 1.14 |
-| Database | PostgreSQL 16 |
-| Auth / security | JWT (access + rotating refresh, refresh stored as SHA-256 hash), bcrypt, CORS validation, sliding-window rate limiting, Pillow image re-encoding |
-| Realtime | WebSocket `/ws/chat/{match_id}` authorised by JWT; REST-sent messages and receipts are broadcast into the pair's socket |
+| Бэкенд | Python 3.12, FastAPI 0.115, Pydantic 2.10, SQLAlchemy 2.0 (async), asyncpg, Alembic 1.14 |
+| База данных | PostgreSQL 16 |
+| Аутентификация и безопасность | JWT (access + ротируемый refresh, refresh лежит как SHA-256 хеш), bcrypt, проверка CORS, скользящее окно rate limiting, перенкодирование изображений через Pillow |
+| Realtime | WebSocket `/ws/chat/{match_id}` с авторизацией по JWT; сообщения и прочтения, отправленные по REST, рассылаются в сокет пары |
 | Android | Kotlin 2.2, Jetpack Compose (BOM 2024.09), Material 3, Navigation Compose 2.8, Ktor 3.0, kotlinx-serialization, Coil 2.7, DataStore 1.1, Coroutines/Flow |
-| Infrastructure | Docker Compose, pytest, JUnit4 + MockK + Turbine |
+| Инфраструктура | Docker Compose, GitHub Actions, pytest, JUnit4 + MockK + Turbine |
 
-## Security
+## Безопасность
 
-Implemented and covered by tests:
+Реализовано и покрыто тестами:
 
-- **JWT authentication** with an access token (30 minutes by default) and a refresh token
-  (30 days by default) that is **rotated on every use**; at rest the refresh token exists only
-  as a SHA-256 hash, never as the value the client holds.
-- **bcrypt password hashing**; passwords are never logged, and neither are access/refresh
-  tokens — including the token that appears in a WebSocket handshake.
-- **Object-level authorization (IDOR protection)** on every identifier-bearing route, with a
-  dedicated test sweep that asserts a foreign id is refused rather than merely hidden.
-- **WebSocket authorization**: the handshake checks the JWT and the pair membership, and each
-  frame in an already-open socket re-checks them, so a socket cannot outlive its pair or a
-  block (`1008` / `403`).
-- **Rate limiting** with a sliding window, including a separate, tighter limiter on `/auth`,
-  keyed on an address the client cannot forge.
-- **Secure logging**: structured request logs carry request id, route, status and latency, and
-  no user-supplied personal payload.
-- **Upload validation**: images are read to a size ceiling and re-encoded through Pillow, so an
-  oversized or malformed file is refused as input instead of becoming a 500 or a decompression
-  bomb. The decoder is chosen from a list this product owns (`ACCEPTED_PIL_FORMATS`), not from
-  the bytes a client labelled: `Image.open` picks its parser from the magic in the body, so
-  without that second gate a JPEG-declared PSD or TIFF reaches a decoder no photo needs.
-- **Third-party components**: runtime dependencies are pinned exactly, test tooling lives in a
-  separate file so the serving image carries no test runner, and the resolved graph — 39 pip and
-  165 Maven artefacts — is auditable against GitHub's advisory database with
-  `backend/ops/check_advisories.py`. Policy, alert inventory and what was deliberately left
-  alone: [`docs/DEPENDENCIES.md`](docs/DEPENDENCIES.md).
-- **Production configuration validation**: with `ENVIRONMENT=production` the service refuses to
-  start on placeholder or short JWT secrets, on identical access/refresh secrets, on a
-  wildcard or `http://` CORS origin, on `DEBUG=true`, on the demo account being enabled (its
-  password is printed in this repository, so it is shared access, not convenience), on the
-  database password this repository ships with for development, and on an unrecognised value
-  of `ENVIRONMENT` itself — a typo there would otherwise silently disable every other check.
-- **Account deletion as a data lifecycle**: the row is kept so referential integrity and pair
-  history survive, and everything that still describes the person is erased — test answers,
-  results, compatibility vector, activity affinity, deck entries — while `birth_date`,
-  `gender`, `dating_goal` and preferences are set to values no form can produce. Uploaded photo
-  rows and their files are removed too, because `/uploads` is public static and hiding a profile
-  does not stop a URL being served. Reports deliberately survive deletion.
-- **Block and report**: a block removes the pair and its messages, returns 404 for history and
-  sending in both directions, and is re-checked on socket handshake and per frame.
-- **CORS validation**: wildcard origin combined with credentials is rejected at startup.
+- **Аутентификация на JWT**: access-токен (по умолчанию 30 минут) и refresh-токен (по
+  умолчанию 30 дней), который **ротится при каждом использовании**; в покое refresh существует
+  только как SHA-256 хеш, никогда — как значение, которое держит клиент.
+- **Хеширование паролей bcrypt**; пароли не пишутся в логи, как и access/refresh-токены, —
+  включая токен, который появляется в рукопожатии WebSocket.
+- **Авторизация на уровне объекта (защита от IDOR)** на каждом маршруте с идентификатором, с
+  отдельным прогоном тестов, который утверждает, что чужой id отвергнут, а не просто скрыт. Сюда
+  же входит видимость: `GET /users/{id}`, `POST /users/{id}/like` и `/pass` проверяют цель одним
+  правилом — тем, которым колода решает, кого показывать, — поэтому спрятанный, отключённый или не
+  прошедший анкету профиль отвечает 404 и на чтении, а не только в ленте. Отказ всегда один и тот
+  же, `404`, включая маршруты пары: `403` подтвердил бы, что такая пара существует, и по разнице
+  ответов пару можно было бы перебирать. Набор маршрутов берётся из таблицы маршрутов приложения,
+  а не из списка, кто-то когда-то написанный, поэтому новый маршрут с идентификатором попадает
+  под проверку в коммите, который его подключил.
+- **Авторизация WebSocket**: рукопожатие проверяет JWT и принадлежность паре, и каждый кадр уже
+  открытого сокета перепроверяет их, поэтому сокет не может пережить свою пару, блокировку или
+  отключение аккаунта — close `1008`. Перепроверяется и кадр
+  «печатает» — он доходит до экрана другого человека, значит спрашивает строки не дешевле, чем
+  сообщение.
+- **Ограничение частоты запросов** скользящим окном: 120 запросов в минуту на каждый маршрут
+  кроме `/health`, 20 в минуту на `/auth`, 60 в минуту на `/health/db`, 30 рукопожатий в минуту
+  на адрес для WebSocket и 120 кадров в минуту на аккаунт внутри соединения. Ключ берётся по
+  адресу соединения, а не по `X-Forwarded-For`, который клиент подделывает сам; `/health` оставлен
+  без лимита, потому что монитор, получивший 429, объявит сервис мёртвым в чужой час пик, а
+  `/health/db` ограничен, потому что каждый его запрос берёт соединение из пула, который делят
+  настоящие пользователи.
+- **Документация API закрыта в production**: `/docs`, `/redoc` и `/openapi.json` не отвечают, а
+  корневой ответ не ссылается на них. OpenAPI-документ перечисляет каждый маршрут с
+  идентификатором и его параметры, а `/docs` умеет слать запросы прямо из браузера; на стенде это
+  удобный способ прочитать контракт, на публичном хосте — карта для того, кто её сканирует.
+- **Безопасное логирование**: структурированные логи запросов несут id запроса, маршрут, статус
+  и длительность и никаких персональных данных пользователя.
+- **Проверка загрузок**: изображение читается до потолка по размеру и перенокодировается через
+  Pillow, поэтому файл слишком большой или испорченный отвергается как вход, а не превращается
+  в 500 или decompression bomb. Декодер выбирается из списка, который принадлежит этому продукту
+  (`ACCEPTED_PIL_FORMATS`), а не из байтов, которые клиент сам подписал: `Image.open` берёт
+  парсер из магических чисел в теле, и без вторых ворот объявленный JPEG PSD или TIFF доезжает до
+  декодера, который фото не нужен.
+- **Сторонние компоненты**: runtime-зависимости запинены точно, тестовый инструментарий лежит в
+  отдельном файле, чтобы рабочий образ не нёс тест-раннер, а разрешённый граф — 39 pip-артефактов
+  и 165 Maven-артефактов — проверяем на аудит-базе GitHub скриптом
+  `backend/ops/check_advisories.py`. Политика, список alert'ов и то, что было оставлено намеренно:
+  [`docs/DEPENDENCIES.md`](docs/DEPENDENCIES.md).
+- **Проверка production-конфигурации**: при `ENVIRONMENT=production` сервис не стартует на
+  заглушечном или коротком JWT-секрете, на совпадающих секретах access и refresh, на wildcard-
+  или `http://` CORS-origin, на `DEBUG=true`, на включённом демо-аккаунте (его пароль напечатан
+  в этом репозитории, значит это общий доступ, а не удобство), на пароле базы, который репозиторий
+  кладёт для разработки, и на неразпознанном значении самого `ENVIRONMENT` — опечатка в нём иначе
+  молча выключила бы все остальные проверки.
+- **Удаление аккаунта как жизненный цикл данных**: строка остаётся, чтобы целость ссылок и
+  история пар выжили, а всё, что ещё описывает человека, стирается — ответы теста, результаты,
+  вектор совместимости, привязанность к активностям, записи колоды — при этом `birth_date`, `gender`,
+  `dating_goal` и предпочтения выставляются в значения, которые ни одна форма не выдаст. Строки
+  загруженных фото и их файлы тоже удаляются, потому что `/uploads` — открытая статика, и скрытие
+  профиля не мешает отдавать URL. Жалобы удалению переживают намеренно.
+- **Блокировка и жалобы**: блокировка убирает пару и её сообщения, отвечает 404 на историю и на
+  отправку в обе стороны и перепроверяется при рукопожатии сокета и на каждом кадре.
+- **Проверка CORS**: wildcard-origin вместе с credentials отвергается на старте.
 
-This section deliberately omits implementation details that would make abuse easier; the
-behavioral guarantees above are what the test suite asserts.
+Этот раздел намеренно опускает детали реализации, которые облегчили бы злоупотребление;
+поведенческие гарантии выше — то, что утверждает тестовый набор.
 
-## Reliability
+## Надёжность
 
-- **Migrations** are Alembic revisions, applied on container start; `alembic check` is clean
-  against the models, and each revision has a working downgrade path.
-- **Backups** are documented as a procedure with a verified restore drill: `pg_dump`, a
-  fingerprint query, restore into a scratch database, compare, drop. A copy that has not been
-  restored is not a backup, so the drill is written down with its numbers in
-  `docs/OPERATIONS.md`.
-- **Health probes**: a liveness endpoint and a database-backed readiness endpoint, so an
-  orchestrator can tell "process up" from "can serve".
-- **Pool math** is documented rather than guessed: size, overflow and `pool_recycle` are
-  justified against the Postgres `max_connections` in this stand.
-- **Race conditions closed by constraints**: repeated likes, double test submissions and
-  duplicate messages are settled by the database, not by a check-then-insert in Python.
-- **Chat idempotency**: a send carries a client-generated key, so a retry after a lost response
-  stores one message; a reconnect backfills what the socket missed.
-- **Observability**: every request gets an id, a duration and a structured line, which is what
-  made the latency and N+1 fixes measurable.
-- **Performance**: the discovery feed and the match list stopped paying N+1; the two hot reads
-  that scanned a whole table now scan a page; discovery reads a stored deck instead of
-  re-ranking the pool per request. Query-count ceilings are asserted by tests.
-- **Release integrity**: a release build cannot be produced against the emulator address —
-  packaging fails unless explicit `https://`/`wss://` backend URLs are supplied, and the check
-  is made against the artifacts the task graph actually produces.
+- **Миграции** — ревизии Alembic, применяются при старте контейнера; `alembic check` чист
+  относительно моделей, и у каждой ревизии есть работающий путь downgrade.
+- **Резервные копии** оформлены как процедура с проверенным дроллем восстановления: `pg_dump`,
+  отпечаток-запрос, восстановление в черновую базу, сравнение, удаление. Копия, которую не
+  восстанавливали, — не резервная копия, поэтому дролл записан вместе с числами в
+  [`docs/OPERATIONS.md`](docs/OPERATIONS.md).
+- **Пробы здоровья**: liveness-эндпоинт и readiness-эндпоинт с проверкой базы, чтобы
+  оркестратор отличал «процесс жив» от «могу обслуживать».
+- **Арифметика пула** задокументирована, а не угадана: размер, overflow и `pool_recycle`
+  обоснованы относительно `max_connections` Postgres в этом стенде.
+- **Гонки закрыты ограничениями**: повторные симпатии, двойная отправка теста и одинаковые
+  сообщения решают база данных, а не схема check-then-insert на Python. То же касается колоды:
+  ранг — это шаг курсора, поэтому уникальный индекс по `(viewer_id, rank)` не даёт двум
+  одновременным добивкам поставить две карточки на один шаг, из-за чего одна из них пропала бы
+  из поиска молча.
+- **Идемпотентность чата**: отправка несёт клиентский ключ, поэтому повтор после потерянного
+  ответа сохраняет одно сообщение; переподключение подтягивает то, что пропустил сокет.
+- **Наблюдаемость**: каждый запрос получает id, длительность и структурированную строку — именно
+  это сделало правки задержек и N+1 измеримыми.
+- **Производительность**: лента поиска и список пар перестали платить N+1; два горячих чтения,
+  которые сканировали всю таблицу, сканируют страницу; поиск читает хранимую колоду вместо
+  ранжирования пула на каждый запрос; вход по адресу читается индексом по выражению
+  `lower(email)`, а не полным обходом таблицы — проверено планом, который до правки печатал
+  `Seq Scan on users`. Потолок количества запросов утверждён тестами.
+- **Целостность релиза**: release-сборку нельзя собрать против адреса эмулятора — упаковка
+  падает, если явно не переданы `https://`/`wss://` адреса бэкенда, и проверка сделана по тем
+  артефактам, которые действительно производит граф задач.
+- **Непрерывная проверка**: пять job'ов GitHub Actions (`backend`, `migrations`, `android`,
+  `advisories`, `journey`) гоняют эти же команды на чистом runner'е, так что процитированные ниже
+  числа перестали быть ручными замерами. PR с регрессией становится красным.
 
-## Testing
+## Тесты
 
-Re-run before quoting these numbers; they were measured on 2026-10-06 against this tree:
+Эти числа стоит перепроверить перед тем, как цитировать; замер сделан 2026-10-06 на этом дереве:
 
-| Suite | Result | Command |
+| Набор | Результат | Команда |
 |---|---|---|
-| Backend (unit + integration + security config + IDOR + perf + pagination + observability + DB reliability + media + chat idempotency + compatibility consistency + dependency security regressions) | **235 passed** | `cd backend && pytest` |
-| Android unit (ViewModels and pure functions) | **131 passed, 0 failed** | `cd android && ./gradlew :app:testDebugUnitTest` |
-| Live product journey against the running Docker backend, two real accounts | **64 / 64 checks** | `cd backend && python e2e_journey.py` |
-| On-device run on an emulator | manual, full flow: register → onboarding → test → discovery → match → chat → compatibility → recommendations → pairs → profile → settings → logout → re-login | AVD `befos_avd` (pixel_4, 540×1140 / density 220), headless |
+| Бэкенд (юнит + интеграция + security config + IDOR + perf + пагинация + наблюдаемость + надёжность БД + медиа + идемпотентность чата + согласованность совместимости + регрессии зависимостей + race-условия колоды + планы запросов + страж одной pytest-сессии + sweep по таблице маршрутов + потолки пробы и сокета) | **258 passed** | `cd backend && pytest` |
+| Android unit (ViewModel и чистые функции) | **131 passed, 0 failed** | `cd android && ./gradlew :app:testDebugUnitTest` |
+| Живой продуктовый путь против работающего Docker-бэкенда, два настоящих аккаунта | **64 / 64 проверок** | `cd backend && python e2e_journey.py` |
+| Запуск на устройстве | вручную, полный поток: регистрация → анкета → тест → поиск → матч → чат → совместимость → рекомендации → пары → профиль → настройки → выход → повторный вход | AVD `befos_avd` (pixel_4, 540×1140 / плотность 220), headless |
 
-The backend suite creates its own `befos_test` database against the Docker Postgres on
-`localhost:5432`, so a running `docker compose up -d` is the only prerequisite; the target
-cluster can be overridden with `BEFOS_TEST_PG_HOST/PORT/USER/PASSWORD/DB`.
+Бэкенд-набор создаёт собственную базу `befos_test` против Docker Postgres на
+`localhost:5432`, поэтому единственное предусловие — работающий `docker compose up -d`; целевой
+кластер переопределяется через `BEFOS_TEST_PG_HOST/PORT/USER/PASSWORD` и имя базы —
+`BEFOS_TEST_DB`.
 
-The E2E journey drives the whole value chain with two real accounts — registration, onboarding,
-test, discovery, mutual like, match, chat over the socket, compatibility, recommendations,
-block/visibility, refresh, logout, re-login, account deletion — plus the negative security
-cases, including the data-derived card reason.
+Набор держит базу по одной сессии: `conftest.py` берёт advisory-лок на время прогона, и вторая
+сессия против той же базы получает отказ старта с указанием причины, а не 13 падений, которые
+выглядят как регрессии. Так сделано потому, что фикстура `client` вычищает доменные таблицы перед
+каждым тестом, и две параллельные сессии стирают строки друг друга; замер 2026-10-06 — второй
+прогон против уже занятой базы был отказан, тогда как без охраны он дал `13 failed / 229 passed`
+на дереве, которое проходит целиком.
 
-Layout and input are measured rather than eyeballed: the responsive matrix at 320/360/411/540 dp
-and font scale up to 1.3, the keyboard/IME clearance on every text screen, and the interest-chip
-geometry (a tap moves none of its six neighbours; the chip's touch target is exactly 48 dp).
+E2E-путь ведёт всю цепочку создания ценности двумя настоящими аккаунтами — регистрация, анкета,
+тест, поиск, взаимная симпатия, матч, чат через сокет, совместимость, рекомендации,
+блокировка/видимость, refresh, выход, повторный вход, удаление аккаунта — плюс негативные
+проверки безопасности, включая причину показа карточки, выведенную из данных.
 
-## Development History
+Геометрия и ввод измеряются, а не оцениваются на глаз: матрица адаптивности 320/360/411/540 dp при
+масштабе текста до 1.3, клавиатура/IME на каждом текстовом экране и геометрия чипов интересов
+(касание не сдвигает ни одного из шести соседей; область касания чипа — ровно 48 dp).
 
-Six days of history, kept whole rather than squashed — the versions that were later replaced are
-still addressable by commit. Recount at any time with `git rev-list --count HEAD`.
+## История разработки
 
-| Stage | When | What changed |
+Шесть дней истории, сохранённые целиком, а не сплющенные — вытесненные версии по-прежнему
+адресуются коммитом. Пересчитать в любой момент: `git rev-list --count HEAD`.
+
+| Этап | Когда | Что изменилось |
 |---|---|---|
-| Foundation | 2026-10-01 | Backend with the compatibility engine, Compose client, first tests, first docs |
-| Realtime, auth rules, performance | 2026-10-02 | WebSocket chat, session routing, fail-fast config, IDOR suite, N+1 removal, release signing |
-| Visual redesign | 2026-10-02 | Token system and component rebuild, every screen migrated |
-| UX excellence | 2026-10-03 | Honest failure states, skeletons, navigation state, copy voice |
-| Adversarial QA, reliability | 2026-10-04 | Forged-header limiter, races, socket lifecycle, media limits, observability, idempotency |
-| Accessibility, privacy, engine consistency | 2026-10-05 | Keyboard/IME matrix, contrast, deletion lifecycle, symmetric scores, production guards |
-| Launch readiness | 2026-10-06 | Ignore rules, loopback-only database, shipped-password guard, license, screenshots |
-| Dependency security hardening | 2026-10-06 | 40 alerts closed by four patched pins, decoder whitelist, non-root two-stage image, advisory audit tool, 44 new regressions |
+| Фундамент | 2026-10-01 | Бэкенд с движком совместимости, клиент на Compose, первые тесты, первые документы |
+| Realtime, правила сессий, производительность | 2026-10-02 | WebSocket-чат, маршрутизация сессий, fail-fast конфигурация, набор IDOR, удаление N+1, подпись релиза |
+| Визуальный редизайн | 2026-10-02 | Система токенов и пересборка компонентов, перенос каждого экрана |
+| Качество UX | 2026-10-03 | Честные состояния отказа, скелетоны, состояние навигации, голос текстов |
+| Adversarial QA, надёжность | 2026-10-04 | Лимитер по подделанному заголовку, гонки, жизнь сокета, лимиты медиа, наблюдаемость, идемпотентность |
+| Доступность, приватность, согласованность движка | 2026-10-05 | Матрица клавиатуры/IME, контраст, цикл удаления, симметричные проценты, production-стражи |
+| Готовность к запуску | 2026-10-06 | Правила gitignore, база только на loopback, сторож за shipped-паролем, лицензия, скриншоты |
+| Усиление зависимостей | 2026-10-06 | 40 alert'ов закрыты четырьмя пинами, белый список декодеров, двухстадийный non-root образ, инструмент аудита advisory, 44 новые регрессии |
+| Конвейер и проверки на runner'е | 2026-10-06 | Пять job'ов GitHub Actions, executable-бит `gradlew`, Dependabot, шаблоны issue и PR, еженедельный пересмотр графов и CodeQL по Python |
+| Пять правок первой очереди | 2026-10-06 | Лимитер на всех маршрутах кроме `/health`, видимость на путях симпатии и пропуска, сброс колоды и процентов после анкеты, уникальный ранг в колоде с миграцией, индекс под `lower(email)` |
+| Аудит таблицы маршрутов | 2026-10-06 | Один 404 на маршрутах пары вместо 403-оракула, правило колоды на чтении чужого профиля, окна для пробы базы и для сокета, перечитывание авторизации на `typing` и `read`, закрытая в production документация, набор проверок, выведенный из `create_app().routes` |
 
-Full stage-by-stage detail, with the commit evidence behind each row:
+Подробности по этапам, с доказательствами коммитов для каждой строки:
 [`docs/DEVELOPMENT_HISTORY.md`](docs/DEVELOPMENT_HISTORY.md).
 
-## Running Locally
+## Локальный запуск
 
-### Backend with Docker (recommended)
+### Бэкенд в Docker (рекомендуется)
 
 ```bash
-cp .env.example .env        # edit the secrets if you like
+cp .env.example .env        # при желании поменяйте секреты
 docker compose up --build
 ```
 
-Compose starts PostgreSQL and the backend, applies migrations (`alembic upgrade head`), seeds
-the catalogues and demo data (`python -m app.seed --if-empty`) and serves the API on
-`http://localhost:8000`. Interactive docs: `http://localhost:8000/docs`.
+Compose поднимает PostgreSQL и бэкенд, применяет миграции (`alembic upgrade head`), засевает
+каталоги и демо-данные (`python -m app.seed --if-empty`) и отдаёт API на
+`http://localhost:8000`. Интерактивная документация: `http://localhost:8000/docs`.
 
-The development compose file publishes PostgreSQL on `127.0.0.1:5432` only, so a stray
-`docker compose up` on a machine with a routable interface does not expose the database.
+Development-файл compose публикует PostgreSQL только на `127.0.0.1:5432`, поэтому случайный
+`docker compose up` на машине с маршрутизируемым интерфейсом базу не выставляет наружу.
 
-### Backend without Docker
+### Бэкенд без Docker
 
 ```bash
 cd backend
-python -m venv .venv && source .venv/Scripts/activate   # Windows Git Bash
-pip install -r requirements-dev.txt                      # runtime + the test tooling
-cp ../.env.example .env                                  # point DATABASE_URL at your PostgreSQL
+python -m venv .venv && source .venv/Scripts/activate   # Windows, Git Bash
+pip install -r requirements-dev.txt                      # runtime + тестовый инструментарий
+cp ../.env.example .env                                  # направьте DATABASE_URL на свою PostgreSQL
 alembic upgrade head
 python -m app.seed
 uvicorn app.main:app --reload --port 8000
 ```
 
-`requirements.txt` is what the container installs — runtime only, pinned exactly.
-`requirements-dev.txt` pulls that file in and adds `pytest`, `pytest-asyncio` and `httpx`, which
-never reach the image. The pins and the reasons behind them:
+`requirements.txt` ставится в контейнер — только runtime, запиненный точно.
+`requirements-dev.txt` подтягивает этот файл и добавляет `pytest`, `pytest-asyncio` и `httpx`,
+которые в образ не попадают. Пины и причины за ними:
 [`docs/DEPENDENCIES.md`](docs/DEPENDENCIES.md).
 
 ### Android
 
-Open `android/` in Android Studio, or build from the CLI:
+Откройте `android/` в Android Studio или соберите из CLI:
 
 ```bash
 cd android
 ./gradlew :app:assembleDebug     # app/build/outputs/apk/debug/app-debug.apk
 ```
 
-The emulator reaches the host at `10.0.2.2`, so a backend on `localhost:8000` needs no extra
-configuration (see `API_BASE_URL` in `android/app/build.gradle.kts`). A physical device can use
-`adb reverse tcp:8000 tcp:8000`.
+Эмулятор достаёт до хоста через `10.0.2.2`, поэтому бэкенд на `localhost:8000` не требует
+дополнительной конфигурации (см. `API_BASE_URL` в `android/app/build.gradle.kts`). Физическое
+устройство может использовать `adb reverse tcp:8000 tcp:8000`.
 
-### Release build
+### Release-сборка
 
 ```bash
 cd android
 export BEFOS_API_BASE_URL="https://api.example.com/" BEFOS_WS_BASE_URL="wss://api.example.com/"
-# optional signing: copy android/keystore.properties.example to android/keystore.properties
-# (outside git). Without it the build honestly produces an unsigned APK/AAB — never a debug key.
+# подпись по желанию: скопируйте android/keystore.properties.example в android/keystore.properties
+# (вне git). Без неё сборка честно производит неподписанный APK/AAB — никогда debug-ключ.
 ./gradlew :app:assembleRelease :app:bundleRelease
 ```
 
-Without those two variables packaging fails with a clear message: an accidental release pointed
-at the emulator's HTTP address is not possible. The address must be `https://`/`wss://`, must
-not embed credentials, and must not be `localhost`/`10.0.2.2`. Signing, artifact verification
-with `apksigner`, the R8 mapping and the pre-publication checklist are in
-[`docs/RELEASE.md`](docs/RELEASE.md).
+Без этих двух переменных упаковка падает с понятным сообщением: случайный release, указывающий
+на HTTP-адрес эмулятора, невозможен. Адрес должен быть `https://`/`wss://`, не содержать
+credentials и не быть `localhost`/`10.0.2.2`. Подпись, проверка артефактов через `apksigner`,
+R8-маппинг и чек-лист перед публикацией — в [`docs/RELEASE.md`](docs/RELEASE.md).
 
-### Tests
+### Тесты
 
 ```bash
-cd backend && pytest                                   # 235
+cd backend && pytest                                   # 245
 cd android && ./gradlew :app:testDebugUnitTest         # 131
-cd backend && python e2e_journey.py                    # 64 checks, needs the Docker backend up
+cd backend && python e2e_journey.py                    # 64 проверки, нужен поднятый Docker-бэкенд
 ```
 
-Dependencies are checked the same way as the suites — by running something rather than by
-trusting a badge:
+Зависимости проверяются так же, как наборы тестов — запуском чего-то, а не доверием бейджу:
 
 ```bash
 docker exec befos_backend python -m pip freeze | python backend/ops/check_advisories.py --pip-stdin
 ```
 
-It asks GitHub's advisory database about the *resolved* graph and exits 1 on any hit;
-[`docs/DEPENDENCIES.md`](docs/DEPENDENCIES.md) has the Gradle-side command and the 2026-10-06
-measurement.
+Скрипт спрашивает аудит-базу GitHub про *разрешённый* граф и возвращает 1 при любом попадании;
+[`docs/DEPENDENCIES.md`](docs/DEPENDENCIES.md) содержит команду для Gradle-стороны и замер
+2026-10-06.
 
-## Demo
+## Демо
 
-With `DEMO_ENABLED=true` (the default in `.env.example`, and refused in production):
+При `DEMO_ENABLED=true` (значение по умолчанию в `.env.example`, в production отвергается):
 
 ```
 email:    demo@befos.app
 password: Demo12345
 ```
 
-The seed also creates 50 clearly fictional demo personas with synthetic answers so discovery,
-matching and recommendations have something real to compute on. With `DEMO_ENABLED=false` the
-seed loads only the catalogues (interests, questions, activities) and invents nobody.
+Посев создаёт ещё 50 очевидно вымышленных демо-персон с синтетическими ответами, чтобы поиску,
+матчингу и рекомендациям было на чём считать. При `DEMO_ENABLED=false` посев грузит только
+каталоги (интересы, вопросы, активности) и никого не выдумывает.
 
-[`DEMO.md`](DEMO.md) is a 5–10 minute script of the full value chain (steps 0–17, in the order
-the product is meant to be shown), including the realtime frame test and the two irreversible
-actions to run on a throwaway account.
+[`DEMO.md`](DEMO.md) — сценарий на 5–10 минут по всей цепочке создания ценности (шаги 0–17 в том
+порядке, в котором продукт показывают), включая проверку realtime-кадров и два необратимых
+действия, которые делают на одноразовом аккаунте.
 
-## Project Status
+## Состояние проекта
 
-Working and verified: everything in the flow above, on the current tree, on an emulator and
-against the Docker backend — plus the three suites and the live journey.
+Работает и проверено: всё, что описано в потоке выше, на текущем дереве, на эмуляторе и против
+Docker-бэкенда — плюс три набора тестов и живой путь.
 
-Not done, stated plainly:
+Не сделано, сказ прямо:
 
-- **No deployment.** The service runs locally or in Docker Compose on one host; there is no
-  hosted instance, no TLS termination and no CI in this repository.
-- **No push notifications.** The design against the existing seams is written down
-  (`docs/ARCHITECTURE.md`), the implementation is not — deliberately, because it needs a
-  project credential.
-- **No admin panel.** Reports are stored and survive deletion of the reporter's account, but
-  reading and resolving them currently means SQL (`docs/OPERATIONS.md` §14).
-- **Unblocking is not in the app.** A block is permanent from the client; removal is a
-  documented SQL operation and does not restore the pair or its history.
-- **Backups are manual.** There is a verified drill, not a scheduler, and no off-host copy.
-- **No point-in-time recovery.** The recovery point is the last dump.
-- **One database, no replica.** A heavy report runs on working connections.
-- **`/uploads` is unauthenticated static.** Privacy there rests on unpredictable file names and
-  on deleting the file with the account, not on a permission check.
-- **Android unit tests need an ASCII path on Windows.** From a directory containing non-ASCII
-  characters the Gradle test worker dies with `ClassNotFoundException` for every class
-  (`sun.jnu.encoding=Cp1251`); the same 131 tests pass from an ASCII path, as they did for the
-  numbers above. Application builds are unaffected.
-- **Clone the Android app without `--depth`.** From a shallow clone of this repository the
-  Gradle task graph fails to resolve — `Could not determine the dependencies of task
-  ':app:testDebugUnitTest'` with a `java.io.IOException` — while the same commit built and ran
-  all 131 tests from a full clone. The backend and the container image are unaffected by how the
-  repository was cloned.
+- **Нет развёртывания.** Сервис работает локально или в Docker Compose на одном хосте; внешнего
+  запущенного инстанса, терминирования TLS и настоящего боевого окружения нет. Конвейер поднимает
+  собранный образ и ведёт живой путь на runner'е, но это проверка, а не запуск: среда живёт
+  столько, сколько длится job, и наружу ничего не выставлено.
+- **Нет push-уведомлений.** Дизайн относительно существующих швов записан
+  (`docs/ARCHITECTURE.md`), реализации нет — намеренно: она требует ключ сервиса Firebase Cloud
+  Messaging, а своего проектного ключа в этом репозитории нет и придумать его нельзя.
+- **Нет панели администратора.** Жалобы сохраняются и переживают удаление аккаунта автора, но
+  читать и разбирать их сейчас значит SQL (`docs/OPERATIONS.md` §14).
+- **Разблокировки в приложении нет.** Для клиента блокировка окончательна; снятие —
+  задокументированная SQL-операция, которая не восстанавливает пару и её историю.
+- **Резервные копии ручные.** Есть проверенный дролл, а не планировщик, и нет копии вне хоста.
+- **Нет восстановления в момент времени.** Recovery point — последний дамп.
+- **Одна база, без реплики.** Тяжёлый отчёт выполняется на рабочих соединениях.
+- **`/uploads` — неаутентифицированная статика.** Приватность там держится на непредсказуемых
+  именах файлов и на удалении файла вместе с аккаунтом, а не на проверке прав.
+- **Юнит-тесты Android требуют ASCII-пути на Windows.** Из директории с не-ASCII символами
+  Gradle test worker умирает с `ClassNotFoundException` на каждом классе
+  (`sun.jnu.encoding=Cp1251`); те же 131 тест проходят из ASCII-пути, как и прошли для чисел
+  выше. Сборки приложения это не касается.
+- **Клонируйте Android без `--depth`.** Из shallow-клона этого репозитория граф задач Gradle не
+  разрешается: `Could not determine the dependencies of task ':app:testDebugUnitTest'` с
+  `java.io.IOException`, — тогда как тот же коммит из полного клона собрался и прогнал все 131
+  тест. Бэкенд и контейнерный образ от способа клона не зависят.
 
-## Roadmap
+## Дорожная карта
 
-In the order the gaps above actually block something:
+В том порядке, в котором перечисленные пробелы реально что-то блокируют:
 
-1. Deploy the backend behind TLS with real secrets, and prove the production config gates
-   against a live environment rather than a local one.
-2. Put the three suites and `backend/ops/check_advisories.py` in CI, so "235 / 131 / 64" and
-   "0 affected" stop being manual measurements.
-3. Push notifications, following the already-written design (device-token storage, per-pair
-   delivery rules, opt-out) once a project credential exists.
-4. A moderation reader for reports, so a complaint has a recipient who is not a `psql` prompt.
-5. Scheduled backups with an off-host copy and a periodically re-run restore drill; PITR after
-   that.
-6. In-app unblock with an explicit statement that it does not resurrect the deleted pair.
-7. Signed release distribution (Play internal track) and a versioning policy on top of the
-   existing release gate.
+1. Выставить бэкенд за TLS с настоящими секретами и доказать production-стражи на живом
+   окружении, а не на локальном.
+2. Push-уведомления по уже записанному дизайну (хранение токена устройства, правила доставки по
+   парам, отказ от рассылок) — как только появится ключ сервиса FCM.
+3. Читалка жалоб для модерации, чтобы у претензии был адресат, отличный от приглашения `psql`.
+4. Плановые резервные копии с копией вне хоста и периодически повторяемым дроллом восстановления;
+   PITR после этого.
+5. Разблокировка в приложении с явным утверждением, что она не воскресает удалённую пару.
+6. Подписанная дистрибуция релиза (закрытый трек Play) и политика версионирования поверх
+   существующих release-ворот.
 
-## License
+## Лицензия
 
-Proprietary. **All Rights Reserved** — see [`LICENSE`](LICENSE).
+Проприетарная. **All Rights Reserved** — см. [`LICENSE`](LICENSE).
 
 > © 2026 Andrew Kolesnikov. All rights reserved.
 > The repository is published for portfolio, educational review and demonstration purposes.
 > No license is granted to copy, redistribute, modify, sublicense or commercially use the
 > source code without explicit written permission.
 
-The absence of an open-source license is not an oversight: no open-source permission is granted
-here, and **reuse is not permitted** — that includes porting the compatibility engine, reusing a
-module, embedding the APK or hosting a copy. Reading the code and history, and building it
-locally unmodified for review or study, is permitted, as are short attributed quotations; the
-exact terms are in `LICENSE`. Third-party components remain under their own licenses and are
-named in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). This is a plain statement of the
-author's intent, not legal advice.
+Отсутствие open-source лицензии — не забывчивость: разрешение на открытое использование здесь не
+выдаётся, и **использовать код нельзя** — это касается и переноса движка совместимости, и
+заимствования модуля, и встраивания APK, и хостинга копии. Читать код и историю и собирать его
+локально без изменений для ревью или учёбы — можно, как и короткие цитаты с указанием авторства;
+точные условия — в `LICENSE`. Сторонние компоненты остаются под своими лицензиями и перечислены в
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). Это прямое изложение намерений автора, а не
+юридическая консультация.
 
-BeFoS is maintained as a proprietary portfolio/product project. **External contributions are
-not accepted at this time** — there is no `CONTRIBUTING.md`, and pull requests will not be
-merged. Permission requests can be made through the author's GitHub profile (Andrew05812).
+BeFoS ведётся как проприетарный portfolio/product-проект. **Внешние вклады сейчас не
+принимаются** — `CONTRIBUTING.md` нет, pull request'ы не мёржатся. Запросить разрешение можно
+через GitHub-профиль автора (Andrew05812).

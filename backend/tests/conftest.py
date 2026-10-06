@@ -1,14 +1,16 @@
 """Integration test fixtures.
 
-Points the app at a dedicated ``befos_test`` database (created on the fly),
-builds the schema, seeds the reference catalogues once per session, and wipes
-user-domain rows between tests so each test starts from a clean state.
+Points the app at a dedicated ``befos_test`` database (created on the fly), builds the schema,
+seeds the reference catalogues once per session, and wipes user-domain rows between tests so
+each test starts from a clean state. Runs only as the single session on that database: a second
+concurrent session is refused rather than allowed to corrupt results.
 """
 
 from __future__ import annotations
 
 import asyncio
 import os
+import threading
 
 # Test database location. Defaults to the Docker Compose postgres published on
 # localhost:5432 so `pytest` runs against the same runtime as the app. Override
@@ -34,6 +36,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete
 
 _MAINT_DSN = f"postgresql://{_PG_USER}:{_PG_PASSWORD}@{_PG_HOST}:{_PG_PORT}/postgres"
+_TEST_DSN = f"postgresql://{_PG_USER}:{_PG_PASSWORD}@{_PG_HOST}:{_PG_PORT}/{_TEST_DB}"
 
 
 def _ensure_test_database() -> None:
@@ -96,8 +99,96 @@ _DOMAIN_MODELS = (
 )
 
 
+_TEST_DB_LOCK_KEY = 475001813
+
+
+class _TestDatabaseLease:
+    """Hold a Postgres advisory lock on the test database for the life of the session.
+
+    The lock dies with the backend that holds it, so the connection has to stay open for the
+    whole run. Keeping it means keeping an event loop that connection belongs to, and pytest
+    gives every test its own — hence a dedicated thread with its own loop, which also lets the
+    fixture stay synchronous.
+
+    ``key`` is a parameter because the suite must be able to prove the mechanism refuses and
+    releases without disturbing the lease the session itself is holding.
+    """
+
+    def __init__(self, key: int = _TEST_DB_LOCK_KEY) -> None:
+        self._key = key
+        self._loop = asyncio.new_event_loop()
+        self._thread = threading.Thread(target=self._loop.run_forever, daemon=True)
+        self._thread.start()
+        self._conn = None
+        self._stopped = False
+
+    def _call(self, coro):
+        return asyncio.run_coroutine_threadsafe(coro, self._loop).result(timeout=30)
+
+    async def _acquire(self) -> bool:
+        self._conn = await asyncpg.connect(_TEST_DSN)
+        return bool(await self._conn.fetchval("SELECT pg_try_advisory_lock($1)", self._key))
+
+    def acquire(self) -> bool:
+        return self._call(self._acquire())
+
+    async def _unlock(self) -> None:
+        if self._conn is None:
+            return
+        await self._conn.fetchval("SELECT pg_advisory_unlock($1)", self._key)
+        await self._conn.close()
+        self._conn = None
+
+    def release(self) -> None:
+        if self._stopped:
+            return
+        self._stopped = True
+        try:
+            self._call(self._unlock())
+        finally:
+            self._loop.call_soon_threadsafe(self._loop.stop)
+            self._thread.join(timeout=10)
+
+
+def _refuse_a_second_session(lease: "_TestDatabaseLease") -> bool:
+    """Take the lease or end the run. Returns whether this session now holds it.
+
+    Kept out of the fixture so the refusal is testable without spawning a second interpreter.
+    """
+    if lease.acquire():
+        return True
+    pytest.exit(
+        f"another pytest session already holds {_TEST_DB}. Two sessions on one database wipe "
+        "each other's domain rows through the `client` fixture, and the failures they report "
+        "are not regressions. Wait for the first run to finish, or point this one at its own "
+        "database: BEFOS_TEST_DB=befos_test_2 (its schema has to be recreated, because "
+        "create_all never alters an existing table).",
+        returncode=1,
+    )
+    return False  # not reached: pytest.exit raises
+
+
 @pytest.fixture(scope="session", autouse=True)
-def _prepare_database():
+def _single_session_on_this_database():
+    """Refuse a second concurrent session instead of letting it corrupt the first.
+
+    The ``client`` fixture deletes every domain table before each test, so two sessions pointed
+    at the same database erase each other's rows mid-flight and report the result as failures
+    that look exactly like regressions (measured on this tree: 13 failed / 229 passed for two
+    overlapping runs against 245 passed for the same tree alone). A session-scoped advisory
+    lock is scoped to one database and one backend, so whoever arrives second is turned away
+    before it can wipe anything, with a message that names the cause.
+    """
+    lease = _TestDatabaseLease()
+    _refuse_a_second_session(lease)
+    try:
+        yield
+    finally:
+        lease.release()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _prepare_database(_single_session_on_this_database):
     """Create the schema and seed reference catalogues once, in a throwaway loop.
 
     The engine is disposed at the end so no connection is bound to this loop;

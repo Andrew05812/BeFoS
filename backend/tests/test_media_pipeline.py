@@ -21,7 +21,7 @@ from app.core.database import AsyncSessionLocal
 from app.core.exceptions import ValidationError
 from app.models import Photo
 from app.services.photo_service import read_upload_capped
-from .conftest import auth_headers, register_and_auth
+from .conftest import auth_headers, complete_onboarding, register_and_auth
 
 
 def _png(width: int = 40, height: int = 40, colour: str = "seagreen") -> bytes:
@@ -78,6 +78,9 @@ async def test_the_photo_chosen_as_primary_is_the_one_readers_see_first(
     the order to whatever the heap handed back."""
     owner = await register_and_auth(client, "primary-order@befos.app")
     headers = auth_headers(owner["token"])
+    # A reader only ever gets a profile the deck would show, so this account completes
+    # onboarding; otherwise the assertion below would be testing a 404.
+    await complete_onboarding(client, owner["token"], name="Хозяин")
 
     first = await client.post(
         "/api/v1/users/me/photo",

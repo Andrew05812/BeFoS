@@ -8,6 +8,7 @@ rather than left to the settings file.
 from __future__ import annotations
 
 import asyncpg
+import pytest
 import pytest_asyncio
 from fastapi import Depends, FastAPI
 from httpx import ASGITransport, AsyncClient
@@ -215,6 +216,95 @@ async def test_the_dependency_borrows_its_connection_before_the_handler_runs(
     assert state["failed"], "the ping was never reached, so nothing was proved"
     retried = [m for _, level, m in _rows(caplog) if "connection the server dropped" in m]
     assert retried, "a silent retry is indistinguishable from a connection that never broke"
+
+
+async def test_the_sign_in_lookup_is_answered_by_an_index_not_by_the_whole_table(
+    session: AsyncSession,
+) -> None:
+    """`lower(email) = :value` is the predicate every sign-in and every registration asks.
+
+    The address is stored normalised, and the predicate stays case-insensitive on purpose, so
+    somebody typing their mailbox the way they read it gets in — but a btree over the raw
+    column cannot answer a predicate on a transformed value, and Postgres had no choice left
+    but to read every row of `users` to find one account. The defect is invisible at the size
+    a test database grows to, so it is asserted on the plan the server itself produces.
+
+    `enable_seqscan = off` is what makes the assertion say something about the index rather
+    than about the cost model: on a few hundred rows a sequential read is genuinely cheaper,
+    and a planner's preference is not the property under test. With the scan taken away, the
+    only way to answer the query is the expression index — and on the running development
+    database the planner picks it without any hint being given.
+    """
+    query = text("EXPLAIN (FORMAT JSON) SELECT id FROM users WHERE lower(email) = :email")
+
+    await session.execute(text("SET enable_seqscan = off"))
+    try:
+        forced = (await session.execute(query, {"email": "whoever@befos.app"})).scalar_one()[0]["Plan"]
+    finally:
+        await session.execute(text("SET enable_seqscan = default"))
+
+    assert forced["Node Type"] == "Index Scan", f"nothing indexes this lookup: {forced}"
+    assert forced["Index Name"] == "uq_users_email_lower"
+
+
+async def test_two_accounts_cannot_claim_one_mailbox_by_changing_its_casing(
+    session: AsyncSession,
+) -> None:
+    """`unique` over the raw column is not the constraint this product needs.
+
+    `A@x` and `a@x` are two strings and one mailbox. Registration normalises before it writes,
+    so nothing ever reached the database both ways through the API — but the guarantee lived in
+    one Python line, and any later write path could break it without a test noticing. The
+    unique expression index moves the rule into the database, where a violation is a failed
+    insert rather than a second account on somebody's address.
+    """
+    from sqlalchemy.exc import IntegrityError
+
+    from app.models import User
+
+    taken = User(
+        email="case_Claim@befos.app", password_hash="not-a-real-hash", is_active=True
+    )
+    session.add(taken)
+    await session.flush()
+
+    rival = User(
+        email="Case_Claim@befos.app", password_hash="not-a-real-hash", is_active=True
+    )
+    session.add(rival)
+    with pytest.raises(IntegrityError):
+        await session.flush()
+    await session.rollback()
+
+
+async def test_a_mailbox_taken_in_one_casing_is_refused_in_every_other(
+    client: AsyncClient,
+) -> None:
+    """The same rule from outside: a duplicate address answers 409, never a 500.
+
+    The database now refuses what the service already refuses, so this pins that the refusal
+    still arrives as the documented conflict instead of escaping as an unhandled integrity
+    error once the constraint is the one doing the work.
+    """
+    first = await client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": "Casing_Claims@befos.app",
+            "password": "Test12345",
+            "password_confirm": "Test12345",
+        },
+    )
+    assert first.status_code == 201, first.text
+
+    second = await client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": "casing_claims@befos.app",
+            "password": "Test12345",
+            "password_confirm": "Test12345",
+        },
+    )
+    assert second.status_code == 409, second.text
 
 
 def _rows(caplog) -> list[tuple[str, str, str]]:

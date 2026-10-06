@@ -44,12 +44,6 @@ class UnauthorizedError(AppError):
     message = "Not authenticated."
 
 
-class ForbiddenError(AppError):
-    status_code = status.HTTP_403_FORBIDDEN
-    code = "forbidden"
-    message = "You do not have access to this resource."
-
-
 class ValidationError(AppError):
     status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
     code = "validation_error"

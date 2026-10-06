@@ -81,7 +81,7 @@ async def test_a_block_leaves_the_pair_no_way_back_into_the_chat(client: AsyncCl
             json={"body": "ещё одно"},
             headers=auth_headers(who["token"]),
         )
-        assert write.status_code in (403, 404), write.text
+        assert write.status_code == 404, write.text
 
     for who in (a, b):
         listed = await client.get("/api/v1/matches", headers=auth_headers(who["token"]))

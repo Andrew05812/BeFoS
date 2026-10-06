@@ -10,6 +10,10 @@ from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect, status
 from app.core.context import new_request_id, request_id
 from app.core.database import AsyncSessionLocal
 from app.core.logging import get_logger
+from app.core.rate_limit import (
+    websocket_frame_allowed,
+    websocket_handshake_allowed,
+)
 from app.core.security import decode_token
 from app.models import Match, User
 from app.repositories.chat_repo import ChatRepository
@@ -103,6 +107,13 @@ async def chat_socket(
 async def _handle_socket(
     websocket: WebSocket, match_id: uuid.UUID, token: str | None
 ) -> None:
+    # Before the token is even decoded: a handshake costs this route a socket, a JWT parse and
+    # two row reads, and none of that should be free for whoever holds an address.
+    if not websocket_handshake_allowed(websocket):
+        logger.warning("socket refused, handshake limit reached (match=%s)", match_id)
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
     user_id = await _authenticate(token)
     if user_id is None:
         logger.warning("socket refused, no usable access token (match=%s)", match_id)
@@ -141,6 +152,16 @@ async def _handle_socket(
             except Exception:
                 # A binary frame cannot be read as text; the socket itself is still usable.
                 raw = None
+            if not websocket_frame_allowed(user_id):
+                # A REST send is one request out of a bucketed minute; a socket can write
+                # forever without ever passing the place a REST limiter would sit. The budget
+                # is the same size as the default REST one and it counts malformed frames too,
+                # because a junk frame is not cheaper than a text frame.
+                await manager.send_personal(
+                    websocket,
+                    {"type": "error", "message": "Too many messages, slow down."},
+                )
+                continue
             data = parse_client_frame(raw)
             if data is None:
                 # One malformed frame is a bad message, not a dead connection.
@@ -152,6 +173,12 @@ async def _handle_socket(
             msg_type = data.get("type")
 
             if msg_type == "typing":
+                # The typing indicator is a signal that reaches the peer, so it is not allowed
+                # to be the one frame that never asks the rows — the socket's authorisation has
+                # to be as fresh for a dot in someone's header as it is for a stored message.
+                if await _refusal_reason(match_id, user_id) is not None:
+                    await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+                    return
                 await manager.broadcast_to_match(
                     match_id,
                     {"type": "typing", "user_id": str(user_id), "typing": bool(data.get("typing", True))},

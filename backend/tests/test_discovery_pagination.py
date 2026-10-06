@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import Interest, Profile, User, UserInterest
 from app.models.base import utcnow
 from app.models.discovery import DiscoveryQueue
+from app.repositories.social_repo import DiscoveryRepository
 from app.services.discovery_service import DECK_BATCH
 
 from .conftest import (
@@ -503,3 +504,111 @@ async def test_seen_rows_are_what_survives(client: AsyncClient, session: AsyncSe
         "has_more": False,
     }
     assert sorted(uid for uid, _ in served) == sorted(seeded)
+
+
+async def test_answering_the_setup_questions_drops_the_deck_ranked_before_them(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """Onboarding changes what the viewer wants, so it has to invalidate like any change.
+
+    The feed starts answering as soon as a profile row exists, which means a viewer who
+    opens discovery before finishing signup is handed a deck built from the defaults —
+    18 to 60, any gender. The claim path re-checks hiding, blocking and deletion, and
+    nothing else, so a card the real answers now exclude is still delivered. Every other
+    write of these fields goes through ``ProfileService.update``, which drops the deck;
+    onboarding writes the same fields and did not.
+
+    The first page asks for two of six candidates on purpose: rows still queued are the
+    ones the fix has to throw away, and a page that consumed the whole deck would pass
+    for the wrong reason.
+    """
+    await _seed_candidates(session, 6, tag="pre_onb")
+    creds = await register_and_auth(client, "deck_pre_onb_v@befos.app")
+
+    before = await _page(client, creds["token"], limit=2)
+    assert len(before["items"]) == 2, "a shell profile must still be served a deck"
+    assert before["has_more"], "two of six candidates have to leave the rest queued"
+
+    onboarded = await client.post(
+        "/api/v1/users/me/onboarding",
+        headers=auth_headers(creds["token"]),
+        json={
+            "name": "Вера",
+            "birth_date": "1996-05-10",
+            "city": "Москва",
+            "gender": "female",
+            "dating_goal": "relationship",
+            "interests": [],
+            "lifestyle": {},
+            # Every seeded candidate was born in 1994, so from this answer on nothing that
+            # is still queued is somebody this viewer could be shown.
+            "age_min": 18,
+            "age_max": 20,
+            "gender_preference": ["male"],
+        },
+    )
+    assert onboarded.status_code == 200, onboarded.text
+
+    after = await _page(client, creds["token"], limit=20)
+    assert after["items"] == [], (
+        "cards the new age band excludes are still being served: "
+        f"{[c['name'] for c in after['items']]}"
+    )
+
+
+async def test_a_refill_landing_on_an_occupied_rank_loses_the_row_not_the_person(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """Two builds of one deck may not put two cards on the same cursor step.
+
+    This is what happens when a viewer's second request starts before the first has
+    written: both read the same `max(rank) + 1` ceiling, and their candidate sets differ by
+    one row because the first one had already queued somebody the second then shifts past.
+    The batch is inserted `ON CONFLICT DO NOTHING`, so the pair collisions disappear on
+    their own — and the row that survives the shift lands on a rank the first batch already
+    used. `deck_claim` pages with `rank > :after`, so one of the two cards on that rank is
+    behind a step the cursor has already taken: a person vanishes from the deck with no
+    error, no log and nothing left to retry.
+    """
+    viewer = await _viewer(client, "rank_race")
+    seeded = await _seed_candidates(session, 6, tag="rank_race")
+    repo = DiscoveryRepository(session)
+    viewer_id = uuid.UUID(viewer["user_id"])
+    ids = [uuid.UUID(candidate) for candidate in seeded]
+
+    await repo.deck_append(
+        viewer_id, [(ids[0], 91), (ids[1], 90), (ids[2], 89)], first_rank=0
+    )
+    await session.commit()
+    # The second build saw ids[0] already queued, so its list is one shorter and starts at
+    # the same ceiling: ids[3] arrives on rank 2, where ids[2] already sits.
+    await repo.deck_append(
+        viewer_id, [(ids[1], 90), (ids[2], 89), (ids[3], 88)], first_rank=0
+    )
+    await session.commit()
+
+    rows = (
+        await session.execute(
+            select(DiscoveryQueue.rank, DiscoveryQueue.candidate_id)
+            .where(DiscoveryQueue.viewer_id == viewer_id)
+            .order_by(DiscoveryQueue.rank)
+        )
+    ).all()
+    ranks = [rank for rank, _ in rows]
+    assert len(ranks) == len(set(ranks)), f"two cards share a rank, so one is never served: {rows}"
+
+    # Losing the rank is survivable precisely because the loser is not queued at all: the
+    # next refill still considers it a person nobody has been shown.
+    assert ids[3] not in {candidate for _, candidate in rows}
+    fresh = await repo.new_candidate_ids(
+        viewer_id=viewer_id,
+        gender_pref=[],
+        age_min=18,
+        age_max=60,
+        city=None,
+        limit=DECK_BATCH,
+    )
+    assert ids[3] in fresh, "the candidate whose row was dropped left the deck for good"
+
+    served = await _serve_all(client, viewer["token"], limit=5)
+    assert len(served) == len(set(uid for uid, _ in served)), "a card arrived twice"

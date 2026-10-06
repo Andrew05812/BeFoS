@@ -1,0 +1,91 @@
+# Weekly re-audit of the two resolved dependency graphs, on a clock rather than on a pull request.
+#
+# `ci.yml` already refuses a PR whose graph carries a published flaw. That gate only closes the
+# door at the moment a change arrives: an advisory published *after* a merge changes nothing in the
+# repository, so nothing in `ci.yml` would ever re-run, and the answer to "is anything affected
+# today" would go stale while the pins stay exactly where they were. This workflow asks the same
+# question of the same graph once a week, so the number in `docs/DEPENDENCIES.md` has a date that
+# a runner produced rather than a date a human remembered.
+#
+# Nothing here publishes artefacts or touches secrets: the audit reads manifests and the advisory
+# database, and `GITHUB_TOKEN` is only what raises the API rate limit.
+name: security-watch
+
+on:
+  schedule:
+    # Sunday 03:00 UTC. Dependabot's own alerts arrive continuously; this is the check that the
+    # resolved graph agrees with them, including for the transitive set Dependabot does not read.
+    - cron: "0 3 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-watch-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  backend-graph:
+    name: backend resolved graph against the advisory database
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install runtime dependencies
+        run: python -m pip install -r backend/requirements.txt
+
+      # The audit reads `pip freeze`, not `requirements.txt`, so what gets checked is what got
+      # resolved. It exits 1 on an affected artefact, on a version range it could not parse, or on
+      # a query that failed — a silent "nothing found" cannot happen from a missing token.
+      - name: Audit
+        working-directory: backend
+        run: |
+          pip freeze | python ops/check_advisories.py --pip-stdin
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  mobile-graph:
+    name: mobile resolved classpath against the advisory database
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: true
+
+      # Resolution only — no compile, no tests. The point is the set of artefacts Gradle actually
+      # downloads for the runtime classpath, which is wider than what `build.gradle.kts` names.
+      - name: Resolve the runtime classpath
+        working-directory: android
+        run: ./gradlew --no-daemon :app:dependencies --configuration debugRuntimeClasspath > /tmp/gradle-deps.txt
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install runtime dependencies
+        run: python -m pip install -r backend/requirements.txt
+
+      - name: Audit
+        working-directory: backend
+        run: |
+          python ops/check_advisories.py --gradle-tree /tmp/gradle-deps.txt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

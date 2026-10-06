@@ -15,8 +15,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.Logout
 import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.Logout
 import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
@@ -133,7 +133,7 @@ fun SettingsScreen(onBack: () -> Unit, onLoggedOut: () -> Unit) {
                     text = "Выйти из аккаунта",
                     onClick = vm::logout,
                     variant = AppButtonVariant.Tonal,
-                    leadingIcon = Icons.Outlined.Logout,
+                    leadingIcon = Icons.AutoMirrored.Outlined.Logout,
                     modifier = Modifier.fillMaxWidth(),
                 )
             }

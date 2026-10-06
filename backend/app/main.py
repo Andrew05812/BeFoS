@@ -27,14 +27,19 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
+    # The OpenAPI document lists every route that takes an object identifier, with the parameter
+    # names, and `/docs` is a form that lets anyone send a request from the browser. In
+    # development and on the stand that is the fastest way to read the contract; in production it
+    # is a map handed to whoever asks for it, so all three are switched off together.
+    expose_api_docs = not settings.is_production
     app = FastAPI(
         title=f"{settings.app_name} API",
         version="1.0.0",
         description="BeFoS — compatibility-first dating backend.",
         lifespan=lifespan,
-        docs_url="/docs",
-        redoc_url="/redoc",
-        openapi_url="/openapi.json",
+        docs_url="/docs" if expose_api_docs else None,
+        redoc_url="/redoc" if expose_api_docs else None,
+        openapi_url="/openapi.json" if expose_api_docs else None,
     )
 
     origins = settings.cors_origin_list or ["*"]
@@ -63,7 +68,11 @@ def create_app() -> FastAPI:
 
     @app.get("/", tags=["root"])
     async def root() -> dict:
-        return {"app": settings.app_name, "status": "ok", "docs": "/docs"}
+        body = {"app": settings.app_name, "status": "ok"}
+        # Pointing at /docs in production would advertise a route this file switched off.
+        if expose_api_docs:
+            body["docs"] = "/docs"
+        return body
 
     return app
 

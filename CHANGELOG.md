@@ -1,198 +1,341 @@
-# Changelog
+# История изменений
 
-All entries below are read out of the commit history on `production-readiness`; nothing here is
-a planned release dressed up as a shipped one. `v0.1.0-beta` is the first tag this project has
-had, so the entry is a grouped summary of the six days of work behind it (2026-10-01 →
-2026-10-06) rather than an increment over a previous version. Per-stage detail, with the commits
-that carry each change, is in [`docs/DEVELOPMENT_HISTORY.md`](docs/DEVELOPMENT_HISTORY.md).
+Все строки ниже вычитаны из `git log`: под каждым утверждением стоит коммит, которым оно
+доставлено. Запланированное здесь не выдаётся за сделанное. `v0.1.0-beta` — первый тег проекта,
+поэтому его запись является сгруппированным итогом шести дней работы (2026-10-01 → 2026-10-06),
+а не приращением поверх предыдущей версии. Подробный разбор по этапам, с коммитами, которые несут
+каждое изменение, — в [`docs/DEVELOPMENT_HISTORY.md`](docs/DEVELOPMENT_HISTORY.md).
 
-Numbers are measurements, not aspirations: the tagged entry below was measured on 2026-10-06
-as 191 backend tests, 131 Android unit tests and 64 live-journey checks; the dependency
-hardening sitting on top of it re-measured the same suites at 235 / 131 / 64. Per-stage detail,
-with the commits that carry each change, is in
-[`docs/DEVELOPMENT_HISTORY.md`](docs/DEVELOPMENT_HISTORY.md).
+Числа — замеры, а не пожелания: запись под тегом измерена 2026-10-06 как 191 бэкенд-тест, 131
+Android-тест и 64 проверки живого пути. Работа поверх тега пересчитала бэкенд-набор до
+**258 passed**; свежий замер с датой и временем прогона — в таблице «Что изменилось в замерах».
 
-## [Unreleased] — dependency security hardening, 2026-10-06
+## [Не выпущено] — работа поверх `v0.1.0-beta`, 2026-10-06
 
-Work on top of `v0.1.0-beta`, on `production-readiness`, not yet in any tag. It closes the Dependabot alerts the repository was carrying and adds the regressions that keep them closed;
-the policy, the alert inventory and the reachability verdicts are in
+27 коммитов на ветке `overnight-engineering` поверх тега — столько даёт `git rev-list --count
+v0.1.0-beta..HEAD` после того, как этот перевод сделан коммитом; последний из стадий ниже его и
+несёт. Тестов,
+которые «существуют формально», здесь нет: каждая правка принесла регрессию, а каждая цифра в
+этом файле снята прогоном. Работы шесть стадий, и идут они в том порядке, в котором были сделаны.
+
+### 1. Усиление зависимостей (8 коммитов)
+
+Закрывает 40 висевших на репозитории alert'ов Dependabot — все экосистемы `pip` и все в
+`backend/requirements.txt` — и добавляет регрессии, которые держат их закрытыми. Политика,
+инвентарь alert'ов и вывод о достижимости по каждому семейству — в
 [`docs/DEPENDENCIES.md`](docs/DEPENDENCIES.md).
 
-### Security
+- **Пакеты подняты до версий, которые латают их.** `PyJWT` 2.10.1 → 2.15.1 (15 alert'ов,
+  1 критический — CVE-2026-102268 — и 4 высоких), `pillow` 11.0.0 → 12.3.0 (17 alert'ов,
+  13 высоких, среди них выходы за границы памяти при разборе PSD и TIFF — CVE-2026-25990 и
+  CVE-2026-42311 — и DoS буфера распаковки JPEG2000 — CVE-2026-59204), `python-multipart`
+  0.0.20 → 0.0.32 (7 alert'ов, 3 высоких, все в парсере кадров, через который проходит любая
+  загрузка аватара) и `pytest` 8.3.4 → 9.1.1 с обязательной парой `pytest-asyncio` 1.4.0
+  (CVE-2025-71176). Ни один alert не снят вручную: каждый закрыт версией, в которой исправление.
+- **Декодер выбирает продукт, а не загрузка.** `Image.open` берёт парсер из магических байтов
+  тела, поэтому файл, объявленный как `image/jpeg`, мог попасть в декодер PSD, TIFF или FITS.
+  `ACCEPTED_PIL_FORMATS` сверяет распознанный формат со списком JPEG/PNG/WEBP/MPO — тем, что
+  продукт действительно обещает принимать, — и тем самым вычёркивает остальные декодеры из
+  достижимого набора вместо ставки на то, что их когда-нибудь залатают.
+- **Образ стал меньше и перестал работать от root.** Двухстадийная сборка: колёса компилируются
+  в одноразовой стадии, поэтому `build-essential` и `libpq-dev` исчезли из рантайма (присутствие
+  `gcc`, `g++` и `make` проверено и отсутствует), а тестовая обвязка (`pytest`,
+  `pytest-asyncio`, `httpx`) переехала в `backend/requirements-dev.txt`, который образ не
+  читает. Процесс работает под пользователем `befos` (uid 10001). Правило «5432 только на
+  loopback» осталось неизменным.
+- **Воспроизводимый аудит вместо обещания.** `backend/ops/check_advisories.py` спрашивает ту же
+  базу консультаций GitHub, которой пользуется Dependabot, и спрашивает её о *разрешённом* графе,
+  а не о манифесте: замер 2026-10-06 — 204 артефакта (39 pip и 165 Maven из разрешённого Gradle'ом
+  runtime classpath) плюс 30 артефактов самого контейнера; затронутых 0, неразобранных
+  диапазонов 0. Скрипт возвращает код 1 при попадании или при неудачном запросе, поэтому мог
+  стать воротами ещё до конвейера — конвейер появился, и эти ворота в нём есть.
 
-- **Python dependencies moved to patched versions.** 40 open Dependabot alerts, all `pip` and
-  all in `backend/requirements.txt`, closed by four bumps: `PyJWT` 2.10.1 → 2.15.1 (15 alerts,
-  1 critical — CVE-2026-102268 — 4 high), `pillow` 11.0.0 → 12.3.0 (17 alerts, 13 high, among
-  them the PSD/TIFF out-of-bounds writes CVE-2026-25990 and CVE-2026-42311 and the JPEG2000
-  decompression-buffer DoS CVE-2026-59204), `python-multipart` 0.0.20 → 0.0.32 (7 alerts,
-  3 high, all in the frame parser every avatar upload passes through), and `pytest` 8.3.4 →
-  9.1.1 with its required pair `pytest-asyncio` 1.4.0 (CVE-2025-71176). No alert was dismissed
-  by hand; each was closed by the version that patches it.
-- **The image decoder is now chosen by the product, not by the upload.** `Image.open` picks its
-  parser from the magic bytes in the body, so a file declared as `image/jpeg` could reach the
-  PSD, TIFF or FITS decoder. `ACCEPTED_PIL_FORMATS` gates the recognised format against
-  JPEG/PNG/WEBP/MPO — the formats this product actually claims — which removes the other
-  decoders from the reachable set instead of relying on their being patched.
-- **The serving container got smaller and stopped running as root.** Two-stage build: wheels are
-  compiled in a throwaway stage, so `build-essential` and `libpq-dev` are gone from the runtime
-  image (`gcc`, `g++`, `make` verified absent), and test tooling (`pytest`, `pytest-asyncio`,
-  `httpx`) moved to `backend/requirements-dev.txt`, which the image never reads. The process runs
-  as `befos` (uid 10001). The loopback-only rule for `5432` is unchanged.
-- **A reproducible audit instead of a promise.** `backend/ops/check_advisories.py` queries the
-  same GitHub advisory database Dependabot uses, over the *resolved* graph rather than the
-  manifest: measured 2026-10-06 over 204 artefacts (39 pip + 165 Maven from Gradle's resolved
-  runtime classpath) and over the container's own 30 — affected 0, unparsed ranges 0. It exits 1
-  on a hit or a failed query, so it can become a gate before a pipeline exists.
+### 2. Конвейер: проверки, которые действительно краснеют (4 коммита)
 
-### Added
+Речь не про «CI существует», а про набор проверок, повторяющих ровно те команды, которые
+запускает разработчик, на чистом runner'е и против той же мажорной версии Postgres, которая
+едет в образе.
 
-- `backend/tests/test_dependency_security.py` — 44 tests over the behaviour the bumps were for:
-  forged, expired, claim-less, algorithm-substituted and malformed tokens refused at the route
-  and at the socket (close code 1008), PEM material refused as an HMAC secret, foreign-magic
-  bodies and off-list content types rejected as 422 rather than decoded, EXIF stripped and the
-  canvas downscaled, traversal-shaped filenames landing as
-  `^/uploads/[0-9a-f]{32}\.png$`, and five malformed multipart framings answered with 400/422
-  without a 500, a hang, or a broken good upload afterwards.
-- `docs/DEPENDENCIES.md` — the pinning policy, the alert inventory with a per-family
-  reachability verdict, what was deliberately not upgraded and why, the Docker measurements, and
-  the review cadence.
+- `.github/workflows/ci.yml` — пять job'ов на pull request и на push в `main`: `backend`
+  (весь `pytest` против сервиса Postgres 16), `migrations` (`alembic upgrade head` и
+  `alembic check` против моделей), `android` (`:app:testDebugUnitTest` и `:app:assembleDebug`),
+  `advisories` (`check_advisories.py` по обоим разрешённым графам) и `journey` (собранный образ
+  и `e2e_journey.py` — живой путь двух настоящих аккаунтов поверх HTTP и WebSocket).
+- `android/gradlew` получил executable-бит: без него runner спотыкается на `Permission denied`,
+  и весь мобильный набор проверок не запускался бы вообще.
+- `.github/workflows/security-watch.yml` — еженедельный (воскресенье, 03:00 UTC) пересмотр обоих
+  графов по часам, а не по поводу. Консультация, опубликованная *после* слияния, ничего в
+  репозитории не меняет, поэтому `ci.yml` на неё не отреагирует, а дата в
+  `docs/DEPENDENCIES.md` начала бы отставать от реальности при неизменных пинах. Ничего не
+  публикуется и не трогает секреты; `GITHUB_TOKEN` нужен только чтобы поднять лимит API.
+- `.github/workflows/codeql.yml` — статический анализ бэкенда теми же запросами, которыми GitHub
+  поднимает code-scanning alert'ы, на pull request, а не постфактум. Область названа прямо:
+  только Python. Kotlin-модулю понадобилась бы полноценная Gradle-сборка ради анализа, её в этом
+  job нет, а строка `language: kotlin`, которая до сборки не доходит, была бы декорацией.
+  Мобильную часть закрывают её собственные тесты и аудит по разрешённому графу.
+- `.github/dependabot.yml` — обновления `pip` и самих action'ов раз в неделю; Gradle отсутствует
+  намеренно, причина записана в `docs/DEPENDENCIES.md`: консультаций у мобильных зависимостей
+  сейчас ноль, а пачка bump-PR'ов изменила бы поведение Compose, Ktor и Coil так, что сборка это
+  не проверит — такие обновления решаются по одному слою за раз и смотрятся на устройстве.
+  `security updates` работают отдельно и опираются на граф зависимостей, поэтому консультация
+  против Maven-артефакта всё равно придёт в этот репозиторий патч-PR'ом.
+  `.github/ISSUE_TEMPLATE/` и `pull_request_template.md` описывают, что репозиторий принимает и
+  от кого.
 
-### Tests after this change
+### 3. Пять правок первой очереди (5 коммитов)
 
-| Suite | Result |
-|---|---|
-| Backend `pytest` | **235 passed** (191 before + 44 new), 0 failed |
-| Android `:app:testDebugUnitTest` | **131 passed**, 0 failed, 0 errors, 0 skipped (forced `--rerun`) |
-| `:app:assembleDebug` | BUILD SUCCESSFUL, `app-debug.apk` 19,898,744 bytes |
-| Live journey against the rebuilt container | **64 / 64 checks** |
-| `docker compose config` / `build` / `up` | OK; `/api/v1/health` and `/api/v1/health/db` both `ok` |
-| Fresh full clone of the published default branch, checked outside the working directory | `235 passed`; advisory sweep over 39 resolved artefacts → 0 affected, 0 unparsed, 0 query errors; `:app:testDebugUnitTest` forced with `--rerun --no-build-cache` → 131 tests, 0 failures; `app-debug.apk` 19,898,744 bytes; `docker compose build` from the clone, with no secrets present → 405 MB image, `uid=10001(befos)`, no compiler, no `pytest` module |
+Найдены аудитом, а не симптомами: каждая давала неверный ответ там, где набор тестов оставался
+зелёным.
 
-### What remains open here
+- **Лимитер на всех маршрутах, где он был задуман.** У `SlidingWindowRateLimiter` окно,
+  вытеснение и неподделываемый ключ были закреплены тестами, но смонтирован он оказался только на
+  `/auth`: авторизованный цикл мог бить по подбору, симпатиям, загрузкам и сообщениям без
+  потолка. `/health` оставлен без лимита намеренно: лимит на liveness-пробе означает для
+  монитора падение сервиса, то есть чужую занятую минуту он объявит аварией.
+- **Видимость учитывается на пути записи, а не только в колоде.** `POST /users/{id}/like` и
+  `POST /users/{id}/pass` разрешали цель запросом, который спрашивал лишь о том, жив ли аккаунт.
+  Спрятать профиль, выключить его или не пройти анкету — любое из трёх убирает человека из
+  подбора, но каждый id оставался записываемым: id не секрет, он секунду назад был на экране.
+  Исчезнуть означало согласиться, что напишет кто угодно, если помнит вас, а заготовка-аккаунт
+  могла быть сведена в чат, в который никогда не входила. `get_showable_profile` спрашивает
+  правило колоды об одном id и отвечает то же «не найдено», что и публичный профиль, — ни один
+  путь не сообщает, из-за чего именно он промахнулся.
+- **Две доводки колоды не делят один шаг курсора.** `deck_append` указывал ограничение пары как
+  арбитра, поэтому кандидат, вставший на ранг, уже занятый параллельной сборкой, записывался.
+  `deck_claim` берёт страницы условием `rank > :after`, и оба ряда остаются за одним шагом:
+  второй — человек, молча пропавший из колоды, без ошибки и без чего-либо, что можно было бы
+  повторить, а ограничение пары этого не видит, потому что ряды про разные пары. Уникальный
+  индекс делает такое состояние невыразимым, а вставка теряет арбитра: проигравший столкновение
+  просто не встаёт в очередь и будет подхвачен следующей доводкой. Миграция
+  `c5a7d1e0b342_unique_deck_rank_per_viewer` вычищает существующие колоды по `candidate_id` —
+  детерминированный выбор, один и тот же на любой прогон.
+- **Онбординг сбрасывает то, что только что изменил.** Любая другая запись возрастной группы,
+  предпочтения по полу, цели, города и интересов проходит через `ProfileService.update`, который
+  сбрасывает ранжированную колоду, кэш страницы занятий и процент, хранящийся у каждой пары.
+  Онбординг записывает те же поля в том же запросе и не сбрасывал ничего: колода, собранная,
+  пока профиль был заготовкой (фид отвечает, как только строка профиля существует), продолжала
+  показывать карточки, ранжированные по ответу, которого никто не давал, а тот, кто заново
+  ответил в тесте уже после сведения, продолжал видеть в списке пар старый процент.
+- **Индекс под поиск, которым начинается каждая сессия.** Оба чтения авторизации спрашивают
+  `lower(email) = :value` — адрес хранится нормализованным, и предикат обязан остаться
+  нечувствительным к регистру, иначе человеку, набравшему свою почту так, как он её читает,
+  ответят, что аккаунта не существует. Обычный btree по «сырому» столбцу не отвечает на предикат
+  от преобразованного значения, поэтому Postgres перечитывал всю таблицу `users`, чтобы найти
+  один аккаунт — на том пути, с которого начинается каждая сессия. Замер на живой базе до правки:
+  `Seq Scan on users`. После: `Index Scan using uq_users_email_lower`. Тот же индекс уникален,
+  что переносит в базу правило, жившее строкой в Python: по «сырому» столбцу `A@x` и `a@x` — два
+  адреса одного почтового ящика. Миграция —
+  `d8f4b2c6a157_index_email_lookup_a_sign_in_actually_uses`.
 
-Not a claim of a finished job. The four packages are patched on the default branch, and that is
-what closed the 40 Dependabot alerts — re-measured after the push: `state=open`,
-`state=dismissed` and `state=all` each return 0, and Dependabot closed its own PR #1 (PyJWT
-2.15.0) unmerged instead of leaving it hanging. Nothing was hand-dismissed to reach that
-number. What a version bump cannot reach stays open: the audit sees only published advisories,
-no CI gate runs `check_advisories.py`, the Android dependencies are old (0 advisories today is
-not a promise for tomorrow), `postgres:16-alpine` trails the Alpine repository by three packages
-with no open advisory on them, and `/uploads` is still unauthenticated static. Each is written
-out with its reason in [`docs/DEPENDENCIES.md`](docs/DEPENDENCIES.md).
+### 4. Стенд тестов: одна сессия на базу (1 коммит)
+
+Фикстура `client` очищает доменные таблицы перед каждым тестом, поэтому две сессии на одной базе
+не падают — они стирают строки друг друга и выдают обломки как регрессии. Случай повторялся
+дважды за день, и оба прогона выглядели как сломанный продукт: 13 и 14 падений на дереве, которое
+в одиночку проходит целиком. Advisory-лок уровня сессии превращает случай в отказ старта, который
+называет причину и выход; страж покрыт собственными тестами — на ключе, который не может
+потревожить лизинг работающей сессии.
+
+### 5. Аудит таблицы маршрутов: согласованный отказ и потолок там, где запрос стоит соединения (2 коммита)
+
+- **Один ответ на маршрутах пары.** `GET /matches/{id}` говорил 404, а история, совместимость и
+  рекомендации — 403 на той же чужой строке. Разница и есть оракул: 403 подтверждает, что такая
+  пара существует, и подтверждает это без единого байта её содержимого. Теперь все они отвечают
+  404, а `ForbiddenError` удалён из кода — не переименован, а проверен по всему репозиторию на
+  ноль ссылок, включая Kotlin.
+- **`GET /users/{id}` решал вопрос видимости сам, и решал его после того, как строка нашлась.**
+  Спрятанный профиль отвечал 404, а отключённый или не прошедший анкету — 200, тогда как
+  `POST /users/{id}/like` для тех же состояний отвечал 404. Чтение теперь спрашивает то же
+  правило, которым колода решает, кого показывать, — и только про чужой профиль: владельцу
+  открывается и спрятанный, и недоделанный, потому что прятаться — не значит отключаться.
+- **Набор проверок выведен из реальной таблицы маршрутов**, а не из списка, который кто-то
+  помнит: `create_app().routes` даёт 12 вызовов по чужим `user_id`, `match_id` и `activity_id`, и
+  каждый обязан ответить 404 с `error.code = "not_found"`. Новый объект-маршрут попадает в него
+  автоматически, а нижняя граница числа записана замером, а не догадкой.
+- **Три новых окна.** `/health/db` брал соединение из пула, который делят авторизованные запросы,
+  и при этом оставался единственным маршрутом без потолка вообще: для пробы заведено своё окно —
+  60 в минуту на адрес, что заметно чаще, чем спрашивает разумный алертер, и заметно реже, чем
+  выглядит поток. REST-лимитер соединения не видит, поэтому у WebSocket свои окна: 30 рукопожатий
+  в минуту на адрес — проверка стоит до разбора JWT, чтобы стоимость соединения не зависела от
+  того, валиден токен или нет, и 120 кадров в минуту на пользователя, причём в бюджет идут и
+  битые кадры, чтобы мусор не был бесплатным. Кадры `typing`, `read` и `message` перепроверяют
+  авторизацию на каждом кадре — сокет не может пережить ни свою пару, ни блокировку.
+- **Публичное развёртывание не раздаёт карту маршрутов.** `docs`, `redoc` и `openapi.json`
+  существуют только когда `ENVIRONMENT` не production; корневой ответ в этом случае не содержит
+  и ключа `docs`.
+
+### 6. Документы: язык и точность (7 коммитов)
+
+- **Русский — язык продукта и документации.** Переведены `README.md`, `SECURITY.md`,
+  `THIRD_PARTY_NOTICES.md`, а также этот файл и `docs/DEVELOPMENT_HISTORY.md`.
+  `docs/ARCHITECTURE.md`, `docs/API.md`, `docs/DATABASE.md`, `docs/OPERATIONS.md`,
+  `docs/RELEASE.md`, `docs/DEPENDENCIES.md` и `DEMO.md` уже велись по-русски. Технические
+  идентификаторы (FastAPI, PostgreSQL, Jetpack Compose, JWT, эндпоинты, имена классов и функций)
+  не переводятся, комментарии в коде остаются на английском. `LICENSE` намеренно оставлен на
+  английском: это юридический текст, и под предлогом перевода менять его формулировки нельзя.
+- **Убраны тексты, которые отрицали уже сделанное.** `docs/DEPENDENCIES.md` и `docs/RELEASE.md`
+  говорили, что конвейера нет и что ни одна проверка не автоматизирована, — после того как
+  конвейер появился. `docs/DATABASE.md` описывает, что служат два новых индекса и чего не служит
+  ни один из них, а числа в `README.md` сверены с замерами, а не с памятью.
+
+### Что изменилось в замерах
+
+| Набор | На теге | На текущем дереве |
+|---|---|---|
+| Бэкенд `pytest` | 191 passed, затем 235 passed после усиления зависимостей | **258 passed, 0 failed** — замер 2026-10-06 на head `01a3e47`, 325.68 s, локально; тот же набор на этом же хэде зелёным вышел job `backend` |
+| Android unit | 131 passed, 0 failed | job `mobile tests and debug build` зелёный на `01a3e47` (прогон 2026-10-06 06:43 UTC); Kotlin-код с тега не менялся — `git diff v0.1.0-beta..HEAD -- android/` даёт только file mode у `gradlew` |
+| `:app:assembleDebug` | BUILD SUCCESSFUL, `app-debug.apk` 19 898 744 байта | тот же job зелёный на `01a3e47`; содержимое модуля то же, что и на теге |
+| Живой путь | 64 / 64 проверок | job `live journey against the built image` зелёный на `01a3e47`: образ собирается в прогоне, путь двух аккаунтов проходит против него; `backend/e2e_journey.py` с тега не менялся |
+| Схема против моделей | `alembic check` чист | job `schema matches the models` зелёный на `01a3e47`, head миграций — `d8f4b2c6a157` |
+| Аудит консультаций | 0 затронутых из 204 артефактов | job `no published flaw in either resolved graph` зелёный на `01a3e47`; пересчитывается на каждом pull request и `security-watch` по часам |
+| CodeQL (Python) | прогона не было | `codeql` зелёный на `01a3e47` (прогон 2026-10-06 06:43 UTC), alert'ов не выставлено |
+
+### Что остаётся открытым
+
+Это не утверждение о законченной работе.
+
+- Четыре пакета залатаны, и именно это закрыло 40 alert'ов: после пуша `state=open`,
+  `state=dismissed` и `state=all` возвращают по 0, а Dependabot закрыл собственный PR #1
+  (PyJWT 2.15.0) неслиянным, вместо того чтобы оставить его висеть. Ничего не снято вручную ради
+  этого числа.
+- Открытым остаётся то, до чего version bump не дотягивается: аудит видит только опубликованные
+  консультации; у Android-зависимостей консультаций нет сегодня, и ноль сегодня — не обещание на
+  завтра; `postgres:16-alpine` отстаёт от репозитория Alpine на три пакета без открытой
+  консультации на них; `/uploads` — всё ещё неаутентифицированная статика. Каждая позиция с
+  причиной — в [`docs/DEPENDENCIES.md`](docs/DEPENDENCIES.md).
+- Развёрнутого инстанса нет: конвейер поднимает собранный образ и ведёт живой путь на runner'е,
+  но это проверка, а не запуск — среда живёт столько, сколько длится job, и наружу ничего не
+  выставлено.
+- Push-уведомления не реализованы: они требуют ключ сервиса Firebase Cloud Messaging, своего
+  проектного ключа в репозитории нет, а придумать его нельзя. Дизайн относительно существующих
+  швов записан в `docs/ARCHITECTURE.md`.
+- У жалоб нет читалки в приложении, разблокировка остаётся SQL-операцией, у резервных копий нет
+  планировщика и нет PITR, а юнит-тесты Android на Windows требуют ASCII-пути, потому что
+  Gradle test worker не собирает не-ASCII classpath. Полный список — в разделе «Состояние
+  проекта» [`README.md`](README.md).
 
 ## [0.1.0-beta] — 2026-10-06
 
-The first publishable state of BeFoS: a working product chain end to end — register → onboarding
-→ 21-question test → compatibility profile → discovery → like/pass → match → realtime chat →
-compatibility breakdown → joint activity recommendation — with no stubbed step in it.
+Первое публикуемое состояние BeFoS: работающая продуктовая цепочка от конца до конца —
+регистрация → анкета → тест из 21 вопроса → профиль совместимости → подбор → симпатия/пропуск →
+сведение → realtime-чат → разбивка совместимости → рекомендация занятия для пары — и ни одного
+подставного шага в ней.
 
-### Added
+### Добавлено
 
-- **Backend**: async FastAPI service with layered `api → service → repository` structure,
-  Pydantic schemas, and 22 tables under Alembic migration control on PostgreSQL 16.
-- **Compatibility engine** (`app/compatibility/`): deterministic, versioned scoring across seven
-  weighted categories (values 0.25, personality / interests / communication / lifestyle 0.15,
-  leisure 0.10, goals 0.05, weights validated to sum to 1.0), plus the explanation layer that
-  returns strengths, differences and shared interests derived from the pair's own data.
-- **Recommendation engine** (`app/recommendations/`): activities scored against both profiles,
-  their city and their answers, and refreshed when either profile changes.
-- **Discovery**: a stored, ranked deck read with cursor pagination, so a page stays stable while
-  the pool changes, and a per-card `highlight` computed from the two profiles.
-- **Realtime chat**: WebSocket gateway at `/ws/chat/{match_id}` authorised by JWT; REST-sent
-  messages and read receipts broadcast into the pair's socket; a client-generated idempotency key
-  makes a retried send store one message; a reconnect backfills the gap it missed.
-- **Safety**: block, report, profile visibility, and account deletion that erases what describes
-  the person.
-- **Observability**: request id, latency and structured log lines for every request.
-- **Android client**: Kotlin 2.2 / Jetpack Compose (Material 3) app in `data / domain /
-  presentation` layering — auth, onboarding, test, discovery, matches, chat, compatibility,
-  recommendations, profile, edit profile, public profile, settings — with session-aware routing
-  that sends an unfinished profile back to onboarding instead of onto a dead screen.
-- **Release pipeline**: signing configuration with an explicit key source, production URL gates
-  that reject the emulator address at packaging time, R8 mapping retained, and a pre-publication
-  checklist in `docs/RELEASE.md`.
-- **Documentation**: `README.md` (English), `docs/ARCHITECTURE.md`, `docs/API.md`,
-  `docs/DATABASE.md`, `docs/OPERATIONS.md`, `docs/RELEASE.md`, `DEMO.md`, plus
-  `LICENSE`, `THIRD_PARTY_NOTICES.md` and `SECURITY.md`.
-- **Screenshots**: ten real captures of the running app in `screenshots/`.
+- **Бэкенд**: асинхронный FastAPI-сервис со слоями `api → service → repository`, схемы Pydantic
+  и 22 таблицы под управлением миграций Alembic на PostgreSQL 16.
+- **Движок совместимости** (`app/compatibility/`): детерминированная версионированная оценка по
+  семи взвешенным категориям (ценности 0.25, personality / interests / communication / lifestyle
+  по 0.15, досуг 0.10, цели 0.05; суммы весов проверены на 1.0) плюс слой объяснений, который
+  возвращает сильные стороны, различия и общие интересы, выведенные из данных самой пары.
+- **Движок рекомендаций** (`app/recommendations/`): занятия оцениваются против обоих профилей,
+  их города и их ответов и обновляются, когда меняется любой из профилей.
+- **Подбор**: сохранённая, ранжированная колода, читаемая курсорной пагинацией, поэтому страница
+  остаётся стабильной, пока пул меняется, плюс `highlight` для каждой карточки, вычисленный из
+  двух профилей.
+- **Realtime-чат**: WebSocket-гейтвей `/ws/chat/{match_id}` с авторизацией по JWT; сообщения и
+  отметки прочтения, отправленные через REST, рассылаются в сокет пары; клиентский ключ
+  повторяемости делает повторную отправку одним сохранённым сообщением; переподключение добирает
+  пропущенный промежуток.
+- **Безопасность**: блокировка, жалоба, видимость профиля и удаление аккаунта, которое стирает
+  то, что описывает человека.
+- **Наблюдаемость**: request id, латентность и структурированные строки лога на каждый запрос.
+- **Клиент Android**: приложение на Kotlin 2.2 / Jetpack Compose (Material 3) в слоях
+  `data / domain / presentation` — авторизация, анкета, тест, подбор, пары, чат, совместимость,
+  рекомендации, профиль, редактирование профиля, публичный профиль, настройки — с маршрутизацией,
+  которая знает про сессию и возвращает незаконченный профиль в онбординг вместо мёртвого экрана.
+- **Релизный конвейер**: конфигурация подписи с явным источником ключа, production-ворота по
+  адресам, отвергающие адрес эмулятора во время упаковки, сохраняемый R8-маппинг и чек-лист перед
+  публикацией в `docs/RELEASE.md`.
+- **Документация**: `README.md`, `docs/ARCHITECTURE.md`, `docs/API.md`, `docs/DATABASE.md`,
+  `docs/OPERATIONS.md`, `docs/RELEASE.md`, `DEMO.md`, плюс `LICENSE`,
+  `THIRD_PARTY_NOTICES.md` и `SECURITY.md`.
+- **Скриншоты**: десять настоящих снимков работающего приложения в `screenshots/`.
 
-### Improved
+### Улучшено
 
-- **Visual redesign (2026-10-02)**: a warm-ember token system and a component rebuild, then every
-  screen migrated onto it — full-bleed discovery hero with a stacked next candidate, brand-led
-  auth, onboarding stepper, question-counter test flow, animated category bars, pill chat
-  composer, floating tab bar, duotone placeholder avatars, Compose previews for the design system.
-- **Failure states**: the HTTP stack builds lazily and fails fast on an unreachable backend; a
-  dead session is handled as a sign-out rather than a permanent error while a 5xx or a network
-  failure keeps the session; skeletons became readable; a screen holding stale data now says the
-  refresh did not land; the chat header reports the socket's real state.
-- **Copy**: one voice across explanations, identity line that says one thing when only one thing
-  was answered, refusals phrased as advice rather than as an HTTP status, and backend error text
-  localised instead of leaking English strings onto Russian screens.
-- **Performance**: N+1 removed from the discovery feed and the match list; the two hot reads that
-  scanned a whole table now scan a page; discovery reads a stored deck instead of re-ranking the
-  pool per request; query-count ceilings asserted by tests.
-- **Accessibility**: the keyboard/IME matrix measured at 320/360/393 dp and font scale up to 1.3
-  (report dialog, sign-in form's last row, pinned onboarding button), icon-only controls given
-  semantics, text-carrying accents solved against the pixels behind them, and interest chips made
-  geometrically stable — a tap moves none of its six neighbours, the touch target is 48 dp.
+- **Визуальный редизайн (2026-10-02)**: система токенов warm ember и пересборка компонентов,
+  затем перенос каждого экрана на неё — полноразмерный герой подбора со следующим кандидатом в
+  стопке, авторизация с брендом во главе, степпер анкеты, тест со счётчиком вопросов, анимированные
+  полосы категорий, чат-композер pills, плавающая tab-бар, дуотонные заготовки аватаров и
+  Compose-превью дизайн-системы.
+- **Состояния отказа**: HTTP-стек строится лениво и падает сразу на недоступном бэкенде; мёртвая
+  сессия обрабатывается как выход, а не как постоянная ошибка, тогда как 5xx или сетевой сбой
+  сессию сохраняют; скелетоны стали читаемыми; экран, держащий устаревшие данные, теперь говорит,
+  что обновление не дошло; шапка чата сообщает реальное состояние сокета.
+- **Тексты**: один голос в объяснениях, строка идентичности говорит ровно об одном, когда на одно
+  и отвечено, отказы сформулированы как совет, а не как HTTP-статус, а текст ошибки бэкенда
+  локализован вместо того, чтобы протекать английской строкой на русский экран.
+- **Производительность**: N+1 убран из фида подбора и из списка пар; два горячих чтения,
+  сканировавшие таблицу целиком, теперь сканируют страницу; подбор читает сохранённую колоду
+  вместо того, чтобы заново ранжировать пул на каждый запрос; потолок числа запросов
+  закреплён тестами.
+- **Доступность**: матрица клавиатуры/IME измерена на 320/360/393 dp и масштабе текста до 1.3
+  (диалог жалобы, последняя строка формы входа, закреплённая кнопка онбординга); у элементов,
+  где только иконка, появился semantics; акценты, несущие текст, решаются против пикселей за
+  ними; чипы интересов сделаны геометрически устойчивыми — касание не сдвигает ни одного из шести
+  соседей, а область касания чипа равна ровно 48 dp.
 
-### Fixed
+### Исправлено
 
-- **Compatibility consistency**: one pair of answers now yields one percent in every process; a
-  pair displays the percent it has rather than the one it met on; `0..100` is enforced by the
-  response models; the seeded demo pair carries the number the engine gives it.
-- **Session**: the bearer token Ktor cached at first load — which made an in-process account
-  switch keep sending the previous user's `Authorization` header — is now taken from the live
-  session at the last moment before the request leaves.
-- **Data quality**: a city written as spaces is refused rather than stored as nothing; an account
-  that never answered the test is nobody's discovery card; repeated social writes and the
-  remaining check-then-insert races in the test engine are settled by database constraints.
-- **Test screen**: the question header no longer sits under the status bar (the screen is not a
-  `Scaffold`, so no inset was applied to it).
+- **Согласованность совместимости**: одна пара ответов теперь даёт один процент в любом процессе;
+  пара показывает тот процент, который у неё есть, а не тот, на котором произошла встреча;
+  `0..100` обеспечивается моделями ответа; посеянная демо-пара несёт число, которое дал движок.
+- **Сессия**: bearer-токен, который Ktor кэшировал при первой загрузке и из-за которого переход на
+  другой аккаунт в том же процессе продолжал слать заголовок предыдущего пользователя, теперь
+  берётся из живой сессии в последний момент перед тем, как запрос уйдёт.
+- **Качество данных**: город, записанный пробелами, отвергается вместо того, чтобы сохраниться как
+  ничего; аккаунт, который не отвечал в тесте, не становится ничьей карточкой подбора;
+  повторяющиеся социальные записи и оставшиеся гонки «сначала проверили, потом вставили» в
+  движке теста разрешаются ограничениями базы.
+- **Экран теста**: заголовок вопроса больше не сидит под статус-баром (экран не является
+  `Scaffold`, поэтому inset к нему не применялся).
 
-### Security
+### Безопасность
 
-- The authentication rate limiter no longer trusts a client-supplied `X-Forwarded-For`.
-- The JWT in a WebSocket handshake never reaches the log; socket handshake **and** every frame in
-  an already-open socket re-check authorisation, so a socket cannot outlive its pair or a block.
-- An oversized or malformed image is refused as input instead of surfacing as a 500; the request
-  body is read to a ceiling rather than buffered whole.
-- Production configuration validation extended until no setting can silently undo another:
-  placeholder/short/duplicated JWT secrets, wildcard or `http://` CORS origins, `DEBUG=true`,
-  the demo account, the database password this repository ships, and an unrecognised value of
-  `ENVIRONMENT` itself all refuse to start.
-- Account deletion became a data lifecycle rather than a visibility flag: test answers, results,
-  compatibility vector, activity affinity and deck entries are erased, profile fields are set to
-  values no form can produce, and uploaded photo rows **and files** are removed — because
-  `/uploads` is public static. Reports deliberately survive.
-- A block became a server-side wall: the pair and its history are removed, both directions get
-  404 on history and send, and the behaviour is pinned by tests, including an identifier sweep
-  covering the object-level routes that had no guard test.
-- `.gitignore` closed against what a public repository must never carry, and the development
-  database now publishes on `127.0.0.1:5432` only instead of every interface.
+- Лимитер авторизации больше не доверяет клиентскому `X-Forwarded-For`.
+- JWT из WebSocket-рукопожатия не попадает в лог; рукопожатие **и** каждый кадр уже открытого
+  сокета перепроверяют авторизацию, поэтому сокет не может пережить ни свою пару, ни блокировку.
+- Слишком большое или битое изображение отвергается как вход, а не показывается как 500; тело
+  запроса читается до потолка, а не буферизуется целиком.
+- Валидация production-конфигурации расширена до тех пор, пока ни одна настройка не может молча
+  отменить другую: не стартуют placeholder, короткие и повторяющиеся JWT-секреты, wildcard и
+  `http://` CORS-адреса, `DEBUG=true`, демо-аккаунт, пароль базы, который этот репозиторий и так
+  отдаёт, и нераспознанное значение самого `ENVIRONMENT`.
+- Удаление аккаунта стало циклом данных, а не флагом видимости: ответы теста, результаты, вектор
+  совместимости, связи занятий и ряды колоды стираются, поля профиля ставятся в значения, которые
+  не способна выдать ни одна форма, а строки загруженных фото **и сами файлы** удаляются — потому
+  что `/uploads` — публичная статика. Жалобы сохранены намеренно.
+- Блокировка стала стеной на сервере: пара и её история удаляются, оба направления получают 404
+  на историю и на отправку, и поведение закреплено тестами, включая sweep по объектным маршрутам,
+  у которых раньше не было теста-стража.
+- `.gitignore` закрыт по всему, что публичный репозиторий не должен носить никогда, а база для
+  разработки теперь публикуется только на `127.0.0.1:5432` вместо всех интерфейсов.
 
-### Reliability
+### Надёжность
 
-- Backup procedure with a **verified restore drill** (`pg_dump` → fingerprint → restore into a
-  scratch database → compare → drop), documented with the numbers of the run that proved it.
-- Health endpoints split between liveness and database-backed readiness, so "process up" is not
-  reported as "can serve"; a database that is not there can no longer pretend to be.
-- Connection-pool sizing, overflow and `pool_recycle` justified against the Postgres
-  `max_connections` of the stand, in `docs/OPERATIONS.md`.
-- Migrations applied on container start, `alembic check` clean against the models, and every
-  revision carrying a working downgrade.
-- Chat send idempotency and reconnect backfill, so a lost response or a dropped socket does not
-  duplicate or lose a message.
+- Процедура резервного копирования с **проверенным дроллом восстановления**
+  (`pg_dump` → отпечаток → восстановление в черновую базу → сравнение → drop), описанная числами
+  прогона, который её доказал.
+- Health-эндпоинты разделены на liveness и readiness с проверкой базы, чтобы «процесс жив» не
+  выдавалось за «умеет обслуживать»; базе, которой нет, больше нельзя притвориться.
+- Размер пула соединений, overflow и `pool_recycle` обоснованы относительно `max_connections`
+  Postgres на стенде — в `docs/OPERATIONS.md`.
+- Миграции применяются на старте контейнера, `alembic check` чист против моделей, и каждая
+  ревизия несёт рабочий downgrade.
+- Повторяемость отправки в чат и добор после переподключения: потерянный ответ и брошенный сокет
+  не дублируют сообщение и не теряют его.
 
-### Known limitations
+### Известные ограничения
 
-See *Project Status* in [`README.md`](README.md) for the full list. The ones that matter most to
-an evaluator: there is no deployed instance and no CI (every number above was measured by hand),
-push notifications are designed but unimplemented, reports have no in-app reader, unblocking is a
-SQL operation, backups have no scheduler and there is no point-in-time recovery, `/uploads` is
-unauthenticated static, and Android unit tests must be run from an ASCII path on Windows because
-the Gradle test worker cannot resolve a non-ASCII classpath.
+Полный список — в разделе «Состояние проекта» [`README.md`](README.md). Самое существенное для
+оценивающего: развёрнутого инстанса нет; push-уведомления спроектированы, но не реализованы; у
+жалоб нет читалки в приложении; разблокировка — SQL-операция; у резервных копий нет планировщика
+и нет PITR; `/uploads` — неаутентифицированная статика; юнит-тесты Android на Windows требуют
+ASCII-пути, потому что Gradle test worker не собирает не-ASCII classpath. Замеры, на которые
+опирается эта запись, сняты вручную до появления конвейера; начиная с коммита `1550293` те же
+команды на чистом runner'е выполняет `ci.yml`.
 
-[Unreleased]: https://github.com/Andrew05812/BeFoS/tree/production-readiness
+[Не выпущено]: https://github.com/Andrew05812/BeFoS/tree/overnight-engineering
 [0.1.0-beta]: https://github.com/Andrew05812/BeFoS/releases/tag/v0.1.0-beta

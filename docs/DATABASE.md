@@ -1,6 +1,6 @@
 # База данных BeFoS
 
-PostgreSQL 16, SQLAlchemy 2.0 (async) + asyncpg. Миграции — Alembic (`backend/alembic/versions/`). Первичная миграция `03f0ea587029_initial_schema` создаёт 21 таблицу, `4f2a1c9d7b30_discovery_deck_and_indexes` добавляет колоду подбора и индексы, нужные горячим чтением, `9c1f5b7d2a40_message_idempotency_key` — ключ повторяемости отправки в `messages`, `b7e3d0a9c421_onboarding_completed_at` — отметку законченного онбординга в `profiles` (head на 2026-10-05, `alembic check` чист).
+PostgreSQL 16, SQLAlchemy 2.0 (async) + asyncpg. Миграции — Alembic (`backend/alembic/versions/`). Первичная миграция `03f0ea587029_initial_schema` создаёт 21 таблицу, `4f2a1c9d7b30_discovery_deck_and_indexes` добавляет колоду подбора и индексы, нужные горячим чтением, `9c1f5b7d2a40_message_idempotency_key` — ключ повторяемости отправки в `messages`, `b7e3d0a9c421_onboarding_completed_at` — отметку законченного онбординга в `profiles`, `c5a7d1e0b342_unique_deck_rank_per_viewer` — уникальный индекс `(viewer_id, rank)`, `d8f4b2c6a157_index_email_lookup_a_sign_in_actually_uses` — функциональный индекс `lower(email)`, которым заканчивается цепочка (head на 2026-10-06, `alembic check` чист).
 
 Все таблицы наследуют `TimestampMixin` (`created_at`, `updated_at`), кроме чисто справочных. Первичные ключи пользователей и связанных сущностей — `UUID`; справочники — `INTEGER` (autoincrement). Внешние ключи на `users.id` используют `ON DELETE CASCADE`.
 
@@ -26,15 +26,57 @@ users ─1:1─ profiles ─M:N─ interests   (через user_interests)
 | Колонка | Тип | Примечание |
 |---------|-----|-----------|
 | id | UUID PK | |
-| email | String(255) | unique, index |
+| email | String(255) | unique, index — и отдельно уникальный функциональный индекс `uq_users_email_lower (lower(email))` |
 | password_hash | String(255) | bcrypt |
 | is_active | Boolean | default true |
 | is_verified | Boolean | default false |
 | is_deleted | Boolean | мягкое удаление |
 | deleted_at | timestamptz | nullable |
 
+Вход ищет адрес как `lower(users.email) = :email_lower`, и обычный уникальный индекс по
+колонке такому предикату не служил: `EXPLAIN` на рабочей базе показывал `Seq Scan on users` —
+то есть каждый вход и каждая регистрация перебирали таблицу целиком. `uq_users_email_lower`
+закрывает и чтение, и более раннюю дырку: `uq_users_email` различает регистр, поэтому
+`ana@example.com` и `Ana@example.com` были двумя аккаунтами с одной почтой. Сервис
+регистрации пишет адрес в нижнем регистре с первой же коммита бэкенда, но это защита уровня
+кода, а не схемы: строка, записанная в `users` в обход `auth_service` (прямая вставка, перенос
+данных, будущий импорт), создавала второй аккаунт на чужой адрес, и база бы этого не заметила.
+Поэтому миграция `d8f4b2c6a157` сначала приводит существующие адреса к нижнему регистру
+(`UPDATE ... SET email = lower(email)`), и если в базе уже лежат два адреса, отличающихся
+только регистром, этот шаг падает вместо того, чтобы выбрать победителя молча; после него
+индекс создаётся как уникальный. Покрыто набором `backend/tests/test_db_reliability.py`
+(план чтения под `enable_seqscan=off`, попытка вставить ту же почту в другом регистре, и
+201 → 409 на второй регистрации).
+
 ### `profiles` (1:1 с `users`)
-`user_id` (FK users, unique, cascade), `name` (String 80), `birth_date` (Date), `gender` (String 20), `city` (String 120), `about` (Text, null), `dating_goal` (String), `age_min`/`age_max` (Integer, 18/60), `gender_preference` (`ARRAY(String(20))` — массив, не JSON: пустой список сюда пишется как `'{}'::varchar[]`, и `[]'::jsonb` — это ошибка типа, а не тихая подмена), `city_preference` (String, null), `lifestyle` (JSONB, default `{}`), `is_hidden` (Boolean), `onboarding_completed_at` (timestamptz, null). Индекс `ix_profiles_city_lower_birth (lower(city), birth_date)` — подбор фильтрует город без учёта регистра и возраст диапазоном, три обычных индекса по `city`/`dating_goal` (были в первой миграции) этому чтению не служили и удалены в `4f2a1c9d7b30`.
+`user_id` (FK users, unique, cascade), `name` (String 80), `birth_date` (Date), `gender` (String 20), `city` (String 120), `about` (Text, null), `dating_goal` (String), `age_min`/`age_max` (Integer, 18/60), `gender_preference` (`ARRAY(String(20))` — массив, не JSON: пустой список сюда пишется как `'{}'::varchar[]`, и `[]'::jsonb` — это ошибка типа, а не тихая подмена), `city_preference` (String, null), `lifestyle` (JSONB, default `{}`), `is_hidden` (Boolean), `onboarding_completed_at` (timestamptz, null).
+
+`city_preference` — зарезервированная колонка, а не работающая функция: ни один эндпоинт и
+ни один экран её не пишет, и `discovery_service` передаёт в фильтр
+`viewer_profile.city_preference or None`. `_preference_conditions` добавляет условие по
+городу только когда город непустой, поэтому запрос, пришедший из API, ветку `lower(city)`
+не содержит вообще.
+
+`ix_profiles_city_lower_birth (lower(city), birth_date)` появился в `4f2a1c9d7b30` вместо трёх
+обычных индексов по `city` и `dating_goal`, которые чтению кандидатов служили хуже. Честное
+состояние по замеру 2026-10-06 на рабочей базе (264 профиля):
+
+- форма с городом (`lower(p.city) = 'москва'` и диапазон по `birth_date`) — `Bitmap Index Scan
+  on ix_profiles_city_lower_birth`, выполнение 0.323 мс. Эта форма написана руками и из API
+  недостижима.
+- форма, которую реально шлёт API (только диапазон возрастов, город `NULL`): `Seq Scan on
+  profiles p`, выполнение 0.673 мс. Без ведущей колонки `lower(city)` индекс остаётся
+  пригодным — Postgres читает его целиком и фильтрует по второй колонке, и под
+  `enable_seqscan=off` он так и делает, — но на 264 строках выигрыша нет, и planner это
+  считает правильно. Город в это чтение не попадает ни с одним запросом из API, поэтому
+  ведущая колонка индекса сегодня не связана ни одним предикатом, который продукт умеет
+  отправить.
+
+Индекс оставлен, потому что колонка, фильтр и индекс — одна форма, и удаление любой из трёх
+частей оставило бы две ссылаться на пустое место; как только предпочтение города станет
+функцией, готовому индексу найдётся работа. Сегодня же ни один запрос из API не связывает его
+ведущую колонку, и ни одна цифра в документации не должна выглядеть так, будто этот индекс
+что-то экономит.
 
 `onboarding_completed_at` (`b7e3d0a9c421`) ставится один раз онбордингом. Регистрация оставляет
 оболочку — имя из адреса, дата-заглушка, `lifestyle` пустой; оболочка не согласие быть
@@ -133,9 +175,19 @@ users ─1:1─ profiles ─M:N─ interests   (через user_interests)
 ## Подбор
 
 ### `discovery_queue`
-`viewer_id` + `candidate_id` (составной PK, оба FK users с CASCADE), `rank` (Integer — порядок в колоде, назначается один раз при постановке и не переставляется), `score` (Integer — совместимость на момент постановки), `status` (`ready` | `seen`, CheckConstraint), `queued_at`, `seen_at`. Индекс `ix_discovery_queue_viewer_status_rank (viewer_id, status, rank)`.
+`viewer_id` + `candidate_id` (составной PK `uq_discovery_queue_pair`, оба FK users с CASCADE), `rank` (Integer — порядок в колоде, назначается один раз при постановке и не переставляется), `score` (Integer — совместимость на момент постановки), `status` (`ready` | `seen`, CheckConstraint), `queued_at`, `seen_at`. Индекс `ix_discovery_queue_viewer_status_rank (viewer_id, status, rank)` — чтение очередной страницы. Уникальный индекс `uq_discovery_queue_viewer_rank (viewer_id, rank)` (`c5a7d1e0b342`).
 
-Строки `seen` — это память о том, что карточку уже показывали: они переживают перестройку колоды, поэтому человек не показывается вторично после like/pass. `rank` служит курсором API (`GET /discover?cursor=`), поэтому страница не сдвигается под тем, кто успел свайпнуть между запросами.
+`rank` — шаг курсора: `deck_claim` берёт строки `rank > :after` с `FOR UPDATE SKIP LOCKED`, и
+два параллельных пополнения, прочитавшие один и тот же потолок `max(rank) + 1`, сажают нового
+кандидата на ранг, который первая пачка уже заняла. Обе строки оказываются за одним шагом
+курсора, и выбрать можно только одну: второй человек молча исчезает из колоды. Ограничение на
+пару этого не видит — строки-то от разных пар. Поэтому постановка идёт через
+`ON CONFLICT DO NOTHING` без указания имени: проигравший столкновение рангов просто не
+попадает в очередь и остаётся доступен следующему пополнению, а не уничтожается вместе с
+парой. Миграция сначала вычищает старые коллизии детерминированно (`DELETE` с правилом
+`dup.candidate_id > keep.candidate_id`) и только потом поднимает уникальный индекс.
+
+Строки `seen` — это память о том, что карточку уже показывали: они переживают перестройку колоды, поэтому человек не показывается вторично после like/pass. Тот же `rank` служит курсором API (`GET /discover?cursor=`), поэтому страница не сдвигается под тем, кто успел свайпнуть между запросами.
 
 ## Рекомендации
 
@@ -173,8 +225,11 @@ users ─1:1─ profiles ─M:N─ interests   (через user_interests)
 и `user_interests` объявлены через `PrimaryKeyConstraint` с именами `uq_*`, а не через
 отдельный `UniqueConstraint` на тех же колонках: Postgres повышал уникальный индекс до
 первичного ключа, и вторая формулировка навечно оставляла `alembic check` в состоянии
-«есть drift». Имена этих двух ограничений при этом обязаны остаться — на них ссылается
-`ON CONFLICT (constraint ...)` в `social_repo` и `user_repo`.
+«есть drift». Имена этих ограничений остаются в схеме как были заведены (`4f2a1c9d7b30`),
+и менять их ради красоты — отдельная миграция без полезного результата; `uq_user_interest`
+к тому же назван явно в `ON CONFLICT (constraint ...)` в `user_repo`. Ссылка кода на
+`uq_discovery_queue_pair` ушла, когда `deck_append` перестал указывать имя арбитра: `DO NOTHING`
+без имени смотрит и на пару, и на новый уникальный ранг, и это то, что нужно постановке.
 
 ## Миграции и сид
 

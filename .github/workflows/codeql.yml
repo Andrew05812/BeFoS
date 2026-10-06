@@ -1,0 +1,65 @@
+# Static analysis of the backend, so a flaw is found by a query and not only by a test.
+#
+# The suite describes behaviour it knows about; 258 tests cannot describe a sink nobody thought to
+# reach. This job runs the same CodeQL engine GitHub uses to raise code-scanning alerts, over the
+# Python that actually serves requests, on a pull request rather than after the fact — so a change
+# that introduces a path-injection or a hardcoded secret turns the PR red instead of joining the
+# set of things nobody looked at.
+#
+# Scope, stated plainly: the backend only. The Android module is Kotlin on top of Compose, and
+# CodeQL would need a full Gradle build to analyse it; that build is not part of this job, and a
+# "language: kotlin" line that never gets that far would be decoration. The mobile side is covered
+# by its own unit tests and by the resolved-classpath audit in `ci.yml` / `security-watch.yml`.
+name: codeql
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - ".github/workflows/codeql.yml"
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - ".github/workflows/codeql.yml"
+  schedule:
+    # Weekly, so an improved query set gets applied to code that has not changed.
+    - cron: "0 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+concurrency:
+  group: codeql-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: backend python
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # A merge commit to compare against, so "new results" means results this change added.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Python is interpreted: there is nothing to build before the database can be analysed.
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: python
+          build-mode: none
+
+      - uses: github/codeql-action/autobuild@v3
+
+      - uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:python"

@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
+from types import SimpleNamespace
 
 from fastapi import status, WebSocketDisconnect
 from httpx import AsyncClient
@@ -130,6 +131,11 @@ class FakeSocket:
         self.incoming: asyncio.Queue = asyncio.Queue()
         self.accepted = False
         self.closed_code: int | None = None
+        # The handshake limiter reads the peer address off the connection, so a stand-in for a
+        # WebSocket has to carry one; without it the double is narrower than the real object and
+        # the guard is invisible to every test that drives the handler directly.
+        self.client = SimpleNamespace(host="testclient")
+        self.headers: dict[str, str] = {}
 
     async def accept(self) -> None:
         self.accepted = True

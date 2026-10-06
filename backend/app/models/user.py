@@ -34,6 +34,15 @@ class User(TimestampMixin, Base):
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    __table_args__ = (
+        # Login and registration both ask `lower(email) = :value`, because the stored value is
+        # normalised by the write path and the caller must be able to sign in with any casing he
+        # typed. A btree over the raw column cannot answer that predicate at all — Postgres will
+        # seq-scan the table for it — so the lookup that every single sign-in performs gets its own
+        # expression index here, and the same index makes a mixed-case duplicate impossible.
+        Index("uq_users_email_lower", text("lower(email)"), unique=True),
+    )
+
     profile: Mapped["Profile"] = relationship(
         back_populates="user", uselist=False, cascade="all, delete-orphan"
     )
@@ -68,6 +77,10 @@ class Profile(TimestampMixin, Base):
     gender_preference: Mapped[list[str]] = mapped_column(
         ARRAY(String(20)), default=list, nullable=False
     )
+    # Reserved rather than shipped: no endpoint writes this field, so the city half of the
+    # deck filter below never binds on a request that came through the API. It is kept because
+    # the column, the filter and the index already agree with each other, and deleting one of
+    # the three would leave the other two pointing at nothing.
     city_preference: Mapped[str | None] = mapped_column(String(120), nullable=True)
 
     # Lifestyle / trait snapshot used by the compatibility engine as a fallback
@@ -90,8 +103,12 @@ class Profile(TimestampMixin, Base):
     )
 
     __table_args__ = (
-        # Every candidate read asks for lower(city) plus a birth_date range; the plain
-        # city/dating_goal indexes could serve none of them.
+        # The candidate read filters the city case-insensitively and the age as a range, and a
+        # plain btree over `city` cannot answer a predicate on `lower(city)`. What the API
+        # actually sends today is the range alone — the city comes from `city_preference`, which
+        # nothing writes — so this index is reachable for the read but binds no leading column,
+        # and at 264 profiles the planner seq-scans. See docs/DATABASE.md before quoting it as
+        # a win.
         Index("ix_profiles_city_lower_birth", text("lower(city)"), "birth_date"),
     )
 

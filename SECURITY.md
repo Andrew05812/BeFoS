@@ -1,126 +1,132 @@
-# Security policy
+# Политика безопасности
 
-BeFoS is a portfolio project with a real attack surface behind it: JWT sessions, uploaded
-images, a WebSocket chat, an object-level authorization model, and personal data that people
-would not want leaked. Findings about this codebase are welcome and will be treated as work, not
-as noise.
+BeFoS — портфолийный проект, за которым стоит настоящая поверхность атаки: JWT-сессии,
+загружаемые изображения, WebSocket-чат, авторизация на уровне объекта и персональные данные,
+которые никто не хотел бы увидеть утечками. Находки по этой кодовой базе принимаются и
+разбираются как работа, а не как шум.
 
-## Reporting a vulnerability
+## Как сообщить об уязвимости
 
-Please report security issues **privately**, and do not open a public issue, discussion or pull
-request describing them.
+Сообщайте **лично**: не открывайте публичный issue, обсуждение или pull request с описанием
+проблемы.
 
-1. **Private vulnerability reporting** — use the “Report a vulnerability” form on the
-   repository's Security tab (`Andrew05812/BeFoS` → Security → Report a vulnerability). The
-   report is visible only to you and to the repository owner.
-2. If private reporting is unavailable for this repository, contact the owner through the
-   GitHub profile at [Andrew05812](https://github.com/Andrew05812) and describe the problem in
-   the first message only as far as needed to route it (“authentication bypass on X”, not the
-   working exploit).
+1. **Private vulnerability reporting** — форма “Report a vulnerability” на вкладке Security
+   репозитория (`Andrew05812/BeFoS` → Security → Report a vulnerability). Отчёт виден только
+   автору и владельцу репозитория.
+2. Если для этого репозитория личный отчёт недоступен, напишите владельцу через профиль GitHub
+   [Andrew05812](https://github.com/Andrew05812) и опишите проблему в первом сообщении ровно
+   настолько, чтобы её стало возможно адресовать («обход авторизации на X»), — но не рабочий
+   эксплойт.
 
-There is no published email address or PGP key for this project, and none is invented here.
+Публичного email или PGP-ключа у этого проекта нет, и здесь их не изобретают.
 
-## What to include
+## Что должно быть в отчёте
 
-- The affected endpoint, screen or component, and the commit or release you tested.
-- Steps to reproduce, ideally against a local stand (`docker compose up --build`) rather than a
-  description in the abstract.
-- The impact you believe it has, and any suggested fix if you have one — optional.
+- Затронутый эндпоинт, экран или компонент и коммит либо релиз, на котором вы проверяли.
+- Шаги воспроизведения — в идеале на локальном стенде (`docker compose up --build`), а не
+  описание «в общем».
+- Предполагаемый эффект и, если есть, предлагаемое исправление. Это необязательно.
 
-Redacted or synthetic request/response bodies are preferred over real ones. Do not include data
-belonging to other users.
+Вымаранные или синтетические тела запросов и ответов предпочтительнее настоящих. Данные других
+пользователей в отчёт класть нельзя.
 
-## What happens next
+## Что происходит дальше
 
-- An acknowledgement within a few days — this is a single-maintainer project, so the fix may take
-  longer than a company's SLA, but the response will not be silence.
-- If the report is valid: a fix on a private branch, then the public commit. The commit message
-  describes the class of defect and the guard that closes it, not the exploit path.
-- Coordinated disclosure: no public details until the fix is released, or until the reporter
-  agrees the issue is public.
-- A line in [`CHANGELOG.md`](CHANGELOG.md) under **Security**, and credit to the reporter if they
-  want it.
+- Ответ в течение нескольких дней. Проект ведёт один человек, поэтому исправление может занять
+  дольше, чем обещает SLA компании, — но молчания не будет.
+- Если отчёт подтверждён: исправление в приватной ветке, затем публичный коммит. Сообщение
+  коммита описывает класс дефекта и закрывающую его проверку, а не путь эксплойта.
+- Координированное раскрытие: никаких публичных деталей, пока исправление не выпущено или пока
+  автор отчёта не согласится, что проблема публична.
+- Строка в [`CHANGELOG.md`](CHANGELOG.md) в разделе **Security** и упоминание автора, если он
+  этого хочет.
 
-## Scope
+## Границы разбора
 
-In scope:
+В разборе учитываются:
 
-- Authentication, session handling and token rotation.
-- Object-level authorization — reading or writing another user's profile, photos, test answers,
-  matches, chat rooms, recommendations or safety records.
-- The WebSocket gateway: handshake authorization, frame authorization, and whether a socket can
-  outlive its pair or a block.
-- Upload handling (size, decoding, storage, and what happens on account deletion).
-- Injection, SSRF, path traversal, and any way to reach `/uploads` content that is not yours.
-- Rate limiting, and the production configuration gates that refuse an unsafe deployment.
-- Leakage of secrets or personal data into logs, error bodies or client-visible messages.
-- Third-party components pinned by this repository, when the flaw they describe is reachable from
-  it (see *Third-party components* below).
+- Аутентификация, обращение с сессиями и ротация токенов.
+- Авторизация на уровне объекта: чтение или запись чужого профиля, фото, ответов теста, пар,
+  комнат чата, рекомендаций и записей о безопасности.
+- WebSocket-шлюз: авторизация рукопожатия, авторизация кадров и переживает ли сокет свою пару
+  либо блокировку.
+- Обработка загрузки: размер, декодирование, хранение и то, что происходит при удалении
+  аккаунта.
+- Инъекции (SQL и команды), SSRF, обход пути и любой способ достать содержимое `/uploads`,
+  которое вам не принадлежит.
+- Ограничение частоты запросов и проверки конфигурации, которые отвергают небезопасный
+  production-запуск.
+- Утечка секретов или персональных данных в логи, тела ошибок или сообщения, видимые клиенту.
+- Сторонние компоненты, зафиксированные этим репозиторием, — когда описанный в них дефект из
+  него достижим (см. раздел «Сторонние компоненты» ниже).
 
-Out of scope, currently:
+Сейчас вне разбора:
 
-- Anything requiring a hosted instance. There is no deployed BeFoS service to attack — see
-  *Project Status* in [`README.md`](README.md). Reports about the local stand are in scope.
-- The known, documented limits listed below.
+- Всё, для чего нужен размещённый инстанс. Развёрнутого сервиса BeFoS, который можно атаковать,
+  нет — см. «Состояние проекта» в [`README.md`](README.md). Отчёты про локальный стенд
+  принимаются.
+- Известные и задокументированные ограничения из раздела ниже.
 
-## Known and accepted limits
+## Известные принятые ограничения
 
-These are stated in the documentation and are not vulnerabilities to re-report; they are open
-design work:
+Они описаны в документации, и это не уязвимости для повторного отчёта — это открытая проектная
+работа:
 
-- `/uploads` is served as unauthenticated static content. Access control rests on unpredictable
-  file names and on deleting the file together with the account, not on a permission check.
-  Closing this needs signed URLs or an authorized media route.
-- Account deletion is soft at the row level (`users` survives so foreign keys and pair history
-  stay intact); everything that describes the person is erased, but the row itself is not.
-- A block cannot be lifted from the app; removal is a documented SQL operation and does not
-  restore the deleted pair.
-- Reports have no in-app reader; resolving one currently means `psql`.
-- Backups are a documented, verified procedure without a scheduler and without an off-host copy.
+- `/uploads` отдаётся как статика без проверки прав. Приватность держится на непредсказуемых
+  именах файлов и на удалении файла вместе с аккаунтом, а не на проверке доступа. Чтобы это
+  закрыть, нужны подписанные URL либо авторизованный медиамаршрут.
+- Удаление аккаунта остаётся мягким на уровне строки: `users` живёт дальше, чтобы внешние ключи
+  и история пар не рассыпались. Всё, что описывает человека, стирается, но сама строка — нет.
+- Блокировка не снимается из приложения: её снятие — задокументированная SQL-операция, которая
+  не восстанавливает удалённую пару.
+- У жалоб нет читателя в приложении: разобрать жалобу сейчас значит сесть в `psql`.
+- Резервные копии — задокументированная и проверенная процедура без планировщика и без копии
+  вне хоста.
 
-## Development defaults are not production settings
+## Настройки разработки — не production-настройки
 
-The repository ships with development credentials that are deliberately visible: the demo
-account (`demo@befos.app` / `Demo12345`), the database password `befos_password`, and
-placeholder JWT secrets. With `ENVIRONMENT=production` the service refuses to start while any of
-them remain in place — that refusal is the guard, and a report that the guard can be bypassed is
-in scope, while a report that the values exist is not.
+Репозиторий поставляется с отладочными учётными данными, которые намеренно видны: демо-аккаунт
+(`demo@befos.app` / `Demo12345`), пароль базы `befos_password` и заполнители JWT-секретов. При
+`ENVIRONMENT=production` сервис отказывается стартовать, пока хоть что-то из этого на месте.
+Отказ и есть охрана: отчёт о том, что её можно обойти, принимается, а отчёт о том, что такие
+значения существуют, — нет.
 
-## Third-party components
+## Сторонние компоненты
 
-Most of what this service runs is other people's code: FastAPI, PyJWT, Pillow,
-python-multipart, SQLAlchemy, Ktor, Compose, and two container images. Dependabot is enabled on
-the repository and the pinning policy, the alert inventory and the review cadence are written
-down in [`docs/DEPENDENCIES.md`](docs/DEPENDENCIES.md).
+Значительная часть того, на чём этот сервис работает, — чужой код: FastAPI, PyJWT, Pillow,
+python-multipart, SQLAlchemy, Ktor, Compose и два контейнерных образа. Dependabot в репозитории
+включён, а политика фиксации версий, перечень алертов и периодичность разбора записаны в
+[`docs/DEPENDENCIES.md`](docs/DEPENDENCIES.md).
 
-What that means for a report here:
+Что это значит для отчёта здесь:
 
-- A dependency with a published advisory and an available patched release is treated as a defect
-  in this repository, not as upstream's problem. It is closed by upgrading the version, and the
-  alerts are not hand-dismissed to make the badge look better.
-- Whether a flaw is *reachable* in BeFoS is stated per package family in `docs/DEPENDENCIES.md`,
-  with the reasoning (which call sites exist, which are absent). That judgement decides
-  priority, never status: an unreachable advisory is still closed by the patched version.
-- A finding against a version this tree no longer pins is worth re-checking against the current
-  pins first; the version you tested is the first line of the report.
-- The audit is reproducible without trusting any document in this repository:
-  `backend/ops/check_advisories.py` asks the same GitHub advisory database Dependabot uses about
-  the *resolved* dependency graph, and exits non-zero when something is affected.
+- Зависимость с опубликованным advisory и доступной исправленной версией — это дефект этого
+  репозитория, а не «проблема апстрима». Он закрывается повышением версии; алерты не отклоняют
+  руками, чтобы цифра выглядела лучше.
+- Достижим ли дефект *в BeFoS* — разобрано по семействам пакетов в `docs/DEPENDENCIES.md`, с
+  рассуждением (какие вызовы есть в коде, каких нет). Это суждение решает приоритет, но никогда
+  — статус: недостижимый advisory всё равно закрывается исправленной версией.
+- Находка против версии, которую это дерево больше не фиксирует, сначала стоит перепроверить
+  против текущих фиксаций; версия, на которой вы проверяли, — первая строка отчёта.
+- Аудит воспроизводится без доверия к любому документу этого репозитория:
+  `backend/ops/check_advisories.py` спрашивает ту же базу advisory GitHub, что и Dependabot, про
+  *разрешённый* граф зависимостей и выходит с ненулевым кодом, если что-то затронуто.
 
-As of the 2026-10-06 hardening: 40 open alerts (1 critical, 20 high, 15 medium, 4 low) sat in
-`backend/requirements.txt`; the four packages that carried them moved to patched versions and the
-resolved graph of the backend container (30 artefacts) and of the Gradle runtime classpath
-(165 artefacts) measured 0 affected. What is deliberately *not* upgraded — an Android stack with
-no advisory on it today, and the container images that trail their distributions by newer
-packages rather than by open advisories — is listed with its reason and its update plan in
-`docs/DEPENDENCIES.md`, and is not claimed to be safe in general.
+По состоянию на ужесточение 2026-10-06: в `backend/requirements.txt` лежало 40 открытых алертов
+(1 critical, 20 high, 15 medium, 4 low). Четыре пакета, которые их принесли, переведены на
+исправленные версии, и разрешённый граф контейнера backend (30 артефактов) вместе с
+рантайм-classpath Gradle (165 артефактов) показали 0 затронутых. Что намеренно *не* повышено —
+Android-стек, на котором сегодня нет ни одного advisory, и контейнерные образы, которые отстают
+от своих дистрибутивов новыми пакетами, а не открытыми advisory, — перечислено в
+`docs/DEPENDENCIES.md` с причиной и планом обновления; о них не говорится как о «безопасных
+вообще».
 
-Re-measured on the same day after those pins reached the default branch: Dependabot's alert list
-for this repository returns 0 records for `state=open`, 0 for `state=dismissed` and 0 for
-`state=all`, and secret scanning reports 0 alerts. The list emptied because the manifests were
-patched; no alert was dismissed by hand to produce that number.
+В тот же день, после того как эти фиксации попали в основную ветку, замер повторён: список
+алертов Dependabot для этого репозитория возвращает 0 записей в `state=open`, 0 в
+`state=dismissed` и 0 в `state=all`, secret scanning — 0 алертов. Список опустел потому, что
+манифесты были пропатчены; ни один алерт не отклонён руками ради этой цифры.
 
-## Note on contributions
+## О вкладах
 
-BeFoS is maintained as a proprietary project. Security **reports** are accepted and appreciated;
-code contributions are not, and pull requests will not be merged.
+BeFoS ведётся как проприетарный проект. Отчёты о безопасности принимаются и благодарно
+разбираются; вклады кодом — нет, pull request'ы не мёржатся.
