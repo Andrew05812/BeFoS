@@ -1,0 +1,42 @@
+# Dependabot here does two different things, and only one of them is configured in this file.
+#
+# Version updates (below) open PRs for pip and for the workflow actions themselves. Those two
+# ecosystems are safe to bump by PR: pip pins are exact and the backend suite decides whether a
+# new version is acceptable, and the action pins cannot run the app at all.
+#
+# Gradle is deliberately absent. docs/DEPENDENCIES.md records why: the mobile stack has zero
+# published advisories right now, and a batch of version-bump PRs would change Compose, Ktor
+# and Coil behaviour in a way a build cannot verify — those upgrades are one-layer-at-a-time
+# decisions checked on a device. Security updates are a separate mechanism, driven by the
+# dependency graph rather than by this file, so a published advisory against a Gradle artefact
+# still reaches this repository as a patch PR.
+version: 2
+
+updates:
+  - package-ecosystem: pip
+    directory: /backend
+    schedule:
+      interval: weekly
+      day: monday
+      time: "03:00"
+      timezone: Europe/Moscow
+    open-pull-requests-limit: 5
+    rebase-strategy: auto
+    labels:
+      - dependencies
+    groups:
+      python-runtime:
+        patterns:
+          - "*"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "03:00"
+      timezone: Europe/Moscow
+    open-pull-requests-limit: 3
+    labels:
+      - dependencies
+      - ci

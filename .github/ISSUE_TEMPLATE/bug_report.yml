@@ -1,0 +1,88 @@
+name: Ошибка
+description: Что-то работает не так, как обещано экраном или документацией
+labels: ["bug"]
+body:
+  - type: markdown
+    value: >-
+      Если finding касается безопасности, авторизации, чужих данных или уязвимости в
+      зависимости — пожалуйста, не открывайте публичный issue: воспользуйтесь формой
+      «Report a vulnerability» (Security → Report a vulnerability).
+
+
+      Здесь ищутся обычные дефекты: неверные числа, пропавшие состояния, странный текст,
+      падение, лишний запрос.
+  - type: textarea
+    id: what
+    attributes:
+      label: Что произошло
+      description: >-
+        Одно-два предложения. Если расходится с документацией — сошлитесь на файл или раздел.
+      placeholder: Discovery показывает карточку пользователя, который уже был просмотрен.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Шаги воспроизведения
+      description: >-
+        По шагам, так, чтобы сторонний человек повторил это на стенде из `docker compose up`.
+        Если шаг зависит от данных — укажите, какие именно данные нужны.
+      value: |
+        1. 
+        2. 
+        3. 
+      render: sh
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Что ожидалось
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Где видно
+      description: Половина дефектов живёт на границе клиента и API — укажите обе стороны, если не уверены.
+      options:
+        - Android (экран, поведение)
+        - Backend API (ответ, код, задержка)
+        - WebSocket (чат, присутствия, доставка)
+        - Загрузка и отдача изображений
+        - Миграции / схема БД
+        - Сборка, Docker, CI
+        - Документация расходится с кодом
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Окружение
+      description: >-
+        Коммит или релиз, способ запуска, устройство и настройки шрифта для Android.
+        Для багов на экране с клавиатурой или при крупном шрифте укажите dp и font scale —
+        этот проект проверяется матрицей 320/360/393 dp и масштабом до 1.3.
+      value: |
+        commit / release:
+        запуск: docker compose up --build | локально без Docker
+        устройство: (модель, dp, font scale) — если дефект в клиенте
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Доказательство
+      description: >-
+        Лог backend с `request_id`, ответ запроса, снимок экрана. Синтетические и обезличенные
+        данные предпочтительнее настоящих: чужие профили и переписку сюда не приносите.
+      render: sh
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Проверено перед отправкой
+      options:
+        - label: В репозитории нет открытого issue с тем же поведением
+          required: true
+        - label: Воспроизводится не на устаревшей сборке (пересобрано из текущего коммита)
+          required: true
