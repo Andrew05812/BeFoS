@@ -115,6 +115,11 @@ no advisory on it today, and the container images that trail their distributions
 packages rather than by open advisories — is listed with its reason and its update plan in
 `docs/DEPENDENCIES.md`, and is not claimed to be safe in general.
 
+Re-measured on the same day after those pins reached the default branch: Dependabot's alert list
+for this repository returns 0 records for `state=open`, 0 for `state=dismissed` and 0 for
+`state=all`, and secret scanning reports 0 alerts. The list emptied because the manifests were
+patched; no alert was dismissed by hand to produce that number.
+
 ## Note on contributions
 
 BeFoS is maintained as a proprietary project. Security **reports** are accepted and appreciated;

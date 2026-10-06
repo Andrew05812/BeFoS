@@ -433,6 +433,11 @@ Not done, stated plainly:
   characters the Gradle test worker dies with `ClassNotFoundException` for every class
   (`sun.jnu.encoding=Cp1251`); the same 131 tests pass from an ASCII path, as they did for the
   numbers above. Application builds are unaffected.
+- **Clone the Android app without `--depth`.** From a shallow clone of this repository the
+  Gradle task graph fails to resolve — `Could not determine the dependencies of task
+  ':app:testDebugUnitTest'` with a `java.io.IOException` — while the same commit built and ran
+  all 131 tests from a full clone. The backend and the container image are unaffected by how the
+  repository was cloned.
 
 ## Roadmap
 

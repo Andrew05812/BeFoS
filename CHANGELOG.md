@@ -66,15 +66,19 @@ the policy, the alert inventory and the reachability verdicts are in
 | `:app:assembleDebug` | BUILD SUCCESSFUL, `app-debug.apk` 19,898,744 bytes |
 | Live journey against the rebuilt container | **64 / 64 checks** |
 | `docker compose config` / `build` / `up` | OK; `/api/v1/health` and `/api/v1/health/db` both `ok` |
+| Fresh full clone of the published default branch, checked outside the working directory | `235 passed`; advisory sweep over 39 resolved artefacts → 0 affected, 0 unparsed, 0 query errors; `:app:testDebugUnitTest` forced with `--rerun --no-build-cache` → 131 tests, 0 failures; `app-debug.apk` 19,898,744 bytes; `docker compose build` from the clone, with no secrets present → 405 MB image, `uid=10001(befos)`, no compiler, no `pytest` module |
 
 ### What remains open here
 
-Not a claim of a finished job: Dependabot re-scans the default branch, so the 40 alerts stay
-listed until this work reaches `main`, and Dependabot's own PR #1 (PyJWT 2.15.0) stays open
-until the fix supersedes it. Android dependencies carry no advisory today but are old,
-`postgres:16-alpine` trails the Alpine repository by three packages with no open advisory on
-them, `/uploads` is still unauthenticated static, and there is no lock file and no CI gate
-yet. Each is written out with its reason in [`docs/DEPENDENCIES.md`](docs/DEPENDENCIES.md).
+Not a claim of a finished job. The four packages are patched on the default branch, and that is
+what closed the 40 Dependabot alerts — re-measured after the push: `state=open`,
+`state=dismissed` and `state=all` each return 0, and Dependabot closed its own PR #1 (PyJWT
+2.15.0) unmerged instead of leaving it hanging. Nothing was hand-dismissed to reach that
+number. What a version bump cannot reach stays open: the audit sees only published advisories,
+no CI gate runs `check_advisories.py`, the Android dependencies are old (0 advisories today is
+not a promise for tomorrow), `postgres:16-alpine` trails the Alpine repository by three packages
+with no open advisory on them, and `/uploads` is still unauthenticated static. Each is written
+out with its reason in [`docs/DEPENDENCIES.md`](docs/DEPENDENCIES.md).
 
 ## [0.1.0-beta] — 2026-10-06
 

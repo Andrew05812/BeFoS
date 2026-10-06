@@ -247,6 +247,29 @@ advisory): поднять один слой, прогнать `:app:testDebugUni
   `/api/v1/health` → `{"status":"ok","app":"BeFoS","environment":"development"}`,
   `/api/v1/health/db` → `{"status":"ok","database":"connected"}`.
 
+## Проверка на свежем клоне
+
+Числа выше сняты в рабочей директории, где всё настроено заранее. Чтобы результат не зависел от
+того, что уже было подготовлено в ней, репозиторий был склонирован заново из публичного
+`main` в ASCII-путь и прогнан там целиком. HEAD клона — `032fc85`, то есть тот же коммит, в
+котором лежат залатанные пины из таблицы «Что обновлено»:
+
+| Шаг | Команда | Результат |
+|---|---|---|
+| Установка backend-окружения | `python -m venv .venv && .venv/Scripts/python.exe -m pip install -r requirements-dev.txt` | 39 артефактов, пины совпадают с манифестом |
+| Аудит advisory'ов на резолв-графе | `pip freeze \| python ops/check_advisories.py --pip-stdin` | affected 0, unparsed 0, query errors 0 |
+| Полный backend-набор | `.venv/Scripts/python.exe -m pytest -q` | `235 passed`, выход 0 |
+| Android-тесты без пропуска из кэша | `./gradlew :app:testDebugUnitTest --rerun --no-build-cache` | BUILD SUCCESSFUL; 21 XML, 131 тест, 0 failures / 0 errors / 0 skipped |
+| Сборка debug-APK | `./gradlew :app:assembleDebug` | `app-debug.apk` 19 898 744 байт |
+| Сборка образа без всяких секретов | `docker compose build backend` (в клоне нет ни `.env`, ни ключей) | образ 405 MB; `id` → `uid=10001(befos)`; `gcc/g++/make` отсутствуют; `import pytest` → `ModuleNotFoundError` |
+| Публикация порта базы | `docker compose config` | `host_ip: 127.0.0.1` на `5432` |
+
+Единственная находка этого прогона относится не к зависимостям, а к тому, как клон делают:
+`git clone --depth` (неполный клон) ломает граф задач Gradle — `Could not determine the
+dependencies of task ':app:testDebugUnitTest'` с `java.io.IOException` — на том же коммите, на
+котором полный клон собирается и проходит все 131 тест. Backend и образ это не касается.
+Записано в README вместе с ограничением про ASCII-путь.
+
 ## Регрессии, которые держат эту работу
 
 [`../backend/tests/test_dependency_security.py`](../backend/tests/test_dependency_security.py)
@@ -282,10 +305,12 @@ cd backend && python -m pytest tests/test_dependency_security.py
 Здесь намеренно перечислено то, что осталось открытым. Формулировка «проект защищён»
 к этому документу не применяется.
 
-1. **Alert'ы закроются не мгновенно.** Dependabot пересчитывает default-ветку; пока фикс не
-   попал в `main`, 40 alert'ов числятся открытыми, и PR #1 (`chore(deps): bump pyjwt from
-   2.10.1 to 2.15.0 in /backend`) остаётся висеть — он предлагает 2.15.0, тогда как здесь
-   стоит 2.15.1. Вручную alert'ы не достреливались.
+1. **Закрытые alert'ы — это следствие пуша, а не отдельной работы.** Dependabot пересчитывает
+   default-ветку: после того как залатанные пины попали в `main`, все 40 alert'ов закрылись
+   сами. Замер после пуша: `state=open`, `state=dismissed` и `state=all` возвращают по 0
+   записей, а PR #1 (`chore(deps): bump pyjwt from 2.10.1 to 2.15.0 in /backend`) закрыт
+   Dependabot'ом без мержа — он предлагал 2.15.0, тогда как в репозитории стоит 2.15.1.
+   Вручную не закрывался ни один alert.
 2. **Аудит ловит только опубликованное.** Advisory появляется через дни или недели после
    дыры, а `pillow` и `python-multipart` из этой пачки чинили именно что post-disclosure.
    Регламент пересмотра — ниже.
