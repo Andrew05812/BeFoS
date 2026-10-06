@@ -54,6 +54,8 @@ In scope:
 - Injection, SSRF, path traversal, and any way to reach `/uploads` content that is not yours.
 - Rate limiting, and the production configuration gates that refuse an unsafe deployment.
 - Leakage of secrets or personal data into logs, error bodies or client-visible messages.
+- Third-party components pinned by this repository, when the flaw they describe is reachable from
+  it (see *Third-party components* below).
 
 Out of scope, currently:
 
@@ -83,6 +85,35 @@ account (`demo@befos.app` / `Demo12345`), the database password `befos_password`
 placeholder JWT secrets. With `ENVIRONMENT=production` the service refuses to start while any of
 them remain in place — that refusal is the guard, and a report that the guard can be bypassed is
 in scope, while a report that the values exist is not.
+
+## Third-party components
+
+Most of what this service runs is other people's code: FastAPI, PyJWT, Pillow,
+python-multipart, SQLAlchemy, Ktor, Compose, and two container images. Dependabot is enabled on
+the repository and the pinning policy, the alert inventory and the review cadence are written
+down in [`docs/DEPENDENCIES.md`](docs/DEPENDENCIES.md).
+
+What that means for a report here:
+
+- A dependency with a published advisory and an available patched release is treated as a defect
+  in this repository, not as upstream's problem. It is closed by upgrading the version, and the
+  alerts are not hand-dismissed to make the badge look better.
+- Whether a flaw is *reachable* in BeFoS is stated per package family in `docs/DEPENDENCIES.md`,
+  with the reasoning (which call sites exist, which are absent). That judgement decides
+  priority, never status: an unreachable advisory is still closed by the patched version.
+- A finding against a version this tree no longer pins is worth re-checking against the current
+  pins first; the version you tested is the first line of the report.
+- The audit is reproducible without trusting any document in this repository:
+  `backend/ops/check_advisories.py` asks the same GitHub advisory database Dependabot uses about
+  the *resolved* dependency graph, and exits non-zero when something is affected.
+
+As of the 2026-10-06 hardening: 40 open alerts (1 critical, 20 high, 15 medium, 4 low) sat in
+`backend/requirements.txt`; the four packages that carried them moved to patched versions and the
+resolved graph of the backend container (30 artefacts) and of the Gradle runtime classpath
+(165 artefacts) measured 0 affected. What is deliberately *not* upgraded — an Android stack with
+no advisory on it today, and the container images that trail their distributions by newer
+packages rather than by open advisories — is listed with its reason and its update plan in
+`docs/DEPENDENCIES.md`, and is not claimed to be safe in general.
 
 ## Note on contributions
 

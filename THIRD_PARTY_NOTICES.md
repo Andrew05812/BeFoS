@@ -7,14 +7,17 @@ additional rights over them.
 How this list was produced, so it can be reproduced rather than trusted:
 
 - Backend licences were read from the installed distribution metadata of the pinned
-  versions in `backend/.venv` (`License` / `License-Expression` / `License ::` classifiers).
+  versions in `backend/.venv` (`License` / `License-Expression` / `License ::` classifiers),
+  re-run on 2026-10-06 against the versions in the tables below.
 - Mobile licences were read from the `<licenses>` block of each artefact's Maven POM, from
   the local Gradle artifact cache where the POM was present and from the upstream Maven
   repository where it was not.
 - The font notice was extracted from the TrueType `name` table (nameID 13) of the bundled
   file itself and copied verbatim into `backend/app/seed_data/fonts/LICENSE.DejaVu`.
-- Versions below are the ones this repository pins in `backend/requirements.txt` and
-  `android/gradle/libs.versions.toml`.
+- Versions below are the ones this repository pins in `backend/requirements.txt` (runtime,
+  and the only thing the container installs), `backend/requirements-dev.txt` (test tooling,
+  never in the image) and `android/gradle/libs.versions.toml`. The dependency policy and the
+  advisory audit are in [`docs/DEPENDENCIES.md`](docs/DEPENDENCIES.md).
 
 ## Bundled in this repository
 
@@ -34,6 +37,8 @@ icons or fonts are included.
 
 ## Backend — direct dependencies
 
+Runtime (`backend/requirements.txt`, and the only file the container build reads):
+
 | Package | Version | Licence |
 |---|---|---|
 | fastapi | 0.115.6 | MIT |
@@ -41,16 +46,21 @@ icons or fonts are included.
 | pydantic | 2.10.4 | MIT |
 | pydantic-settings | 2.7.0 | MIT |
 | email-validator | 2.2.0 | Unlicense (public domain) |
-| python-multipart | 0.0.20 | Apache-2.0 |
+| python-multipart | 0.0.32 | Apache-2.0 |
 | SQLAlchemy[asyncio] | 2.0.36 | MIT |
 | asyncpg | 0.30.0 | Apache-2.0 |
 | alembic | 1.14.0 | MIT |
 | greenlet | 3.1.1 | MIT |
-| PyJWT | 2.10.1 | MIT |
+| PyJWT | 2.15.1 | MIT |
 | bcrypt | 4.2.1 | Apache-2.0 |
-| pillow | 11.0.0 | MIT-CMU (CMU/HPND-style permission notice) |
-| pytest | 8.3.4 | MIT (tests only) |
-| pytest-asyncio | 0.25.0 | Apache-2.0 (tests only) |
+| pillow | 12.3.0 | MIT-CMU (CMU/HPND-style permission notice) |
+
+Test tooling (`backend/requirements-dev.txt`, not in the image):
+
+| Package | Version | Licence |
+|---|---|---|
+| pytest | 9.1.1 | MIT |
+| pytest-asyncio | 1.4.0 | Apache-2.0 |
 | httpx | 0.28.1 | BSD-3-Clause (tests and the live journey script) |
 
 ## Backend — transitive packages resolved with those pins
@@ -58,9 +68,13 @@ icons or fonts are included.
 annotated-types MIT · anyio MIT · certifi MPL-2.0 · click BSD-3-Clause · colorama
 BSD-3-Clause · dnspython ISC · h11 MIT · httptools MIT · httpcore BSD-3-Clause · idna
 BSD-3-Clause · iniconfig MIT (tests) · Mako MIT · MarkupSafe BSD-3-Clause · packaging
-Apache-2.0 OR BSD-2-Clause · pluggy MIT (tests) · pydantic_core MIT · python-dotenv
-BSD-3-Clause · PyYAML MIT · starlette BSD-3-Clause · typing_extensions PSF-2.0 ·
-watchfiles MIT · websockets BSD-3-Clause
+Apache-2.0 OR BSD-2-Clause · pluggy MIT (tests) · Pygments BSD-2-Clause (tests) · pydantic_core
+MIT · python-dotenv BSD-3-Clause · PyYAML MIT · starlette BSD-3-Clause · typing_extensions
+PSF-2.0 · uvloop Apache-2.0 OR MIT · watchfiles MIT · websockets BSD-3-Clause
+
+`uvloop` is reached only through `uvicorn[standard]` on a non-Windows platform, which is why the
+container's resolved set and a Windows virtualenv differ; the audit in
+[`docs/DEPENDENCIES.md`](docs/DEPENDENCIES.md) reads the container's own graph for that reason.
 
 ## Android client — dependencies
 

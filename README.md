@@ -181,7 +181,8 @@ flowchart TD
 There is one backend process, one database and one object store for uploads: no queue, no
 cache tier, no microservice that does not exist. `docs/ARCHITECTURE.md` describes the layers,
 the engines and the socket lifecycle; `docs/DATABASE.md` the schema and the pool math;
-`docs/API.md` every endpoint. (Those three documents are written in Russian.)
+`docs/API.md` every endpoint. (Those three documents are written in Russian, and so is
+`docs/DEPENDENCIES.md` — the pinning policy, the advisory audit and what it measured.)
 
 ## Technology Stack
 
@@ -214,7 +215,14 @@ Implemented and covered by tests:
   no user-supplied personal payload.
 - **Upload validation**: images are read to a size ceiling and re-encoded through Pillow, so an
   oversized or malformed file is refused as input instead of becoming a 500 or a decompression
-  bomb.
+  bomb. The decoder is chosen from a list this product owns (`ACCEPTED_PIL_FORMATS`), not from
+  the bytes a client labelled: `Image.open` picks its parser from the magic in the body, so
+  without that second gate a JPEG-declared PSD or TIFF reaches a decoder no photo needs.
+- **Third-party components**: runtime dependencies are pinned exactly, test tooling lives in a
+  separate file so the serving image carries no test runner, and the resolved graph — 39 pip and
+  165 Maven artefacts — is auditable against GitHub's advisory database with
+  `backend/ops/check_advisories.py`. Policy, alert inventory and what was deliberately left
+  alone: [`docs/DEPENDENCIES.md`](docs/DEPENDENCIES.md).
 - **Production configuration validation**: with `ENVIRONMENT=production` the service refuses to
   start on placeholder or short JWT secrets, on identical access/refresh secrets, on a
   wildcard or `http://` CORS origin, on `DEBUG=true`, on the demo account being enabled (its
@@ -265,7 +273,7 @@ Re-run before quoting these numbers; they were measured on 2026-10-06 against th
 
 | Suite | Result | Command |
 |---|---|---|
-| Backend (unit + integration + security config + IDOR + perf + pagination + observability + DB reliability + media + chat idempotency + compatibility consistency) | **191 passed** | `cd backend && pytest` |
+| Backend (unit + integration + security config + IDOR + perf + pagination + observability + DB reliability + media + chat idempotency + compatibility consistency + dependency security regressions) | **235 passed** | `cd backend && pytest` |
 | Android unit (ViewModels and pure functions) | **131 passed, 0 failed** | `cd android && ./gradlew :app:testDebugUnitTest` |
 | Live product journey against the running Docker backend, two real accounts | **64 / 64 checks** | `cd backend && python e2e_journey.py` |
 | On-device run on an emulator | manual, full flow: register → onboarding → test → discovery → match → chat → compatibility → recommendations → pairs → profile → settings → logout → re-login | AVD `befos_avd` (pixel_4, 540×1140 / density 220), headless |
@@ -297,6 +305,7 @@ still addressable by commit. Recount at any time with `git rev-list --count HEAD
 | Adversarial QA, reliability | 2026-10-04 | Forged-header limiter, races, socket lifecycle, media limits, observability, idempotency |
 | Accessibility, privacy, engine consistency | 2026-10-05 | Keyboard/IME matrix, contrast, deletion lifecycle, symmetric scores, production guards |
 | Launch readiness | 2026-10-06 | Ignore rules, loopback-only database, shipped-password guard, license, screenshots |
+| Dependency security hardening | 2026-10-06 | 40 alerts closed by four patched pins, decoder whitelist, non-root two-stage image, advisory audit tool, 44 new regressions |
 
 Full stage-by-stage detail, with the commit evidence behind each row:
 [`docs/DEVELOPMENT_HISTORY.md`](docs/DEVELOPMENT_HISTORY.md).
@@ -322,12 +331,17 @@ The development compose file publishes PostgreSQL on `127.0.0.1:5432` only, so a
 ```bash
 cd backend
 python -m venv .venv && source .venv/Scripts/activate   # Windows Git Bash
-pip install -r requirements.txt
+pip install -r requirements-dev.txt                      # runtime + the test tooling
 cp ../.env.example .env                                  # point DATABASE_URL at your PostgreSQL
 alembic upgrade head
 python -m app.seed
 uvicorn app.main:app --reload --port 8000
 ```
+
+`requirements.txt` is what the container installs — runtime only, pinned exactly.
+`requirements-dev.txt` pulls that file in and adds `pytest`, `pytest-asyncio` and `httpx`, which
+never reach the image. The pins and the reasons behind them:
+[`docs/DEPENDENCIES.md`](docs/DEPENDENCIES.md).
 
 ### Android
 
@@ -361,10 +375,21 @@ with `apksigner`, the R8 mapping and the pre-publication checklist are in
 ### Tests
 
 ```bash
-cd backend && pytest                                   # 191
+cd backend && pytest                                   # 235
 cd android && ./gradlew :app:testDebugUnitTest         # 131
 cd backend && python e2e_journey.py                    # 64 checks, needs the Docker backend up
 ```
+
+Dependencies are checked the same way as the suites — by running something rather than by
+trusting a badge:
+
+```bash
+docker exec befos_backend python -m pip freeze | python backend/ops/check_advisories.py --pip-stdin
+```
+
+It asks GitHub's advisory database about the *resolved* graph and exits 1 on any hit;
+[`docs/DEPENDENCIES.md`](docs/DEPENDENCIES.md) has the Gradle-side command and the 2026-10-06
+measurement.
 
 ## Demo
 
@@ -415,7 +440,8 @@ In the order the gaps above actually block something:
 
 1. Deploy the backend behind TLS with real secrets, and prove the production config gates
    against a live environment rather than a local one.
-2. Put the three suites in CI, so "191 / 131 / 64" stops being a manual measurement.
+2. Put the three suites and `backend/ops/check_advisories.py` in CI, so "235 / 131 / 64" and
+   "0 affected" stop being manual measurements.
 3. Push notifications, following the already-written design (device-token storage, per-pair
    delivery rules, opt-out) once a project credential exists.
 4. A moderation reader for reports, so a complaint has a recipient who is not a `psql` prompt.

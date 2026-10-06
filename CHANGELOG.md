@@ -6,8 +6,75 @@ had, so the entry is a grouped summary of the six days of work behind it (2026-1
 2026-10-06) rather than an increment over a previous version. Per-stage detail, with the commits
 that carry each change, is in [`docs/DEVELOPMENT_HISTORY.md`](docs/DEVELOPMENT_HISTORY.md).
 
-Numbers are measurements, not aspirations: 191 backend tests, 131 Android unit tests and 64
-live-journey checks, re-run on 2026-10-06 against this tree.
+Numbers are measurements, not aspirations: the tagged entry below was measured on 2026-10-06
+as 191 backend tests, 131 Android unit tests and 64 live-journey checks; the dependency
+hardening sitting on top of it re-measured the same suites at 235 / 131 / 64. Per-stage detail,
+with the commits that carry each change, is in
+[`docs/DEVELOPMENT_HISTORY.md`](docs/DEVELOPMENT_HISTORY.md).
+
+## [Unreleased] — dependency security hardening, 2026-10-06
+
+Work on top of `v0.1.0-beta`, on `production-readiness`, not yet in any tag. It closes the Dependabot alerts the repository was carrying and adds the regressions that keep them closed;
+the policy, the alert inventory and the reachability verdicts are in
+[`docs/DEPENDENCIES.md`](docs/DEPENDENCIES.md).
+
+### Security
+
+- **Python dependencies moved to patched versions.** 40 open Dependabot alerts, all `pip` and
+  all in `backend/requirements.txt`, closed by four bumps: `PyJWT` 2.10.1 → 2.15.1 (15 alerts,
+  1 critical — CVE-2026-102268 — 4 high), `pillow` 11.0.0 → 12.3.0 (17 alerts, 13 high, among
+  them the PSD/TIFF out-of-bounds writes CVE-2026-25990 and CVE-2026-42311 and the JPEG2000
+  decompression-buffer DoS CVE-2026-59204), `python-multipart` 0.0.20 → 0.0.32 (7 alerts,
+  3 high, all in the frame parser every avatar upload passes through), and `pytest` 8.3.4 →
+  9.1.1 with its required pair `pytest-asyncio` 1.4.0 (CVE-2025-71176). No alert was dismissed
+  by hand; each was closed by the version that patches it.
+- **The image decoder is now chosen by the product, not by the upload.** `Image.open` picks its
+  parser from the magic bytes in the body, so a file declared as `image/jpeg` could reach the
+  PSD, TIFF or FITS decoder. `ACCEPTED_PIL_FORMATS` gates the recognised format against
+  JPEG/PNG/WEBP/MPO — the formats this product actually claims — which removes the other
+  decoders from the reachable set instead of relying on their being patched.
+- **The serving container got smaller and stopped running as root.** Two-stage build: wheels are
+  compiled in a throwaway stage, so `build-essential` and `libpq-dev` are gone from the runtime
+  image (`gcc`, `g++`, `make` verified absent), and test tooling (`pytest`, `pytest-asyncio`,
+  `httpx`) moved to `backend/requirements-dev.txt`, which the image never reads. The process runs
+  as `befos` (uid 10001). The loopback-only rule for `5432` is unchanged.
+- **A reproducible audit instead of a promise.** `backend/ops/check_advisories.py` queries the
+  same GitHub advisory database Dependabot uses, over the *resolved* graph rather than the
+  manifest: measured 2026-10-06 over 204 artefacts (39 pip + 165 Maven from Gradle's resolved
+  runtime classpath) and over the container's own 30 — affected 0, unparsed ranges 0. It exits 1
+  on a hit or a failed query, so it can become a gate before a pipeline exists.
+
+### Added
+
+- `backend/tests/test_dependency_security.py` — 44 tests over the behaviour the bumps were for:
+  forged, expired, claim-less, algorithm-substituted and malformed tokens refused at the route
+  and at the socket (close code 1008), PEM material refused as an HMAC secret, foreign-magic
+  bodies and off-list content types rejected as 422 rather than decoded, EXIF stripped and the
+  canvas downscaled, traversal-shaped filenames landing as
+  `^/uploads/[0-9a-f]{32}\.png$`, and five malformed multipart framings answered with 400/422
+  without a 500, a hang, or a broken good upload afterwards.
+- `docs/DEPENDENCIES.md` — the pinning policy, the alert inventory with a per-family
+  reachability verdict, what was deliberately not upgraded and why, the Docker measurements, and
+  the review cadence.
+
+### Tests after this change
+
+| Suite | Result |
+|---|---|
+| Backend `pytest` | **235 passed** (191 before + 44 new), 0 failed |
+| Android `:app:testDebugUnitTest` | **131 passed**, 0 failed, 0 errors, 0 skipped (forced `--rerun`) |
+| `:app:assembleDebug` | BUILD SUCCESSFUL, `app-debug.apk` 19,898,744 bytes |
+| Live journey against the rebuilt container | **64 / 64 checks** |
+| `docker compose config` / `build` / `up` | OK; `/api/v1/health` and `/api/v1/health/db` both `ok` |
+
+### What remains open here
+
+Not a claim of a finished job: Dependabot re-scans the default branch, so the 40 alerts stay
+listed until this work reaches `main`, and Dependabot's own PR #1 (PyJWT 2.15.0) stays open
+until the fix supersedes it. Android dependencies carry no advisory today but are old,
+`postgres:16-alpine` trails the Alpine repository by three packages with no open advisory on
+them, `/uploads` is still unauthenticated static, and there is no lock file and no CI gate
+yet. Each is written out with its reason in [`docs/DEPENDENCIES.md`](docs/DEPENDENCIES.md).
 
 ## [0.1.0-beta] — 2026-10-06
 
@@ -123,4 +190,5 @@ SQL operation, backups have no scheduler and there is no point-in-time recovery,
 unauthenticated static, and Android unit tests must be run from an ASCII path on Windows because
 the Gradle test worker cannot resolve a non-ASCII classpath.
 
+[Unreleased]: https://github.com/Andrew05812/BeFoS/tree/production-readiness
 [0.1.0-beta]: https://github.com/Andrew05812/BeFoS/releases/tag/v0.1.0-beta
