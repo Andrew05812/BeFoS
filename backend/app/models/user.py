@@ -77,6 +77,10 @@ class Profile(TimestampMixin, Base):
     gender_preference: Mapped[list[str]] = mapped_column(
         ARRAY(String(20)), default=list, nullable=False
     )
+    # Reserved rather than shipped: no endpoint writes this field, so the city half of the
+    # deck filter below never binds on a request that came through the API. It is kept because
+    # the column, the filter and the index already agree with each other, and deleting one of
+    # the three would leave the other two pointing at nothing.
     city_preference: Mapped[str | None] = mapped_column(String(120), nullable=True)
 
     # Lifestyle / trait snapshot used by the compatibility engine as a fallback
@@ -99,8 +103,12 @@ class Profile(TimestampMixin, Base):
     )
 
     __table_args__ = (
-        # Every candidate read asks for lower(city) plus a birth_date range; the plain
-        # city/dating_goal indexes could serve none of them.
+        # The candidate read filters the city case-insensitively and the age as a range, and a
+        # plain btree over `city` cannot answer a predicate on `lower(city)`. What the API
+        # actually sends today is the range alone — the city comes from `city_preference`, which
+        # nothing writes — so this index is reachable for the read but binds no leading column,
+        # and at 264 profiles the planner seq-scans. See docs/DATABASE.md before quoting it as
+        # a win.
         Index("ix_profiles_city_lower_birth", text("lower(city)"), "birth_date"),
     )
 
