@@ -34,6 +34,15 @@ class User(TimestampMixin, Base):
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    __table_args__ = (
+        # Login and registration both ask `lower(email) = :value`, because the stored value is
+        # normalised by the write path and the caller must be able to sign in with any casing he
+        # typed. A btree over the raw column cannot answer that predicate at all — Postgres will
+        # seq-scan the table for it — so the lookup that every single sign-in performs gets its own
+        # expression index here, and the same index makes a mixed-case duplicate impossible.
+        Index("uq_users_email_lower", text("lower(email)"), unique=True),
+    )
+
     profile: Mapped["Profile"] = relationship(
         back_populates="user", uselist=False, cascade="all, delete-orphan"
     )
