@@ -15,6 +15,12 @@ logger = get_logger(__name__)
 ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
 PIL_FORMAT_BY_EXT = {".jpg": "JPEG", ".jpeg": "JPEG", ".png": "PNG", ".webp": "WEBP"}
 EXT_BY_CONTENT_TYPE = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
+# The content type above only describes what the client typed into one field; Pillow picks
+# its parser from the magic in the body, so without a second gate a TIFF, PSD or FITS upload
+# reaches a decoder this product has no reason to run — and those decoders are where the
+# out-of-bounds writes live. MPO is allowed because some phone cameras wrap a JPEG in it,
+# and it is read by the JPEG decoder, so refusing it would refuse an ordinary photo.
+ACCEPTED_PIL_FORMATS = set(PIL_FORMAT_BY_EXT.values()) | {"MPO"}
 MAX_DIMENSION = 1600
 # The cap sits above the largest sensor a phone carries today (~64 MP) and below Pillow's
 # own thresholds, which start warning at ~89 MP and refuse outright past ~179 MP. In the
@@ -80,6 +86,8 @@ async def process_and_store_upload(file_bytes: bytes, content_type: str | None) 
         # A header alone declares the canvas, so the refusal has to come before any pixels
         # are allocated: a few kilobytes of upload must not cost hundreds of megabytes of RAM.
         image = Image.open(io.BytesIO(file_bytes))
+        if image.format not in ACCEPTED_PIL_FORMATS:
+            raise ValidationError("Unsupported image type. Use JPEG, PNG or WEBP.")
         if image.width * image.height > MAX_TOTAL_PIXELS:
             raise ValidationError("Image dimensions are too large.")
         image.verify()  # detect truncated/corrupt files
