@@ -1,67 +1,76 @@
-# Development history
+# История разработки
 
-Everything here is read out of `git log` on the `production-readiness` branch. No dates are
-invented, and no stage is claimed that has no commits behind it. Reproduce any row:
+Всё здесь вычитано из `git log`. Даты не выдуманы, и ни один этап не заявлен без коммитов за
+ним. Любой ряд воспроизводится командой:
 
 ```bash
-git log --reverse --format='%ad %s' --date=short      # the whole timeline
-git log --since=2026-10-04 --until=2026-10-05 --oneline
-git rev-list --count HEAD                             # history length
+git log --reverse --format='%ad %s' --date=short        # вся хронология
+git log --format='%ad' --date=short | sort | uniq -c     # число коммитов по дням
+git rev-list --count HEAD                                # длина истории
+git rev-list --count $(git rev-parse 'v0.1.0-beta^{commit}')   # что вошло в тег
+git rev-list --count v0.1.0-beta..HEAD                   # что легло поверх тега
 ```
 
-The project was built in six days (2026-10-01 → 2026-10-06). The counts below are a snapshot
-taken at 2026-10-06 02:39 with `git rev-list --count HEAD` = 125; commits made after that
-moment — including the ones that publish this document — are not counted in the rows, so
-re-derive them with the commands above before quoting a total.
+Фильтры `--since`/`--until` для этих строк не годятся: они сравнивают committer date, а он у
+этой истории не совпадает с авторским днём этапа. Считать надо по `%ad`.
 
-The history is kept whole rather than squashed into a showcase: the early versions, the
-redesign, the bugs found by breaking the app and the fixes they produced are all addressable by
-commit.
+Проект построен за шесть дней (2026-10-01 → 2026-10-06). Числа ниже — снимок 2026-10-06 на head
+`01a3e47`, где `git rev-list --count HEAD` = 155, из них 129 вошли в тег `v0.1.0-beta` и 26 легли
+поверх него; 27-й — коммит, который принёс перевод этих двух документов. Коммиты, сделанные
+после снимка, в строки не попадают, поэтому перед тем, как цитировать итог, пересчитайте его
+командами выше.
 
-Every hash quoted here is read from the published branch. The identity and local-path
-sanitization pass rewrote all 128 commits — messages, author dates, committer dates, order and
-count stayed identical, and the tree of every commit is byte-for-byte the same — so a hash from
-a note written before that pass addresses a different commit object than the same commit does
-now.
+История сохранена целиком, а не сплющена в витрину: ранние версии, редизайн, ошибки, найденные
+тем, что приложение ломали руками, и порождённые ими правки — всё это адресуется коммитом.
 
-## Timeline
+Каждый хэш здесь прочитан с опубликованной ветки. Проход санитизации (идентификация и локальные
+пути) переписал все 128 коммитов того времени — сообщения, авторские даты, committer-даты,
+порядок и количество остались теми же, и дерево каждого коммита побайтово совпадает с прежним, —
+поэтому хэш из заметки, написанной до того прохода, адресует другой объект, чем тот же коммит
+сейчас.
 
-| Stage | Dates (from git) | Commits | What changed |
+## Хронология
+
+| Этап | Когда (по git) | Коммитов | Что изменилось |
 |---|---|---|---|
-| Foundation | 2026-10-01 | 4 | FastAPI backend — 88 files, 6 663 insertions — with the deterministic compatibility engine, async SQLAlchemy, Alembic migrations and Docker Compose; the Jetpack Compose client — 75 files, 6 003 insertions; the first ViewModel unit tests; `README` + `ARCHITECTURE`/`API`/`DATABASE`. |
-| Realtime, auth rules, first performance pass | 2026-10-02 | 14 | Chat broadcast over WebSocket and recovery after an abrupt server loss; session-aware root routing and refresh-token rotation; fail-fast production config that rejects wildcard/`http://` CORS origins; the IDOR suite; N+1 queries removed from the discovery feed and the match list; a real release-signing mechanism with the emulator URL split off the production one; handover and demo documents. |
-| Visual redesign (v2) | 2026-10-02 | 12 | The warm-ember token set and a component rebuild, then every screen migrated onto it: full-bleed discovery hero with a stacked next candidate, brand-led auth, onboarding stepper, question-counter test flow, animated category bars, pill chat composer, floating tab bar, duotone placeholder avatars, Compose previews, and an on-device verification pass that fixed the overlaps the mockups had hidden. |
-| UX excellence | 2026-10-03 | 19 | Failure states made honest rather than decorative: the HTTP stack builds lazily and fails fast on an unreachable backend, a dead session is treated as a sign-out instead of a permanent error, navigation stops throwing away state and duplicating screens, skeletons become readable, the chat header reports the socket's real state, report reasons become sendable, and one motion/haptics/number/image language replaces the ad-hoc one. A copy pass followed, so every explanation line reads in one voice. |
-| Adversarial QA and reliability hardening | 2026-10-04 | 27 | A break-the-app pass: the auth limiter stopped trusting a forged `X-Forwarded-For`, the remaining check-then-insert races in the test engine and in repeated social writes were closed by constraints, a chat socket was bound to the lifetime of its pair, its screen and its frames, the token in a handshake was kept out of the log, an oversized image became an input refusal instead of a 500, and a too-long message is refused for the reason that is too long. Then the two hot reads that scanned a whole table were paginated, discovery began serving a stored deck instead of re-ranking the pool on every page, requests became nameable and timed (request id, latency, structured logs), the health probe stopped pretending about a database that is not there, and chat sends gained an idempotency key with room access granted by rows rather than tokens. The live journey was extended to drive the socket, not only the rows. |
-| Accessibility, privacy lifecycle, engine consistency | 2026-10-05 | 38 | The keyboard matrix measured at 320/360/393 dp and font scale 1.0/1.3: the report dialog's only way to finish, the last row of the sign-in form and the pinned onboarding button were all under the IME or the gesture bar and are not now; icon-only controls got semantics, and accents that carry text are solved against the pixels behind them. A stale bearer token — Ktor caching the first token it loaded, so an in-process account switch kept sending the previous user's header — was fixed in the send pipeline. «Delete account» became a promise about data rather than about a screen, and a block became a server-side wall with tests written down. The engine was made consistent: one pair of answers gives one percent in every process, a pair displays the percent it has rather than the one it met on, `0..100` is a promise the response models keep, and the seeded demo pair carries the number the engine gives it. Production guards were extended to every setting that could silently undo the others, and the release build is now checked against the artifacts it actually produces. |
-| Launch readiness | 2026-10-06 | 11 | The `.gitignore` holes a public repository cannot leave open were closed; production now refuses to start over the database password this repository ships; the development database binds to loopback instead of every interface; `LICENSE` and `THIRD_PARTY_NOTICES.md` state the terms the project runs under, including the bundled DejaVu font; the ten product screenshots in `screenshots/` were captured from the running app; the demo persona was renamed so public captures do not carry the author's own first name; and the test screen's question header was moved out from under the status bar. |
-| Dependency security hardening | 2026-10-06 | 7 | The 40 Dependabot alerts the repository was carrying, all of them in `backend/requirements.txt`, closed by raising four packages to the versions that patch them (`PyJWT` 2.10.1 → 2.15.1, `pillow` 11.0.0 → 12.3.0, `python-multipart` 0.0.20 → 0.0.32, `pytest` 8.3.4 → 9.1.1 with `pytest-asyncio` 1.4.0) rather than by dismissing anything by hand; the image decoder now chosen from `ACCEPTED_PIL_FORMATS` instead of from the magic bytes a client labelled; 44 regression tests over forged, expired, claim-less and algorithm-substituted tokens, foreign-magic bodies, traversal-shaped filenames and five malformed multipart framings; a two-stage, non-root container image with the compiler left in the builder stage; `backend/ops/check_advisories.py`, which audits the resolved graph against the same advisory database Dependabot uses; `docs/DEPENDENCIES.md` recording the policy, the reachability verdicts and what was deliberately not upgraded; and the whole matrix re-measured from a fresh clone of the published branch rather than only from the working directory, with the alert count read back from GitHub after the push. |
+| Фундамент | 2026-10-01 | 4 | FastAPI-бэкенд — 88 файлов, 6 663 строки — с детерминированным движком совместимости, асинхронным SQLAlchemy, миграциями Alembic и Docker Compose; клиент на Jetpack Compose — 75 файлов, 6 003 строки; первые unit-тесты ViewModel; `README` плюс `ARCHITECTURE`/`API`/`DATABASE`. |
+| Realtime, правила авторизации, первый проход по производительности | 2026-10-02 | 14 | Вещание чата по WebSocket и восстановление после внезапной потери сервера; маршрутизация, знающая про сессию, и ротация refresh-токенов; fail-fast конфигурация, которая не принимает wildcard и `http://` в CORS; набор IDOR-проверок; N+1 убран из фида подбора и из списка пар; настоящий механизм подписи релиза с разделением адреса эмулятора и production-адреса; документы о передаче и демо. |
+| Визуальный редизайн (v2) | 2026-10-02 | 12 | Набор токенов warm ember и пересборка компонентов, затем перенос каждого экрана на них: полноразмерный герой подбора со следующим кандидатом в стопке, авторизация с брендом во главе, степпер анкеты, тест со счётчиком вопросов, анимированные полосы категорий, чат-композер pills, плавающая tab-бар, дуотонные заготовки аватаров, Compose-превью — и проверка на устройстве, которая исправила наложения, скрытые макетами. |
+| Качество UX | 2026-10-03 | 19 | Состояния отказа сделаны честными, а не декоративными: HTTP-стек строится лениво и падает сразу на недоступном бэкенде, мёртвая сессия трактуется как выход, а не как вечная ошибка, навигация перестала выбрасывать состояние и дублировать экраны, скелетоны стали читаемыми, шапка чата сообщает реальное состояние сокета, причины жалобы стали отправляемыми, и один язык движения/хаптики/чисел/изображений заменил прежний случайный. Следом прошёл проход по текстам, чтобы каждая объяснительная строка читалась одним голосом. |
+| Adversarial QA и усиление надёжности | 2026-10-04 | 27 | Проход «сломать приложение»: лимитер авторизации перестал доверять поддельному `X-Forwarded-For`, оставшиеся гонки «сначала проверили, потом вставили» в движке теста и в повторяющихся социальных записях закрыты ограничениями, сокет чата привязан к жизни пары, экрана и кадров, токен из рукопожатия убран из лога, слишком большое изображение стало отказом по входу вместо 500, а слишком длинное сообщение отвергается по той причине, которая и является причиной. Затем два горячих чтения, сканировавших таблицу целиком, стали постраничными, подбор перешёл на сохранённую колоду вместо перезапущенного ранжирования на каждую страницу, запросы стали именуемыми и измеримыми (request id, латентность, структурированные логи), health-проба перестала притворяться про базу, которой нет, а отправка в чат получила ключ повторяемости с доступом в комнату по строкам, а не по токенам. Живой путь научили гонять сокет, а не только строки. |
+| Доступность, цикл приватности, согласованность движка | 2026-10-05 | 38 | Матрица клавиатуры, измеренная на 320/360/393 dp и масштабе текста 1.0/1.3: единственный способ закончить диалог жалобы, последняя строка формы входа и закреплённая кнопка онбординга лежали под IME или под жестовой полосой — и больше не лежат; элементы только-с-иконкой получили semantics, акценты, несущие текст, решаются против пикселей за ними. Исправлен устаревающий bearer-токен: Ktor кэшировал первый загруженный токен, поэтому переход на другой аккаунт в том же процессе продолжал слать заголовок предыдущего пользователя. «Удалить аккаунт» стал обещанием про данные, а не про экран, а блокировка — стеной на сервере с записанными тестами. Движок стал согласованным: одна пара ответов даёт один процент в любом процессе, пара показывает процент, который у неё есть, `0..100` — обещание, которое держат модели ответа, а посеянная демо-пара несёт число, которое дал движок. Production-стражи расширены на всякую настройку, которая могла молча отменить другие, а release-сборка проверяется по тем артефактам, которые сборка действительно выдаёт. |
+| Готовность к запуску и публикация | 2026-10-06 | 15 | Закрыты дыры `.gitignore`, которые публичный репозиторий оставить себе не вправе; production отказывается стартовать из-за пароля базы, который этот репозиторий и так отдаёт; разработческая база публикуется на loopback вместо всех интерфейсов; `LICENSE` и `THIRD_PARTY_NOTICES.md` формулируют, под чем проект работает, включая несёемый шрифт DejaVu; десять продуктовых снимков в `screenshots/` сняты с работающего приложения; демо-персонажа переименовали, чтобы публичные снимки не носили имя автора; заголовок вопроса на экране теста убран из-под статус-бара. Плюс `SECURITY.md` с маршрутом сообщения об уязвимости, `CHANGELOG.md`, этот документ и удаление рабочего журнала из дерева. |
+| Усиление зависимостей | 2026-10-06 | 8 | 40 alert'ов Dependabot, все в `backend/requirements.txt`, закрыты поднятием четырёх пакетов до версий, которые их латают (`PyJWT` 2.10.1 → 2.15.1, `pillow` 11.0.0 → 12.3.0, `python-multipart` 0.0.20 → 0.0.32, `pytest` 8.3.4 → 9.1.1 с `pytest-asyncio` 1.4.0), а не ручным снятием; декодер изображения выбирается из `ACCEPTED_PIL_FORMATS`, а не из магических байтов, которые подписал клиент; 44 регрессии на поддельные, просроченные, обезображенные и подменённые по алгоритму токены, чужие сигнатуры тела, имена файлов с traversal-формой и пять битых framing'ов multipart; двухстадийный контейнер без root и с компилятором, оставшимся в builder-стадии; `backend/ops/check_advisories.py`, проверяющий разрешённый граф по той же базе консультаций; `docs/DEPENDENCIES.md` с политикой, выводами о достижимости и тем, что намеренно не поднимали; и вся матрица, переснятая с чистого клона опубликованной ветки, а не только из рабочего каталога, с обратным чтением числа alert'ов на GitHub после пуша. Восьмой коммит этого этапа — тот, который пересчитал седьмой. |
+| Конвейер и проверки на runner'е | 2026-10-06 | 4 | `.github/workflows/ci.yml` с пятью job'ами (`backend`, `migrations`, `android`, `advisories`, `journey`), которые повторяют ровно ручные команды и красят pull request при регрессии; executable-бит `android/gradlew`, без которого runner не доходит до мобильных проверок; `.github/dependabot.yml` с `pip` и action'ами при намеренно отсутствующем Gradle (причина записана); `ISSUE_TEMPLATE/` и шаблон pull request; `security-watch.yml` — еженедельный пересмотр обоих разрешённых графов по часам; `codeql.yml` — запросы GitHub к Python бэкенда на pull request, с явно названной областью (только бэкенд). Первый прогон, где все пять job'ов зелёные на одном head, — `01a3e47`, 2026-10-06 06:43 UTC, attempt 1; `codeql` на том же хэде тоже зелёный. |
+| Пять правок первой очереди | 2026-10-06 | 5 | Лимитер на всех маршрутах, кроме оставленного без потолка `/health`; видимость профиля, применяемая на путях симпатии и пропуска, а не только в колоде; уникальный ранг в колоде с миграцией `c5a7d1e0b342`, чтобы две доводки не прятали кандидата за одним шагом курсора; сброс колоды, страницы занятий и процентов после онбординга; функциональный уникальный индекс `uq_users_email_lower` с миграцией `d8f4b2c6a157` — вход вместо `Seq Scan on users` даёт `Index Scan`. Каждая правка принесла тест, который без неё не проходит. |
+| Стенд тестов: одна сессия на базу | 2026-10-06 | 1 | Фикстура `client` очищает доменные таблицы перед каждым тестом, поэтому две параллельные сессии стирают строки друг друга и выдают 13–14 падений на дереве, которое в одиночку проходит целиком. Advisory-лок уровня сессии превращает это в отказ старта с указанием причины; страж покрыт собственными тестами. |
+| Аудит таблицы маршрутов | 2026-10-06 | 2 | Единообразный 404 на маршрутах пары вместо 403, который был оракулом существования; `GET /users/{id}` спрашивает правило колоды и только про чужой профиль; `ForbiddenError` удалён из кода; набор проверок, выведенный из `create_app().routes` (12 вызовов по чужим идентификаторам), а не из памяти о маршрутах; окна 60/мин на пробу базы, 30/мин на рукопожатие сокета и 120/мин на кадры, перечитывание авторизации на кадрах `typing` и `read`; закрытая в production документация. |
+| Документы: язык и точность | 2026-10-06 | 7 | `README.md` и `SECURITY.md` переведены на русский и сверены с замерами, затем то же сделано с `THIRD_PARTY_NOTICES.md`, `CHANGELOG.md` и этим документом; из `docs/DEPENDENCIES.md` и `docs/RELEASE.md` убраны формулировки «конвейера нет», которые остались от времени до него; `docs/DATABASE.md` описывает, что служат два новых индекса и чего не служит ни один из них; `docs/API.md` и `docs/OPERATIONS.md` документируют согласованный отказ, потолки и закрытую в production документацию. Седьмой коммит — этот. |
 
-## Why some stages share a date
+## Почему у нескольких этапов одна дата
 
-The stage list a reader expects — backend, authentication, compatibility engine, Android MVP,
-WebSocket chat, recommendations — does not map one-to-one onto days. The first backend commit
-already contained the API layer, JWT auth with rotating refresh tokens, the compatibility
-engine and the recommendation engine together, and the first Android commit already contained
-the whole client flow. Those stages are real, but they were authored as single large commits
-(`7eb8af3`, `f884eb0`) rather than as a sequence, so the timeline above records them as
-delivered instead of inventing intermediate milestones.
+Ожидаемый читателем список этапов — бэкенд, аутентификация, движок совместимости, Android MVP,
+WebSocket-чат, рекомендации — не ложится на дни один-в-один. Первый коммит бэкенда уже нёс слой
+API, JWT-авторизацию с ротацией refresh-токенов, движок совместимости и движок рекомендаций, а
+первый коммит Android уже нёс весь клиентский поток. Эти этапы реальны, но были сделаны одним
+большим коммитом (`7eb8af3`, `f884eb0`), а не последовательностью, поэтому таблица выше записывает
+их как поставленными, а не изобретает промежуточные вехи.
 
-What did arrive as separate stages, in order, is the harder part of the history: the visual
-redesign, the failure-state and copy work, the adversarial QA pass that produced most of the
-security fixes, the accessibility and privacy-lifecycle measurement, and the production
-configuration gates.
+Отдельными этапами, в хронологическом порядке, пришло другое — и это трудная часть истории:
+визуальный редизайн, работа с состояниями отказа и текстами, adversarial QA, породивший большинство
+исправлений безопасности, измерение доступности и цикла приватности, ворота production-конфигурации
+и — после тега — конвейер, который перестал быть ручным замером.
 
-## What each pass left behind in the tree
+## Что каждый проход оставил в дереве
 
-- **Tests as a record of defects.** Most `fix(...)` commits are paired with a `test(...)`
-  commit or with assertions added inside the fix, so the IDOR sweep, the block-wall tests,
-  the chat idempotency tests and the compatibility consistency tests are each traceable to
-  the failure that motivated them.
-- **Docs written from measurements.** `docs/OPERATIONS.md` and `docs/RELEASE.md` carry the
-  numbers of the runs that produced them — backup and restore drill, pool sizing, health
-  probes, artifact sizes — and several commits exist only to correct a number a doc had
-  carried too long.
-- **Nothing is a stub.** There is no fake realtime path, no random percentage and no
-  placeholder screen in the history; where a capability is absent (push notifications, an
-  admin panel for reports) the design is written down and the absence is stated.
+- **Тесты как запись дефектов.** Большинство `fix(...)` коммитов идут в паре с `test(...)` или с
+  проверками, добавленными внутри самой правки, поэтому sweep по IDOR, тесты стены блокировки,
+  тесты повторяемости чата, согласованности совместимости и набор, выведенный из таблицы
+  маршрутов, адресуют тот отказ, который их породил.
+- **Документы, написанные из замеров.** `docs/OPERATIONS.md` и `docs/RELEASE.md` несут числа тех
+  прогонов, которые их получили — резервное копирование и дролл восстановления, размер пула,
+  health-пробы, размеры артефактов, — и несколько коммитов существуют только для того, чтобы
+  поправить цифру, которую документ нёс слишком долго.
+- **Ничего не является заглушкой.** В истории нет подставного realtime-пути, нет случайного
+  процента и нет placeholder-экрана; там, где возможности нет (push-уведомления, панель
+  администратора для жалоб), дизайн записан, а отсутствие названо.
