@@ -152,7 +152,7 @@ jobs:
         run: ./gradlew --no-daemon :app:dependencies --configuration debugRuntimeClasspath > app/build/gradle-deps.txt
 
       - name: Publish the resolved graph
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: gradle-dependency-tree
           path: android/app/build/gradle-deps.txt
@@ -160,7 +160,7 @@ jobs:
 
       - name: Publish the test report on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: android-test-reports
           path: android/app/build/reports/tests/**
