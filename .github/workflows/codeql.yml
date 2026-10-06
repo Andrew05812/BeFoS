@@ -1,6 +1,6 @@
 # Static analysis of the backend, so a flaw is found by a query and not only by a test.
 #
-# The suite describes behaviour it knows about; 258 tests cannot describe a sink nobody thought to
+# The suite describes behaviour it knows about; 262 tests cannot describe a sink nobody thought to
 # reach. This job runs the same CodeQL engine GitHub uses to raise code-scanning alerts, over the
 # Python that actually serves requests, on a pull request rather than after the fact — so a change
 # that introduces a path-injection or a hardcoded secret turns the PR red instead of joining the
