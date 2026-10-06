@@ -8,6 +8,10 @@ import uuid
 import pytest
 from fastapi import status
 from httpx import AsyncClient
+from sqlalchemy import update
+
+from app.core.database import AsyncSessionLocal
+from app.models import User
 
 from .conftest import (
     answer_all_questions,
@@ -246,3 +250,77 @@ async def test_a_cursor_from_another_room_shows_nothing_of_that_room(client: Asy
     messages = history.json()["messages"]
     assert [m["body"] for m in messages] == ["привет Боре"]
     assert all(m["match_id"] == ab for m in messages)
+
+
+async def test_hiding_a_profile_refuses_the_like_that_uses_the_id_it_was_shown_under(
+    client: AsyncClient,
+) -> None:
+    """A hide that only the deck honours hides the profile on one screen and one screen only.
+
+    The deck drops a hidden candidate from the next page, which is the behaviour everybody
+    noticed; ``POST /users/{id}/like`` resolved the same id through a query that asked only
+    whether the account still existed. An id is not secret — it was on screen a moment ago,
+    in a link, in a screenshot — so the visibility switch had to be enforced on the write
+    path too, or disappearing meant agreeing to be contacted by anyone who remembered you.
+    """
+    a = await _ready(client, "hide_like_a@befos.app", "Женя", "female")
+    b = await _ready(client, "hide_like_b@befos.app", "Платон", "male")
+    first = await client.post(
+        f"/api/v1/users/{b['user_id']}/like", headers=auth_headers(a["token"])
+    )
+    assert first.status_code == 200, first.text
+
+    hidden = await client.post(
+        "/api/v1/users/me/visibility", headers=auth_headers(b["token"]), json={"hidden": True}
+    )
+    assert hidden.status_code in (200, 204)
+
+    liked = await client.post(
+        f"/api/v1/users/{b['user_id']}/like", headers=auth_headers(a["token"])
+    )
+    assert liked.status_code == status.HTTP_404_NOT_FOUND, liked.text
+    passed = await client.post(
+        f"/api/v1/users/{b['user_id']}/pass", headers=auth_headers(a["token"])
+    )
+    assert passed.status_code == status.HTTP_404_NOT_FOUND, passed.text
+    # The same answer the public profile gives, so neither path says which of the reasons
+    # it is refusing for.
+    assert liked.json()["error"]["code"] == "not_found"
+
+
+async def test_a_profile_that_never_answered_the_setup_questions_cannot_be_acted_on(
+    client: AsyncClient,
+) -> None:
+    """A shell is a registration, not a person somebody agreed to be shown.
+
+    Registration writes the profile row itself, so the id resolves from the moment the
+    account exists, and the deck refuses shells precisely because a compatibility score
+    read off default answers is a number about nothing. The like path used to accept them,
+    which also meant a shell could be matched and then pushed into a chat it never joined.
+    """
+    viewer = await _ready(client, "shell_like_v@befos.app", "Кира", "female")
+    shell = await register_and_auth(client, "shell_like_s@befos.app")
+
+    liked = await client.post(
+        f"/api/v1/users/{shell['user_id']}/like", headers=auth_headers(viewer["token"])
+    )
+    assert liked.status_code == status.HTTP_404_NOT_FOUND, liked.text
+
+
+async def test_a_deactivated_account_cannot_be_liked_by_its_known_id(
+    client: AsyncClient,
+) -> None:
+    """Deactivation leaves the row standing, so only the column can refuse the gesture."""
+    viewer = await _ready(client, "deact_v@befos.app", "Нина", "female")
+    other = await _ready(client, "deact_b@befos.app", "Рома", "male")
+
+    async with AsyncSessionLocal() as session:
+        await session.execute(
+            update(User).where(User.id == uuid.UUID(other["user_id"])).values(is_active=False)
+        )
+        await session.commit()
+
+    liked = await client.post(
+        f"/api/v1/users/{other['user_id']}/like", headers=auth_headers(viewer["token"])
+    )
+    assert liked.status_code == status.HTTP_404_NOT_FOUND, liked.text

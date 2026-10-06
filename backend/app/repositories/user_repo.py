@@ -47,6 +47,29 @@ class UserRepository:
         )
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
+    async def get_showable_profile(self, user_id: uuid.UUID) -> Profile | None:
+        """The profile as the deck sees it: alive, active, visible, onboarded.
+
+        ``DiscoveryRepository._candidate_conditions`` is the rule that decides who may be
+        shown; this is the same rule asked about a single id, for the paths that never go
+        through the deck. It exists because hiding is a request to disappear: if the deck
+        honours it but ``POST /users/{id}/like`` still resolves the id, the person is only
+        hidden from the one screen they were looking at.
+        """
+        stmt = (
+            select(Profile)
+            .join(User, User.id == Profile.user_id)
+            .options(selectinload(Profile.interests))
+            .where(
+                Profile.user_id == user_id,
+                User.is_deleted.is_(False),
+                User.is_active.is_(True),
+                Profile.is_hidden.is_(False),
+                Profile.onboarding_completed_at.is_not(None),
+            )
+        )
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
     async def get_profiles_by_ids(self, user_ids: list[uuid.UUID]) -> list[Profile]:
         if not user_ids:
             return []

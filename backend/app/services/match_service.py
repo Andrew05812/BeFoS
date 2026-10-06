@@ -21,7 +21,12 @@ class MatchService:
     async def _ensure_target(self, viewer_id: uuid.UUID, target_id: uuid.UUID) -> None:
         if viewer_id == target_id:
             raise ValidationError("You cannot act on your own profile.")
-        target = await self.users.get_profile_with_user(target_id)
+        # Not `get_profile_with_user`: that one only asks whether the account still exists,
+        # and existence is not consent to be acted upon. A hidden, deactivated or never
+        # onboarded profile answers 404 here for the same reason it is absent from the deck,
+        # and the answer is the same "not found" the public profile uses so that neither
+        # path tells the caller which of the three it is.
+        target = await self.users.get_showable_profile(target_id)
         if target is None:
             raise NotFoundError("User not found.")
         if await self.social.is_blocked_either(viewer_id, target_id):
