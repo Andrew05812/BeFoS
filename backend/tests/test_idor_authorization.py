@@ -1,4 +1,9 @@
-"""IDOR sweep: user C must not read or mutate A<->B resources by guessing IDs."""
+"""IDOR sweep: user C must not read or mutate A<->B resources by guessing IDs.
+
+Every refusal here is an exact 404. A test that accepted "403 or 404" would pass while the
+API still leaked which pairing is real, because the two answers mean different things to a
+caller: 404 says the row is none of yours either way, 403 confirms it exists.
+"""
 
 from __future__ import annotations
 
@@ -19,7 +24,7 @@ from .conftest import (
     complete_onboarding,
     register_and_auth,
 )
-from .test_chat_idempotency import FakeSocket
+from .test_chat_idempotency import FakeSocket, _close, _open, _wait_until
 from app.websocket.chat_ws import chat_socket
 
 
@@ -57,7 +62,7 @@ async def test_outsider_cannot_read_match_chat_history(client: AsyncClient, idor
     resp = await client.get(
         f"/api/v1/matches/{match_id}/messages", headers=auth_headers(c["token"])
     )
-    assert resp.status_code in (403, 404)
+    assert resp.status_code == 404, resp.text
 
 
 async def test_outsider_cannot_send_into_match_chat(client: AsyncClient, idor_setup):
@@ -67,11 +72,11 @@ async def test_outsider_cannot_send_into_match_chat(client: AsyncClient, idor_se
         json={"body": "вторжение"},
         headers=auth_headers(c["token"]),
     )
-    assert resp.status_code in (403, 404)
+    assert resp.status_code == 404, resp.text
     history = await client.get(
         f"/api/v1/matches/{match_id}/messages", headers=auth_headers(c["token"])
     )
-    assert history.status_code in (403, 404)
+    assert history.status_code == 404, history.text
 
 
 async def test_outsider_cannot_mark_read_or_open_compatibility(client: AsyncClient, idor_setup):
@@ -79,11 +84,11 @@ async def test_outsider_cannot_mark_read_or_open_compatibility(client: AsyncClie
     read = await client.post(
         f"/api/v1/matches/{match_id}/read", headers=auth_headers(c["token"])
     )
-    assert read.status_code in (403, 404)
+    assert read.status_code == 404, read.text
     compat = await client.get(
         f"/api/v1/matches/{match_id}/compatibility", headers=auth_headers(c["token"])
     )
-    assert compat.status_code in (403, 404)
+    assert compat.status_code == 404, compat.text
 
 
 async def test_outsider_cannot_read_match_detail_or_recommendations(client: AsyncClient, idor_setup):
@@ -93,7 +98,7 @@ async def test_outsider_cannot_read_match_detail_or_recommendations(client: Asyn
     recs = await client.get(
         f"/api/v1/matches/{match_id}/recommendations", headers=auth_headers(c["token"])
     )
-    assert recs.status_code in (403, 404)
+    assert recs.status_code == 404, recs.text
 
 
 async def test_outsider_cannot_select_recommendation_for_pair(client: AsyncClient, idor_setup):
@@ -102,7 +107,7 @@ async def test_outsider_cannot_select_recommendation_for_pair(client: AsyncClien
         f"/api/v1/matches/{match_id}/recommendations/1/select",
         headers=auth_headers(c["token"]),
     )
-    assert resp.status_code in (403, 404)
+    assert resp.status_code == 404, resp.text
 
 
 async def test_partners_still_have_access(client: AsyncClient, idor_setup):
@@ -126,6 +131,39 @@ async def test_outsider_gets_no_room_with_a_valid_token_of_its_own(client, idor_
     assert socket.closed_code == status.WS_1008_POLICY_VIOLATION
     assert socket.accepted is False
     assert socket.sent == []
+
+
+async def test_a_socket_that_outlived_its_account_is_not_a_typing_indicator(
+    client: AsyncClient, idor_setup
+):
+    """A dot on someone else's screen is a write to them, so it asks the rows too.
+
+    The handler re-checked the rows before storing a message and before marking a read,
+    while the typing frame went straight to the room. Deactivating an account therefore
+    closed its REST access but left its open socket announcing it — and an indicator is
+    cheaper to keep sending than a message, so it is the frame a stale token was most
+    likely to reach.
+    """
+    a, b, _, match_id = idor_setup
+    writer, peer = FakeSocket(), FakeSocket()
+    task_writer = await _open(writer, match_id, a["token"])
+    task_peer = await _open(peer, match_id, b["token"])
+    assert await _wait_until(lambda: writer.accepted and peer.accepted)
+    try:
+        async with AsyncSessionLocal() as session:
+            await session.execute(
+                update(User).where(User.id == uuid.UUID(a["user_id"])).values(is_active=False)
+            )
+            await session.commit()
+
+        writer.incoming.put_nowait({"type": "typing", "typing": True})
+        assert await _wait_until(
+            lambda: writer.closed_code == status.WS_1008_POLICY_VIOLATION
+        ), writer.sent
+        assert [f for f in peer.sent if f.get("type") == "typing"] == [], peer.sent
+    finally:
+        await _close(writer, task_writer)
+        await _close(peer, task_peer)
 
 
 async def test_a_hidden_profile_is_not_reachable_by_a_known_user_id(client: AsyncClient, idor_setup):
@@ -324,3 +362,54 @@ async def test_a_deactivated_account_cannot_be_liked_by_its_known_id(
         f"/api/v1/users/{other['user_id']}/like", headers=auth_headers(viewer["token"])
     )
     assert liked.status_code == status.HTTP_404_NOT_FOUND, liked.text
+
+
+async def test_the_read_path_refuses_the_states_the_write_path_refuses(
+    client: AsyncClient,
+) -> None:
+    """``GET /users/{id}`` asks the deck's question about the same row the like route asks.
+
+    Hiding, an unfinished setup and a deactivation all take a person out of the deck and out
+    of ``POST /users/{id}/like``. While the profile route resolved the id anyway, a card
+    already on someone's screen stayed readable after the person asked to be gone — and an
+    id copied from that card is exactly what gets pasted back into the read path later. The
+    owner keeps reading their own profile in every state but deletion: hiding is not
+    disabling, and a half-finished setup has to stay visible to the one person who can
+    finish it.
+    """
+    viewer = await _ready(client, "read_state_v@befos.app", "Дана", "female")
+    shell = await register_and_auth(client, "read_state_s@befos.app")
+    shown = await _ready(client, "read_state_o@befos.app", "Тимур", "male")
+    hidden = await _ready(client, "read_state_h@befos.app", "Аркадий", "male")
+    disabled = await _ready(client, "read_state_d@befos.app", "Лев", "male")
+
+    assert (
+        await client.post(
+            "/api/v1/users/me/visibility",
+            headers=auth_headers(hidden["token"]),
+            json={"hidden": True},
+        )
+    ).status_code in (200, 204)
+    async with AsyncSessionLocal() as session:
+        await session.execute(
+            update(User).where(User.id == uuid.UUID(disabled["user_id"])).values(is_active=False)
+        )
+        await session.commit()
+
+    baseline = await client.get(
+        f"/api/v1/users/{shown['user_id']}", headers=auth_headers(viewer["token"])
+    )
+    assert baseline.status_code == 200, baseline.text
+
+    for who in (shell, hidden):
+        own = await client.get(
+            f"/api/v1/users/{who['user_id']}", headers=auth_headers(who["token"])
+        )
+        assert own.status_code == 200, own.text
+
+    for who in (shell, hidden, disabled):
+        refused = await client.get(
+            f"/api/v1/users/{who['user_id']}", headers=auth_headers(viewer["token"])
+        )
+        assert refused.status_code == status.HTTP_404_NOT_FOUND, refused.text
+        assert refused.json()["error"]["code"] == "not_found", refused.text

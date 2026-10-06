@@ -360,7 +360,7 @@ async def test_chat_requires_membership(client: AsyncClient):
     resp = await client.get(
         f"/api/v1/matches/{match_id}/messages", headers=auth_headers(outsider["token"])
     )
-    assert resp.status_code in (403, 404)
+    assert resp.status_code == 404, resp.text
 
 
 # ---------- Recommendations ----------
@@ -423,4 +423,6 @@ async def test_delete_account_revokes_access(client: AsyncClient):
     assert resp.status_code in (200, 204)
 
     me = await client.get("/api/v1/users/me", headers=auth_headers(creds["token"]))
-    assert me.status_code in (401, 403, 404)
+    # 401 rather than a list of tolerable refusals: the dependency answers the deleted
+    # account before any route runs, and that is what the client needs to clear its session.
+    assert me.status_code == 401, me.text

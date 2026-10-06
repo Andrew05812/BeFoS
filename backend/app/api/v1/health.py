@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, Depends, status
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal, checkout_connection
 from app.core.logging import get_logger
+from app.core.rate_limit import probe_rate_limit_dependency
 
 router = APIRouter(tags=["health"])
 logger = get_logger("health")
@@ -17,7 +18,7 @@ async def health() -> dict:
     return {"status": "ok", "app": settings.app_name, "environment": settings.environment}
 
 
-@router.get("/health/db")
+@router.get("/health/db", dependencies=[Depends(probe_rate_limit_dependency)])
 async def health_db():
     """Ask the database whether it is there, and answer the way a probe needs.
 

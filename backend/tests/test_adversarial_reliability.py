@@ -206,7 +206,7 @@ async def test_delete_account_takes_the_pair_and_its_chat_with_it(client: AsyncC
     history = await client.get(
         f"/api/v1/matches/{match_id}/messages", headers=auth_headers(b["token"])
     )
-    assert history.status_code in (403, 404), history.text
+    assert history.status_code == 404, history.text
 
 
 async def test_concurrent_answers_write_one_row_per_question(client: AsyncClient) -> None:
@@ -469,3 +469,103 @@ async def test_health_keeps_answering_while_the_rest_of_the_api_is_throttled(
     monkeypatch.setattr(rate_limit._default_limiter, "limit", 1)
     for _ in range(3):
         assert (await client.get("/api/v1/health")).status_code == 200
+
+
+async def test_the_database_probe_is_throttled_apart_from_liveness(
+    client: AsyncClient, monkeypatch
+) -> None:
+    """A probe that borrows a connection cannot keep the free pass the plain one has.
+
+    ``/health/db`` reads the pool that authenticated traffic shares, so an anonymous loop
+    against it is a way to starve the app while asking it nothing. The two buckets stay
+    separate on purpose: the ceiling on the expensive probe must not turn a busy minute
+    into a false "service down" for the cheap one.
+    """
+    from app.core import rate_limit
+
+    monkeypatch.setattr(rate_limit._probe_limiter, "limit", 2)
+    for _ in range(2):
+        answered = await client.get("/api/v1/health/db")
+        # 200 or 503 both mean the probe was allowed to ask; only a 429 means it was not.
+        assert answered.status_code in (200, 503), answered.text
+
+    refused = await client.get("/api/v1/health/db")
+    assert refused.status_code == 429, refused.text
+    assert (await client.get("/api/v1/health")).status_code == 200, (
+        "the probe's ceiling must not become an outage for the process as a whole"
+    )
+
+
+async def test_socket_handshakes_are_bounded_per_address(
+    client: AsyncClient, monkeypatch
+) -> None:
+    """Every handshake costs two row reads, so the door itself needs a ceiling.
+
+    The REST limiter never sees a socket: the connection is established once and then
+    writes freely. Without a limit at the door, a script can hold the app in a loop of
+    authentication and room joins without ever sending a message.
+    """
+    import uuid
+
+    from app.core import rate_limit
+    from app.websocket.chat_ws import chat_socket
+    from .test_chat_idempotency import FakeSocket, _close, _open, _wait_until
+    from .test_idor_authorization import _matched_pair
+
+    a, _, match_id = await _matched_pair(client)
+    monkeypatch.setattr(rate_limit._ws_handshake_limiter, "limit", 1)
+
+    # The accepted socket has to be driven as a task: it enters its read loop and stays
+    # there, and an awaited handler would never return to ask the second question.
+    first = FakeSocket()
+    task = await _open(first, match_id, a["token"])
+    assert first.accepted is True, "the first handshake of the minute is the room's own"
+    try:
+        second = FakeSocket()
+        await chat_socket(second, uuid.UUID(match_id), token=a["token"])
+        assert second.closed_code == 1008, second.sent
+        assert second.accepted is False
+        assert second.sent == [], "a refused handshake sends nothing into the room"
+    finally:
+        await _close(first, task)
+
+
+async def test_a_socket_cannot_write_past_its_frame_budget(
+    client: AsyncClient, monkeypatch
+) -> None:
+    """The budget counts frames, not requests, and it answers with an error rather than a drop.
+
+    A client that is simply too fast is not a policy violation, so the socket stays open and
+    is told to slow down; a client that is ignored would just retry into the same wall.
+    """
+    import uuid as uuid_module
+
+    from app.core import rate_limit
+    from app.websocket.chat_ws import chat_socket
+    from .test_chat_idempotency import FakeSocket, _wait_until
+    from .test_idor_authorization import _matched_pair
+
+    a, _, match_id = await _matched_pair(client)
+    monkeypatch.setattr(rate_limit._ws_frame_limiter, "limit", 1)
+
+    socket = FakeSocket()
+    task = asyncio.create_task(
+        chat_socket(socket, uuid_module.UUID(match_id), token=a["token"])
+    )
+    assert await _wait_until(lambda: socket.accepted)
+    try:
+        # The first frame spends the minute's single slot and is answered with silence: a
+        # typing signal goes to the peer and is never echoed back to whoever sent it. The
+        # second is over budget, and the only frame this socket may then receive is the
+        # instruction to slow down.
+        socket.incoming.put_nowait({"type": "typing"})
+        socket.incoming.put_nowait({"type": "typing"})
+        assert await _wait_until(
+            lambda: any(f.get("type") == "error" for f in socket.sent)
+        ), socket.sent
+        assert all(f.get("type") == "error" for f in socket.sent), socket.sent
+        assert "slow down" in socket.sent[0]["message"].lower(), socket.sent
+        assert socket.closed_code is None, "over budget is a wait, not a hanging up"
+    finally:
+        socket.incoming.put_nowait(None)
+        await asyncio.wait_for(task, timeout=5.0)

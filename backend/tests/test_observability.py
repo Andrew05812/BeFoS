@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import string
 import uuid
+from types import SimpleNamespace
 
 import pytest
 from fastapi import FastAPI
@@ -176,6 +177,10 @@ async def test_a_refused_socket_says_why_without_saying_what_it_was_given(caplog
     class _Socket:
         def __init__(self) -> None:
             self.closed: int | None = None
+            # A stand-in for a connection has to carry the peer address the handshake
+            # limiter reads; a double narrower than the real object hides the guard.
+            self.client = SimpleNamespace(host="testclient")
+            self.headers: dict[str, str] = {}
 
         async def close(self, code: int) -> None:
             self.closed = code
@@ -192,6 +197,10 @@ async def test_a_refused_socket_says_why_without_saying_what_it_was_given(caplog
 
 async def test_a_socket_line_is_stamped_with_its_own_connection_id(caplog) -> None:
     class _Socket:
+        def __init__(self) -> None:
+            self.client = SimpleNamespace(host="testclient")
+            self.headers: dict[str, str] = {}
+
         async def close(self, code: int) -> None:
             pass
 

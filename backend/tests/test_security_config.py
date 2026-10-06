@@ -130,6 +130,39 @@ def test_staging_is_a_known_environment_and_keeps_development_rules() -> None:
     assert s.is_production is False
 
 
+async def test_a_public_deployment_does_not_hand_out_the_route_map(monkeypatch) -> None:
+    """``/docs`` and ``/openapi.json`` answer on the stand and are gone in production.
+
+    The document lists every route that takes an object identifier with its parameter names,
+    and `/docs` is a form that fires a request at any of them from the browser. That is the
+    fastest way to read the contract while the app is being built and a gift to whoever is
+    probing it once it is public, so all three surfaces are switched off together — and the
+    root response stops pointing at a route that no longer exists.
+    """
+    import httpx
+
+    import app.main as main
+
+    async def _ask(app, path):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://stand.test"
+        ) as ac:
+            return await ac.get(path)
+
+    monkeypatch.setattr(main, "settings", _settings())
+    production_app = main.create_app()
+    assert (await _ask(production_app, "/docs")).status_code == 404
+    assert (await _ask(production_app, "/redoc")).status_code == 404
+    assert (await _ask(production_app, "/openapi.json")).status_code == 404
+    assert "docs" not in (await _ask(production_app, "/")).json(), "root advertises a closed route"
+
+    monkeypatch.setattr(main, "settings", _settings(ENVIRONMENT="development"))
+    dev_app = main.create_app()
+    assert (await _ask(dev_app, "/docs")).status_code == 200
+    assert (await _ask(dev_app, "/openapi.json")).status_code == 200
+    assert "docs" in (await _ask(dev_app, "/")).json()
+
+
 async def test_the_demo_switch_decides_whether_people_get_seeded(session) -> None:
     # The guard above refuses to start a production app with DEMO_ENABLED on, which only
     # means anything if the switch changes what the seed writes. It used to be read by
