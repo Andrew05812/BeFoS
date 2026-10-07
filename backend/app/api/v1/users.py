@@ -64,9 +64,10 @@ async def complete_onboarding(
     session: AsyncSession = Depends(get_session),
 ):
     service = ProfileService(session)
-    await service.complete_onboarding(current_user.id, payload.model_dump())
-    repo = UserRepository(session)
-    profile = await repo.get_profile(current_user.id)
+    # The service hands back the row it just wrote and refreshed, interests included, so the
+    # answer is built from it. Reading the profile again here asked the database for a row the
+    # session already holds.
+    profile = await service.complete_onboarding(current_user.id, payload.model_dump())
     from app.models import Photo
     from sqlalchemy import select
 
@@ -85,9 +86,7 @@ async def update_me(
     session: AsyncSession = Depends(get_session),
 ):
     service = ProfileService(session)
-    await service.update(current_user.id, payload.model_dump(exclude_unset=True))
-    repo = UserRepository(session)
-    profile = await repo.get_profile(current_user.id)
+    profile = await service.update(current_user.id, payload.model_dump(exclude_unset=True))
     from app.models import Photo
     from sqlalchemy import select
 
