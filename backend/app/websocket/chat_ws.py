@@ -182,7 +182,10 @@ async def _handle_socket(
                 await manager.broadcast_to_match(
                     match_id,
                     {"type": "typing", "user_id": str(user_id), "typing": bool(data.get("typing", True))},
-                    exclude=websocket,
+                    # exclude_user, not exclude: a person on two devices is not their own peer.
+                    # Dropping only this socket lets the other device show «печатает…» for text
+                    # its own owner is typing, so the indicator must skip every socket of the actor.
+                    exclude_user=user_id,
                 )
 
             elif msg_type == "read":
@@ -191,11 +194,16 @@ async def _handle_socket(
                     return
                 async with AsyncSessionLocal() as session:
                     repo = ChatRepository(session)
-                    await repo.mark_read(match_id, user_id)
+                    count = await repo.mark_read(match_id, user_id)
                     await session.commit()
-                await manager.broadcast_to_match(
-                    match_id, {"type": "read", "user_id": str(user_id)}, exclude=websocket
-                )
+                if count:
+                    # Same contract as the REST `/matches/{id}/read`: the receipt fires only for
+                    # messages this call actually marked, and exclude_user keeps it off every
+                    # socket of the reader — a second device must not mark the reader's own sent
+                    # messages «прочитано» when the peer has not read them.
+                    await manager.broadcast_to_match(
+                        match_id, {"type": "read", "user_id": str(user_id)}, exclude_user=user_id
+                    )
 
             elif msg_type == "message":
                 raw_body = data.get("body")
