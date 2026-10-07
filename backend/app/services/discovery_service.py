@@ -28,6 +28,11 @@ CLAIM_ROUNDS = 4
 
 CURSOR_PREFIX = "rank"
 BAD_CURSOR = "The link to the next page is broken."
+# `DiscoveryQueue.rank` is a PostgreSQL `integer`, and the parsed cursor is bound into
+# `rank > $1` as that type. A digit string beyond int32 is not a place in anybody's deck
+# but a value SQL refuses, so without the bound a hand-typed URL answers with a 500 and a
+# traceback. Deck ranks stay far below the limit: they count one viewer's candidates.
+MAX_RANK = 2**31 - 1
 
 
 def encode_cursor(rank: int) -> str:
@@ -50,7 +55,10 @@ def decode_cursor(cursor: str | None) -> int:
     prefix, _, digits = raw.partition(":")
     if prefix != CURSOR_PREFIX or not digits.isdigit():
         raise ValidationError(BAD_CURSOR)
-    return int(digits)
+    rank = int(digits)
+    if rank > MAX_RANK:
+        raise ValidationError(BAD_CURSOR)
+    return rank
 
 
 def _highlight(viewer_profile: Profile, profile: Profile, shared_slugs: set[str], result) -> str | None:

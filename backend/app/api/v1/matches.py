@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Path, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -117,7 +117,10 @@ async def match_recommendations(
 @router.post("/{match_id}/recommendations/{activity_id}/select", status_code=204)
 async def select_recommendation(
     match_id: uuid.UUID,
-    activity_id: int,
+    # `activities.id` is a PostgreSQL `integer`, so a larger number names no activity and
+    # cannot be looked up. Passed along, it reached the catalogue read, the driver refused
+    # the value, and the client got a 500 for a url that is simply not a valid one.
+    activity_id: int = Path(le=2**31 - 1),
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):

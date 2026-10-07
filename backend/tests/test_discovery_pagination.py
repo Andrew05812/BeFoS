@@ -443,6 +443,31 @@ async def test_tampered_cursor_is_refused_as_input(client: AsyncClient, session:
         assert resp.json()["error"]["code"] == "validation_error"
 
 
+async def test_cursor_beyond_the_rank_column_is_refused_as_input(
+    client: AsyncClient, session: AsyncSession
+):
+    """A cursor is client text, so its digits are bounded by the column they land in.
+
+    `DiscoveryQueue.rank` is a PostgreSQL `integer`, so `rank:2147483648` is not a place in
+    anybody's deck. Untreated it reaches `WHERE discovery_queue.rank > $1` and asyncpg
+    refuses it as out of range — a broken URL answered with a 500 and a server traceback.
+    """
+    viewer = await _viewer(client, "wide")
+    await _seed_candidates(session, 3, tag="wide")
+
+    def forge(rank: str) -> str:
+        return base64.urlsafe_b64encode(f"rank:{rank}".encode()).decode().rstrip("=")
+
+    for rank in ("2147483648", "9" * 30, "-1"):
+        resp = await client.get(
+            "/api/v1/discover",
+            params={"cursor": forge(rank)},
+            headers=auth_headers(viewer["token"]),
+        )
+        assert resp.status_code == 422, (rank, resp.text)
+        assert resp.json()["error"]["code"] == "validation_error"
+
+
 async def test_a_rebuilt_deck_survives_the_request_that_rebuilt_it(
     client: AsyncClient, session: AsyncSession
 ):
