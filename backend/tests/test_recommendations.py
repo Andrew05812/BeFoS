@@ -135,6 +135,24 @@ async def test_selecting_an_activity_that_is_not_in_the_catalogue_is_refused(
     assert resp.status_code == 404, f"{resp.status_code}: {resp.text[:200]}"
 
 
+async def test_an_activity_id_the_column_cannot_hold_is_refused_as_input(
+    client: AsyncClient, pair
+):
+    """The sibling of the check above: a number `activities.id` cannot store at all.
+
+    FastAPI reads it as an int, and the catalogue lookup passed it to SQL, where asyncpg
+    refused it as out of range — so asking about an impossible activity gave a 500 and a
+    server traceback instead of an answer about the request.
+    """
+    a, _, match_id = pair
+    resp = await client.post(
+        f"/api/v1/matches/{match_id}/recommendations/{2**31}/select",
+        headers=auth_headers(a["token"]),
+    )
+    assert resp.status_code == 422, f"{resp.status_code}: {resp.text[:200]}"
+    assert resp.json()["error"]["code"] == "validation_error"
+
+
 async def test_recommendations_follow_a_partner_who_changed_their_interests(
     client: AsyncClient, pair
 ):

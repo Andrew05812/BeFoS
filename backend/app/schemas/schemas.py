@@ -152,8 +152,11 @@ class TestListResponse(BaseModel):
 
 
 class AnswerIn(BaseModel):
-    question_id: int
-    option_id: int
+    # Both fields name a PostgreSQL `integer` column. A larger number cannot be a row and
+    # cannot be looked up: bound into `WHERE id = $1::INTEGER` the driver refuses it, so a
+    # payload naming an impossible id answered with a 500 rather than about itself.
+    question_id: int = Field(le=2**31 - 1)
+    option_id: int = Field(le=2**31 - 1)
 
 
 class AnswersIn(BaseModel):

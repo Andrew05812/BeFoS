@@ -22,6 +22,7 @@ from app.core.config import settings
 from app.core.exceptions import RateLimitedError, ValidationError
 from app.core.logging import redact
 from app.core.rate_limit import _MAX_KEYS, SlidingWindowRateLimiter, _client_key
+from app.models import Base
 from app.services.photo_service import process_and_store_upload
 from app.websocket.chat_ws import parse_client_frame
 from .conftest import (
@@ -209,6 +210,22 @@ async def test_delete_account_takes_the_pair_and_its_chat_with_it(client: AsyncC
     assert history.status_code == 404, history.text
 
 
+def test_bounded_inputs_still_name_integer_columns() -> None:
+    """The refusals above hold only while these columns are `integer` in SQL.
+
+    Widening one makes the bound wrong — the number would fit the column but not the check
+    — so this fails and asks whoever changes the schema to revisit the limit with it.
+    """
+    for table, column in (
+        ("discovery_queue", "rank"),
+        ("test_questions", "id"),
+        ("test_options", "id"),
+        ("activities", "id"),
+    ):
+        sql_type = Base.metadata.tables[table].columns[column].type.compile()
+        assert str(sql_type) == "INTEGER", f"{table}.{column} is {sql_type}"
+
+
 async def test_concurrent_answers_write_one_row_per_question(client: AsyncClient) -> None:
     """§4: a question answered twice by accident is still answered once."""
     a = await register_and_auth(client, "race-answers@befos.app")
@@ -228,6 +245,29 @@ async def test_concurrent_answers_write_one_row_per_question(client: AsyncClient
     assert [r.status_code for r in responses] == [200] * 6, [r.text for r in responses if r.status_code != 200]
     progress = (await client.get("/api/v1/tests/progress", headers=auth_headers(a["token"]))).json()
     assert progress["answered"] == 1, "six taps on one question must not count as six answers"
+
+
+async def test_answer_ids_beyond_the_column_are_refused_as_input(client: AsyncClient) -> None:
+    """A number no `integer` column can hold is not a row, so it is refused, not looked up.
+
+    `question_id` and `option_id` name PostgreSQL `integer` columns. Untreated the value
+    reached `WHERE test_questions.id = $1::INTEGER` and asyncpg refused it as out of range,
+    so a body naming an impossible id answered with a 500 and a server traceback.
+    """
+    a = await register_and_auth(client, "wide_ids@befos.app")
+    await complete_onboarding(client, a["token"])
+    questions = (await client.get("/api/v1/tests", headers=auth_headers(a["token"]))).json()["questions"]
+    q = questions[0]
+
+    for payload in (
+        {"question_id": 2**31, "option_id": q["options"][0]["id"]},
+        {"question_id": q["id"], "option_id": 2**40},
+    ):
+        resp = await client.post(
+            "/api/v1/tests/answers", headers=auth_headers(a["token"]), json={"answers": [payload]}
+        )
+        assert resp.status_code == 422, (payload, resp.text)
+        assert resp.json()["error"]["code"] == "validation_error"
 
 
 async def test_concurrent_complete_writes_one_profile(client: AsyncClient) -> None:
