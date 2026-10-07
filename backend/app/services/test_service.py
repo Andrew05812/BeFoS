@@ -24,6 +24,9 @@ class TestService:
     async def list_questions(self) -> list:
         return await self.repo.list_active_questions()
 
+    async def count_answered(self, user_id: uuid.UUID) -> int:
+        return await self.repo.count_answered(user_id)
+
     async def progress(self, user_id: uuid.UUID) -> dict:
         total = await self.repo.count_active_questions()
         answered = await self.repo.count_answered(user_id)
@@ -89,7 +92,13 @@ class TestService:
                 category_scores[category] = sum(trait_means.values()) / len(trait_means)
         return vector, category_scores
 
-    async def recompute_profile(self, user_id: uuid.UUID) -> None:
+    async def recompute_profile(self, user_id: uuid.UUID) -> tuple[dict, dict]:
+        """Rewrite the derived rows from the stored answers, and hand back what was built.
+
+        The vector and the category scores are read out of the answers here, so a caller that
+        wants them for its response takes them from this return instead of reading the same
+        answers, questions and options a second time.
+        """
         vector, category_scores = await self.build_vector(user_id)
         await self.repo.upsert_compatibility_profile(user_id, vector, ENGINE_VERSION)
         await self.repo.replace_results(user_id, category_scores)
@@ -106,6 +115,7 @@ class TestService:
         # This is a write and the request session commits nothing on its own; without this
         # line the deck is left holding the ranking the viewer just replaced.
         await self.session.commit()
+        return vector, category_scores
 
     async def complete(self, user_id: uuid.UUID) -> dict:
         progress = await self.progress(user_id)
@@ -113,8 +123,7 @@ class TestService:
             raise ValidationError(
                 f"Test is not finished yet ({progress['answered']}/{progress['total']})."
             )
-        await self.recompute_profile(user_id)
-        vector, category_scores = await self.build_vector(user_id)
+        vector, category_scores = await self.recompute_profile(user_id)
         tracker.track(Event.TEST_COMPLETED, str(user_id), categories=len(category_scores))
         return {
             "categories": category_scores,

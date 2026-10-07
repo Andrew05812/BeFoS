@@ -26,11 +26,13 @@ async def list_tests(
 ):
     service = TestService(session)
     questions = await service.list_questions()
-    progress = await service.progress(current_user.id)
+    # The response carries the whole catalog, so its size is counted from the rows it sends
+    # rather than asked of the database next to the read that just listed them.
+    answered = await service.count_answered(current_user.id)
     return TestListResponse(
         questions=[QuestionOut.model_validate(q) for q in questions],
-        total=progress["total"],
-        answered=progress["answered"],
+        total=len(questions),
+        answered=answered,
     )
 
 
