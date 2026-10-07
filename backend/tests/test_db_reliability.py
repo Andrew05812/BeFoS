@@ -234,17 +234,33 @@ async def test_the_sign_in_lookup_is_answered_by_an_index_not_by_the_whole_table
     and a planner's preference is not the property under test. With the scan taken away, the
     only way to answer the query is the expression index — and on the running development
     database the planner picks it without any hint being given.
+
+    The assertion is on the index being reached, not on the one shape the plan takes to get
+    there: a small table answers with a plain ``Index Scan``, a table grown by the rest of the
+    suite answers with a ``Bitmap Index Scan`` under a heap fetch, and both are the index doing
+    the work. Pinning the top node to ``Index Scan`` made the check flip with row count alone,
+    so it is the fallback to a full read of ``users`` that the test has to reject, not either
+    index-backed form.
     """
     query = text("EXPLAIN (FORMAT JSON) SELECT id FROM users WHERE lower(email) = :email")
 
     await session.execute(text("SET enable_seqscan = off"))
     try:
-        forced = (await session.execute(query, {"email": "whoever@befos.app"})).scalar_one()[0]["Plan"]
+        plan = (await session.execute(query, {"email": "whoever@befos.app"})).scalar_one()[0]["Plan"]
     finally:
         await session.execute(text("SET enable_seqscan = default"))
 
-    assert forced["Node Type"] == "Index Scan", f"nothing indexes this lookup: {forced}"
-    assert forced["Index Name"] == "uq_users_email_lower"
+    def nodes(node):
+        yield node
+        for child in node.get("Plans", []):
+            yield from nodes(child)
+
+    walked = list(nodes(plan))
+    used_the_index = any(n.get("Index Name") == "uq_users_email_lower" for n in walked)
+    scanned_users = any(
+        n.get("Node Type") == "Seq Scan" and n.get("Relation Name") == "users" for n in walked
+    )
+    assert used_the_index and not scanned_users, f"nothing indexes this lookup: {plan}"
 
 
 async def test_two_accounts_cannot_claim_one_mailbox_by_changing_its_casing(
