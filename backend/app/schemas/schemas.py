@@ -160,7 +160,11 @@ class AnswerIn(BaseModel):
 
 
 class AnswersIn(BaseModel):
-    answers: list[AnswerIn]
+    # A batch is one entry per question: the client posts the whole map when the last question
+    # is tapped. The server validates it against the catalog in one read and writes it in one
+    # statement, so a body longer than any test can be is refused here instead of reaching the
+    # driver as a parameter list it will not hold.
+    answers: list[AnswerIn] = Field(max_length=500)
 
 
 class ProgressOut(BaseModel):

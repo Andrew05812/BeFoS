@@ -398,6 +398,18 @@ def _build_paths():
             ctx["match_id"], ctx["viewer_id"], force=True
         )
 
+    async def answers_submit(session, ctx):
+        from app.repositories.test_repo import TestRepository
+        from app.services.test_service import TestService
+
+        # The whole map in one call, because that is the shape the client sends it in: the
+        # app posts every answer when the last question is tapped.
+        questions = await TestRepository(session).list_active_questions()
+        rows = [
+            {"question_id": q.id, "option_id": q.options[0].id} for q in questions
+        ]
+        await TestService(session).save_answers(ctx["viewer_id"], rows)
+
     return {
         "login": login,
         "public_profile": public_profile,
@@ -407,7 +419,36 @@ def _build_paths():
         "compatibility": compatibility,
         "chat_history": chat_history,
         "recommendations": recommendations,
+        "answers_submit": answers_submit,
     }
+
+
+async def _seed_catalog(engine) -> None:
+    """Put the question rows on the stand, which the generated crowd does not carry.
+
+    The population is written as vectors straight into `compatibility_profiles`, so a stand
+    without these rows has no catalogue for the test-submission path to validate against, and
+    that path would measure a refusal instead of a save.
+    """
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from app.models import TestOption, TestQuestion
+    from app.seed_data.questions_catalog import QUESTIONS
+
+    async with AsyncSession(bind=engine) as session:
+        for position, (category, trait, text, options) in enumerate(QUESTIONS):
+            question = TestQuestion(
+                category=category, trait=trait, text=text, position=position, is_active=True
+            )
+            session.add(question)
+            await session.flush()
+            for option_position, (option_text, value) in enumerate(options):
+                session.add(
+                    TestOption(
+                        question_id=question.id, text=option_text, value=value, position=option_position
+                    )
+                )
+        await session.commit()
 
 
 async def _context(engine) -> dict:
@@ -544,6 +585,7 @@ async def _measure_size(asyncpg, database: str, size: int, acted: int, runs: int
     await admin.close()
 
     engine = create_async_engine(_sqlalchemy_url(database), pool_size=5)
+    await _seed_catalog(engine)
     captured: dict[str, list[tuple[str, tuple]]] = {}
     active = {"path": None}
 

@@ -39,16 +39,24 @@ class TestService:
     async def save_answers(self, user_id: uuid.UUID, answers: list[dict]) -> dict:
         if not answers:
             raise ValidationError("No answers provided.")
+        # The whole batch is checked against one read of the catalog, and nothing is written
+        # until every answer in it is known to be valid — a body naming one impossible option
+        # leaves the stored answers exactly as they were.
+        questions = await self.repo.get_active_questions(
+            {item["question_id"] for item in answers}
+        )
+        catalog = {q.id: {option.id for option in q.options} for q in questions}
+        rows: dict[int, int] = {}
         for item in answers:
-            question = await self.repo.get_question(item["question_id"])
-            if question is None or not question.is_active:
+            options = catalog.get(item["question_id"])
+            if options is None:
                 raise NotFoundError(f"Question {item['question_id']} not found.")
-            option = await self.repo.get_option(item["option_id"])
-            if option is None or option.question_id != question.id:
+            if item["option_id"] not in options:
                 raise ValidationError(
-                    f"Option {item['option_id']} does not belong to question {question.id}."
+                    f"Option {item['option_id']} does not belong to question {item['question_id']}."
                 )
-            await self.repo.upsert_answer(user_id, question.id, option.id)
+            rows[item["question_id"]] = item["option_id"]
+        await self.repo.upsert_answers(user_id, list(rows.items()))
         await self.session.commit()
         # Recompute the compatibility profile whenever answers change.
         await self.recompute_profile(user_id)
