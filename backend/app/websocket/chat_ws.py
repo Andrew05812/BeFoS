@@ -15,8 +15,10 @@ from app.core.rate_limit import (
     websocket_handshake_allowed,
 )
 from app.core.security import decode_token
+from app.core.exceptions import NotFoundError
 from app.models import Match, User
 from app.repositories.chat_repo import ChatRepository
+from app.services.chat_service import ChatService
 from app.websocket.manager import manager
 
 logger = get_logger(__name__)
@@ -223,19 +225,27 @@ async def _handle_socket(
                     await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
                     return
                 async with AsyncSessionLocal() as session:
-                    repo = ChatRepository(session)
-                    msg, created = await repo.add_message(
-                        match_id, user_id, body, client_msg_id
-                    )
-                    await session.commit()
+                    # The write goes through ChatService.send, the same door the REST route uses:
+                    # it takes the pair lock before inserting, so a block dissolving this match
+                    # either cascades the message away behind us or makes the send find the match
+                    # gone. Writing add_message directly here raced that window and the child insert
+                    # threw a foreign-key violation, which killed the socket instead of refusing it.
+                    service = ChatService(session)
+                    try:
+                        dto, created = await service.send(
+                            match_id, user_id, body, client_msg_id
+                        )
+                    except NotFoundError:
+                        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+                        return
                     payload = {
                         "type": "message",
-                        "id": str(msg.id),
-                        "client_msg_id": msg.client_msg_id,
+                        "id": dto["id"],
+                        "client_msg_id": dto["client_msg_id"],
                         "match_id": str(match_id),
                         "sender_id": str(user_id),
-                        "body": msg.body,
-                        "created_at": msg.created_at.isoformat(),
+                        "body": dto["body"],
+                        "created_at": dto["created_at"].isoformat(),
                         "is_read": False,
                     }
                 if created:
