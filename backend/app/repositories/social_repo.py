@@ -4,7 +4,7 @@ import calendar
 import uuid
 from datetime import date
 
-from sqlalchemy import and_, or_, select, func, delete, update
+from sqlalchemy import and_, or_, select, func, delete, update, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -40,6 +40,29 @@ class SocialRepository:
     # try to insert. The writes therefore go through ON CONFLICT DO NOTHING against the
     # same unique constraint the schema already enforces, so the second one is a no-op
     # instead of an IntegrityError that surfaces to the user as a failed action.
+    async def lock_pair(self, a: uuid.UUID, b: uuid.UUID) -> None:
+        """Serialize the like that could form this pair for the life of the transaction.
+
+        ``like()`` reads-then-writes: it checks for a mutual like and only then creates the
+        match. Two people liking each other at the same instant is the one schedule that
+        breaks that — each transaction inserts its own like and then asks whether the other
+        liked back, and under READ COMMITTED neither sees the other's still-uncommitted row.
+        Both answer "not mutual", no match is made, and the two likes sit in the table
+        belonging to nobody. Nothing re-runs the check: liking removes each person from the
+        other's deck, so the match is lost silently and for good.
+
+        A transaction-scoped advisory lock keyed on the unordered pair makes the two likes
+        take turns. The second one starts its read only after the first has committed, so it
+        sees the first's like and forms the pair — once, since the first already answered no.
+        The lock is released by the same COMMIT that ends the request, and a different pair
+        never waits on it.
+        """
+        ua, ub = ordered_pair(a, b)
+        await self.session.execute(
+            text("SELECT pg_advisory_xact_lock(hashtext(:ua), hashtext(:ub))"),
+            {"ua": str(ua), "ub": str(ub)},
+        )
+
     async def get_like(self, from_id: uuid.UUID, to_id: uuid.UUID) -> Like | None:
         stmt = select(Like).where(Like.from_user_id == from_id, Like.to_user_id == to_id)
         return (await self.session.execute(stmt)).scalar_one_or_none()
