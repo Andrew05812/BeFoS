@@ -63,16 +63,23 @@ class SocialRepository:
             {"ua": str(ua), "ub": str(ub)},
         )
 
-    async def get_like(self, from_id: uuid.UUID, to_id: uuid.UUID) -> Like | None:
-        stmt = select(Like).where(Like.from_user_id == from_id, Like.to_user_id == to_id)
-        return (await self.session.execute(stmt)).scalar_one_or_none()
+    async def add_like(
+        self, from_id: uuid.UUID, to_id: uuid.UUID, score: float | None
+    ) -> uuid.UUID | None:
+        """Write the like and say whether this request is the one that wrote it.
 
-    async def add_like(self, from_id: uuid.UUID, to_id: uuid.UUID, score: float | None) -> None:
-        await self.session.execute(
+        The caller used to ask first with a separate `SELECT likes` and insert only when the row
+        was missing. The conflict clause already refuses a second row for the pair, so `RETURNING`
+        answers the same question in the statement that writes it — and answers it for the race
+        this path takes a pair lock over, where a pre-read can be stale by the time it is acted on.
+        """
+        stmt = (
             pg_insert(Like)
             .values(from_user_id=from_id, to_user_id=to_id, compatibility_score=score)
             .on_conflict_do_nothing(constraint="uq_like_pair")
+            .returning(Like.id)
         )
+        return (await self.session.execute(stmt)).scalar_one_or_none()
 
     async def get_pass(self, from_id: uuid.UUID, to_id: uuid.UUID) -> Pass | None:
         stmt = select(Pass).where(Pass.from_user_id == from_id, Pass.to_user_id == to_id)

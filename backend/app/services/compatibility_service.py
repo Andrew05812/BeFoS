@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import Sequence
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -55,6 +56,18 @@ class CompatibilityService:
         b = await self.build_input(b_id)
         return self.score_inputs(a, b)
 
+    async def inputs_from(self, profiles: Sequence[Profile]) -> dict[uuid.UUID, CompatibilityInput]:
+        """The input for every profile already in hand, from one read of the answer vectors.
+
+        ``input_for`` is right for a single row. A caller holding two of them — a pair on the
+        compatibility screen, a like that scores itself against the person it likes — paid one
+        ``SELECT compatibility_profiles`` per person for a table keyed by ``user_id`` with a
+        unique index that fits both ids in one statement, which is how the deck has always read
+        a whole page of vectors.
+        """
+        vectors = await self.tests.get_compatibility_profiles([p.user_id for p in profiles])
+        return {p.user_id: self.input_from(p, vectors.get(p.user_id)) for p in profiles}
+
     async def pair_inputs(
         self, a_id: uuid.UUID, b_id: uuid.UUID
     ) -> tuple[CompatibilityInput, CompatibilityInput]:
@@ -67,13 +80,10 @@ class CompatibilityService:
         """
         ids = [a_id, b_id]
         profiles = {p.user_id: p for p in await self.users.get_profiles_by_ids(ids)}
-        vectors = await self.tests.get_compatibility_profiles(ids)
         if a_id not in profiles or b_id not in profiles:
             raise NotFoundError("Profile not found.")
-        return (
-            self.input_from(profiles[a_id], vectors.get(a_id)),
-            self.input_from(profiles[b_id], vectors.get(b_id)),
-        )
+        inputs = await self.inputs_from([profiles[a_id], profiles[b_id]])
+        return inputs[a_id], inputs[b_id]
 
     async def refresh_pair_scores(self, user_id: uuid.UUID) -> None:
         """Rewrite the stored percent of every match this user is in.
@@ -92,17 +102,17 @@ class CompatibilityService:
         # both halves of every pair come from the same two batch reads.
         ids = [user_id, *other_ids]
         profiles = {p.user_id: p for p in await self.users.get_profiles_by_ids(ids)}
-        vectors = await self.tests.get_compatibility_profiles(ids)
         me_profile = profiles.get(user_id)
         if me_profile is None:
             raise NotFoundError("Profile not found.")
-        me = self.input_from(me_profile, vectors.get(user_id))
+        peers = [profiles[other_id] for other_id in other_ids if other_id in profiles]
+        inputs = await self.inputs_from([me_profile, *peers])
+        me = inputs[user_id]
         for match in matches:
             other_id = match.other_user(user_id)
-            profile = profiles.get(other_id)
-            if profile is None:
+            other = inputs.get(other_id)
+            if other is None:
                 continue
-            other = self.input_from(profile, vectors.get(other_id))
             score = compute_compatibility(me, other, self.weight_config).overall
             if match.compatibility_score != score:
                 match.compatibility_score = score

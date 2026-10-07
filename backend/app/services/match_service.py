@@ -68,17 +68,19 @@ class MatchService:
         # Scored from the rows this request already read: `score_pair` would fetch both people
         # again for a number computed from data in hand, and the peer's row would then be read
         # a third time in a path that only checks their availability twice on purpose.
-        viewer_input = await self.compatibility.build_input(viewer_id)
-        target_input = await self.compatibility.input_for(target)
-        result = self.compatibility.score_inputs(viewer_input, target_input)
+        viewer_profile = await self.users.get_profile(viewer_id)
+        if viewer_profile is None:
+            raise NotFoundError("Profile not found.")
+        inputs = await self.compatibility.inputs_from([viewer_profile, target])
+        result = self.compatibility.score_inputs(inputs[viewer_id], inputs[target.user_id])
         # Stored as the engine produced it, not snapped to four decimals. The match list
         # shows this value multiplied by 100 and rounded, and a rounded snapshot can land
         # on the other side of that boundary from the number the live screen computes.
         score = result.overall
 
-        existing = await self.social.get_like(viewer_id, target_id)
-        if existing is None:
-            await self.social.add_like(viewer_id, target_id, score)
+        # A second tap on the same card does not write a second row, and the insert is what says
+        # so — no pre-read of `likes` in front of it.
+        if await self.social.add_like(viewer_id, target_id, score) is not None:
             # A pass becomes irrelevant once you like someone.
             await self.social.delete_pass(viewer_id, target_id)
 

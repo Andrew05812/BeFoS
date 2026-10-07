@@ -131,6 +131,9 @@ async def test_the_like_repeats_only_the_check_that_has_to_repeat(client: AsyncC
     loaded the person, their city and their whole interest list to answer four boolean columns,
     and then read them again properly after the lock. The score used to fetch both people a
     third time as well.
+
+    The two rows stay separate because each of them is read for a different reason; the vectors
+    do not, and since stage 26 both of them arrive in the one batch read the score needs.
     """
     viewer = await _account(client, "rt_like_viewer@befos.app", name="Вера", gender="female")
     peer = await _account(client, "rt_like_peer@befos.app", name="Пётр", gender="male")
@@ -152,4 +155,4 @@ async def test_the_like_repeats_only_the_check_that_has_to_repeat(client: AsyncC
         "viewer's own row is the floor, and the pre-lock check asks for a boolean"
     )
     assert counts["interests"] == 2, "an interest list read more than once per person"
-    assert counts["vector"] == 2, "an answer vector read more than once per person"
+    assert counts["vector"] == 1, "the two answer vectors did not come from one batch read"
