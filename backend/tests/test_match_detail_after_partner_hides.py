@@ -10,8 +10,9 @@ request to erase a pair that already mutually agreed to talk.
 the match detail while three sibling routes of the same screen kept answering about the same
 person: the match list resolves profiles with a query that asks only whether the account was
 deleted, the chat never consults `is_hidden`, and `GET /matches/{id}/compatibility` reads both
-profiles directly. The member therefore saw «Match not found» about a card that was still in
-front of them, with its unread badge and its conversation intact.
+profiles directly. The API answered «Match not found» to the person who is in the pair. In the
+shipped app `ChatViewModel.loadPartner` swallows that refusal, so what the user sees is a live
+conversation whose header has dropped from the partner's name to the fallback «Чат».
 """
 
 from __future__ import annotations
