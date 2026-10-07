@@ -9,6 +9,14 @@
 { "error": { "code": "STRING_CODE", "message": "Текст", "detail": null } }
 ```
 
+Число, которое не помещается в колонку, отсекается на входе и не доходит до запроса:
+`question_id` и `option_id` в `POST /tests/answers`, `activity_id` в
+`POST /matches/{match_id}/recommendations/{activity_id}/select` и номер в `cursor` подбора
+ограничены вместимостью PostgreSQL `integer`. Адрес или тело с таким числом — ошибка
+запроса (`validation_error` / 422), а не сбой сервера: без границы значение доходило до
+SQL, где его отвергал драйвер, и рукописная опечатка выглядела как 500 `internal_error`
+с трассировкой.
+
 **Перечисления**
 - `gender`: `male | female | nonbinary | other`
 - `dating_goal`: `relationship | marriage | friendship | casual | networking`
@@ -176,6 +184,10 @@
 ранжируется один раз и хранится в таблице `discovery_queue`, поэтому страницы не
 повторяются и не пропускают кандидатов, даже если между запросами кто-то скрылся или
 был заблокирован.
+
+Метка проверяется на входе, а не доверяется как число: `cursor`, который нельзя
+расшифровать, и номер за пределами колонки `rank` дают `validation_error` / 422 — общее
+правило для таких чисел записано в начале этого документа.
 
 `DiscoveryCard`:
 
