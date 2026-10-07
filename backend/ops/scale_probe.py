@@ -429,6 +429,40 @@ def _build_paths():
         ctx["like_turn"] += 1
         await MatchService(session).like(ctx["viewer_id"], target)
 
+    async def deck_exhausted(session, ctx):
+        from sqlalchemy import text
+
+        from app.services.discovery_service import DiscoveryService
+
+        if not ctx.get("deck_drained"):
+            ctx["deck_drained"] = True
+            # Stand setup, not a measured statement: the queue gets a row for every account on
+            # the stand and every row is marked seen. That is the state a real viewer reaches
+            # after swiping through everyone the preferences allow — the deck holds nothing
+            # ready, and nobody waits outside it. Writing it directly is what makes the last
+            # page reachable without sending a few thousand pages to get there.
+            await session.execute(
+                text(
+                    "INSERT INTO discovery_queue "
+                    "    (viewer_id, candidate_id, rank, score, status, queued_at, seen_at) "
+                    "SELECT :viewer, p.user_id, "
+                    "       (SELECT COALESCE(MAX(q.rank), -1) FROM discovery_queue q "
+                    "         WHERE q.viewer_id = :viewer) + row_number() OVER (ORDER BY p.user_id), "
+                    "       0, 'seen', now(), now() "
+                    "FROM profiles p JOIN users u ON u.id = p.user_id "
+                    "WHERE p.user_id <> :viewer AND p.onboarding_completed_at IS NOT NULL "
+                    "ON CONFLICT DO NOTHING"
+                ),
+                {"viewer": ctx["viewer_id"]},
+            )
+            await session.execute(
+                text("UPDATE discovery_queue SET status = 'seen', seen_at = now() "
+                     "WHERE viewer_id = :viewer AND status = 'ready'"),
+                {"viewer": ctx["viewer_id"]},
+            )
+            await session.commit()
+        await DiscoveryService(session).feed(ctx["viewer_id"], limit=DECK_SIZE)
+
     return {
         "login": login,
         "public_profile": public_profile,
@@ -441,6 +475,7 @@ def _build_paths():
         "answers_submit": answers_submit,
         "test_complete": test_complete,
         "like": like,
+        "deck_exhausted": deck_exhausted,
     }
 
 

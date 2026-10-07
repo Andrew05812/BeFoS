@@ -116,17 +116,21 @@ class DiscoveryService:
             scores[candidate_id] = result.overall_percent
         return scores
 
-    async def _refill_deck(self, viewer_id: uuid.UUID, viewer_input, prefs: dict) -> bool:
+    async def _refill_deck(
+        self, viewer_id: uuid.UUID, viewer_input, prefs: dict
+    ) -> tuple[bool, bool]:
         """Rank a fresh batch of never-shown candidates and put it at the end of the deck.
 
-        Returns whether the deck grew, so a caller that ran out of cards mid-page can tell
-        "there is nobody left" from "there is more, keep going".
+        Returns whether the deck grew and whether the selection scan found anybody in it at all.
+        The second answer is what the caller needs to stop asking: a scan that came back empty
+        already told it «there is nobody left», and re-reading that costs the widest query in the
+        system a second time.
         """
         fresh = await self.discovery.new_candidate_ids(
             viewer_id=viewer_id, limit=DECK_BATCH, **prefs
         )
         if not fresh:
-            return False
+            return False, False
         scores = await self._ranked_scores(viewer_input, fresh)
         # Highest compatibility first. The batch came out of SQL newest-first and sorted
         # by id, so a tie keeps that order and the deck is reproducible for the same data.
@@ -135,11 +139,11 @@ class DiscoveryService:
             key=lambda item: (-item[1], str(item[0])),
         )
         if not ranked:
-            return False
+            return False, True
         await self.discovery.deck_append(
             viewer_id, ranked, first_rank=await self.discovery.deck_next_rank(viewer_id)
         )
-        return True
+        return True, True
 
     async def _build_cards(
         self, viewer_profile: Profile, viewer_input, ids: list[uuid.UUID]
@@ -198,8 +202,16 @@ class DiscoveryService:
         # Rank more candidates before the viewer runs out, not after: the page that
         # follows a rebuild costs the same as any other.
         refilled = False
+        # One selection scan answers three questions in this method — the pre-emptive refill, the
+        # refill a short page might still want, and `has_unqueued_candidate` at the bottom all
+        # bind the same preferences against the same rule — so its empty answer is kept rather
+        # than re-asked. The scan is the widest query the product makes (docs/SCALE_PLAN.md,
+        # §«Что останавливается первым»), and the page that runs out of cards was paying it three
+        # times per request.
+        nobody_left = False
         if await self.discovery.deck_ready_count(viewer_id, cap=DECK_FLOOR) < DECK_FLOOR:
-            refilled = await self._refill_deck(viewer_id, viewer_input, prefs)
+            refilled, found = await self._refill_deck(viewer_id, viewer_input, prefs)
+            nobody_left = not found
 
         # Fill the page from the deck. A claim can come back short: a queued row is a
         # promise about a person who may have hidden or been blocked since it was written,
@@ -218,9 +230,10 @@ class DiscoveryService:
                 # Either the deck held only stale rows or the viewer is at its end. A
                 # refill tells which; asking twice when the selection is empty would only
                 # read the same answer twice, so one attempt per request is enough.
-                if refilled:
+                if refilled or nobody_left:
                     break
-                refilled = await self._refill_deck(viewer_id, viewer_input, prefs)
+                refilled, found = await self._refill_deck(viewer_id, viewer_input, prefs)
+                nobody_left = not found
                 if not refilled:
                     break
                 continue
@@ -232,9 +245,9 @@ class DiscoveryService:
         # the cursor to the last row it read, so nothing behind it is skipped and nothing
         # before it returns.
         advanced = last_rank != after_rank
-        has_more = await self.discovery.deck_has_more(viewer_id, beyond_rank=last_rank) or (
-            await self.discovery.has_unqueued_candidate(viewer_id=viewer_id, **prefs)
-        )
+        has_more = await self.discovery.deck_has_more(viewer_id, beyond_rank=last_rank)
+        if not has_more and not nobody_left:
+            has_more = await self.discovery.has_unqueued_candidate(viewer_id=viewer_id, **prefs)
         # The page is only delivered once: the rows it claimed are seen, and the ranking
         # that produced it is stored. Both have to survive this request.
         await self.session.commit()
