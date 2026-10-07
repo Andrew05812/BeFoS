@@ -418,6 +418,17 @@ def _build_paths():
         # refusal.
         await TestService(session).complete(ctx["viewer_id"])
 
+    async def like(session, ctx):
+        from app.services.match_service import MatchService
+
+        peers = ctx["like_peers"]
+        # A fresh target per run: the tap that finds no like row yet is what a card costs the
+        # first time it is swiped right, and the repeat branch skips the pass delete and the
+        # match check, so measuring the same pair five times would time the second tap.
+        target = peers[ctx["like_turn"] % len(peers)]
+        ctx["like_turn"] += 1
+        await MatchService(session).like(ctx["viewer_id"], target)
+
     return {
         "login": login,
         "public_profile": public_profile,
@@ -429,6 +440,7 @@ def _build_paths():
         "recommendations": recommendations,
         "answers_submit": answers_submit,
         "test_complete": test_complete,
+        "like": like,
     }
 
 
@@ -507,7 +519,34 @@ async def _context(engine) -> dict:
             text("SELECT id FROM matches WHERE user_a_id = :v ORDER BY created_at DESC LIMIT 1"),
             {"v": viewer},
         )
-    return {"viewer_email": VIEWER_EMAIL, "viewer_id": viewer, "peer_id": peer, "match_id": match_id}
+        # People the viewer has never acted on, for the tap that has to land on a fresh pair:
+        # the seeding gives the viewer passes and matches over slices of the crowd, and a like
+        # on somebody already passed takes the delete branch a first tap on a stranger does not.
+        like_peers = list(
+            (
+                await session.execute(
+                    text(
+                        "SELECT u.id FROM users u JOIN profiles p ON p.user_id = u.id "
+                        "WHERE u.email ~ '^scale_[0-9]+@befos.test$' "
+                        "AND p.onboarding_completed_at IS NOT NULL AND p.is_hidden IS FALSE "
+                        "AND NOT EXISTS (SELECT 1 FROM likes l WHERE l.from_user_id = :v AND l.to_user_id = u.id) "
+                        "AND NOT EXISTS (SELECT 1 FROM passes ss WHERE ss.from_user_id = :v AND ss.to_user_id = u.id) "
+                        "AND NOT EXISTS (SELECT 1 FROM matches m WHERE (m.user_a_id = :v AND m.user_b_id = u.id) "
+                        "OR (m.user_b_id = :v AND m.user_a_id = u.id)) "
+                        "ORDER BY md5(u.email) LIMIT 64"
+                    ),
+                    {"v": viewer},
+                )
+            ).scalars()
+        )
+    return {
+        "viewer_email": VIEWER_EMAIL,
+        "viewer_id": viewer,
+        "peer_id": peer,
+        "match_id": match_id,
+        "like_peers": like_peers,
+        "like_turn": 0,
+    }
 
 
 _WRITING = re.compile(r"\b(insert|update|delete)\b", re.IGNORECASE)
