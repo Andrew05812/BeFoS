@@ -34,6 +34,9 @@ class MatchService:
 
     async def like(self, viewer_id: uuid.UUID, target_id: uuid.UUID) -> dict:
         await self._ensure_target(viewer_id, target_id)
+        # Taken before the first read so a simultaneous like from the other side waits here
+        # until this transaction commits; see SocialRepository.lock_pair.
+        await self.social.lock_pair(viewer_id, target_id)
 
         result = await self.compatibility.score_pair(viewer_id, target_id)
         # Stored as the engine produced it, not snapped to four decimals. The match list
