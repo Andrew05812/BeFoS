@@ -433,21 +433,40 @@ def _build_paths():
 
 
 async def _seed_catalog(engine) -> None:
-    """Put the question rows on the stand, which the generated crowd does not carry.
+    """Put the question and activity rows on the stand, which the generated crowd does not carry.
 
     The population is written as vectors straight into `compatibility_profiles`, so a stand
     without these rows has no catalogue for the test-submission path to validate against, and
     that path would measure a refusal instead of a save. The viewer also gets one answer per
     question: finishing the test is gated on the catalog being answered through, and the gate
     must pass for the completion path to measure a completion.
+
+    The activities are the recommendation engine's input. Without them the cold page scored an
+    empty catalogue, wrote nothing and still reported a median — the number was the price of
+    reading nobody's profile, not the price of producing a page.
     """
     from sqlalchemy import text
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    from app.models import TestAnswer, TestOption, TestQuestion
+    from app.models import Activity, TestAnswer, TestOption, TestQuestion
+    from app.seed_data.activities_catalog import ACTIVITIES
     from app.seed_data.questions_catalog import QUESTIONS
 
     async with AsyncSession(bind=engine) as session:
+        for slug, title, description, category, interests, cities, energy, social, cost in ACTIVITIES:
+            session.add(
+                Activity(
+                    slug=slug,
+                    title=title,
+                    description=description,
+                    category=category,
+                    interests=interests,
+                    cities=cities,
+                    energy=energy,
+                    social=social,
+                    cost=cost,
+                )
+            )
         answered: list[tuple[int, int]] = []
         for position, (category, trait, text_, options) in enumerate(QUESTIONS):
             question = TestQuestion(

@@ -1,7 +1,7 @@
 """A cached-miss recommendation write that races a dissolve of its match must not answer 500.
 
 `RecommendationService.for_match` reads the match via `session.get(Match, match_id)`, then scores
-the pair — `_signal` on each user, `list_for_cities` on the whole activity catalogue, the pure
+the pair — `_signals` on both users, `list_for_cities` on the whole activity catalogue, the pure
 recommendation engine over both — and only then calls `ActivityRepository.replace_recommendations`,
 which DELETEs the cached rows and INSERTs eight new `recommendations` rows whose `match_id` column
 carries `ForeignKey("matches.id", ondelete="CASCADE")`. `SafetyService.block` (stage 9) and
@@ -75,9 +75,9 @@ async def _matches_involving(*user_ids: uuid.UUID) -> list[uuid.UUID]:
 async def test_a_recommendation_write_racing_the_dissolve_of_its_match_is_refused_not_crashed(
     client: AsyncClient, monkeypatch
 ) -> None:
-    """`_signal` returns after the initial membership read and is the last gate before the write.
+    """`_signals` returns after the initial membership read and is the last gate before the write.
 
-    Holding the recomputation at `_signal` forces the block to commit its DELETE during the same
+    Holding the recomputation at `_signals` forces the block to commit its DELETE during the same
     window the fix later closes with `lock_pair` + `match_still_present`. Without that lock, the
     next step in the write path is `replace_recommendations` and its INSERT into `recommendations`
     — a child row against an absent `matches.id` and a foreign-key violation.
@@ -87,11 +87,11 @@ async def test_a_recommendation_write_racing_the_dissolve_of_its_match_is_refuse
 
     signal_reached = asyncio.Event()
     block_committed = asyncio.Event()
-    original = RecommendationService._signal
+    original = RecommendationService._signals
     state = {"fired": False}
 
-    async def gated(self, user_id):  # type: ignore[no-untyped-def]
-        result = await original(self, user_id)
+    async def gated(self, user_ids):  # type: ignore[no-untyped-def]
+        result = await original(self, user_ids)
         if not state["fired"]:
             state["fired"] = True
             signal_reached.set()
@@ -101,7 +101,7 @@ async def test_a_recommendation_write_racing_the_dissolve_of_its_match_is_refuse
                 pass
         return result
 
-    monkeypatch.setattr(RecommendationService, "_signal", gated)
+    monkeypatch.setattr(RecommendationService, "_signals", gated)
 
     responses: dict[str, object] = {}
 
