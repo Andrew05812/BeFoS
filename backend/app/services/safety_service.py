@@ -45,6 +45,11 @@ class SafetyService:
         target = await self.users.get_by_id(blocked_id)
         if target is None or target.is_deleted:
             raise NotFoundError("User not found.")
+        # The same pair lock MatchService.like takes. A like already in flight either commits
+        # before us, so the delete below dissolves its match, or waits on this lock and its
+        # post-lock block check turns it into a 404. Without the lock the two can both commit
+        # and leave the pair blocked and matched at once — which chat would then keep serving.
+        await self.social.lock_pair(blocker_id, blocked_id)
         dissolved = await self.social.add_block(blocker_id, blocked_id)
         await self.session.commit()
         if dissolved is not None:
