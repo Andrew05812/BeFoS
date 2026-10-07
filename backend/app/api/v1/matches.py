@@ -48,7 +48,12 @@ async def get_match(
     other_id = match.other_user(current_user.id)
     from app.services.discovery_service import DiscoveryService
 
-    profile = await DiscoveryService(session).get_public_profile(current_user.id, other_id)
+    # Membership was just proven against the `matches` row, so this is not the deck asking
+    # whether it may introduce two strangers — `for_match_member` keeps the deck's visibility
+    # rule for every other caller.
+    profile = await DiscoveryService(session).get_public_profile(
+        current_user.id, other_id, for_match_member=True
+    )
     return {
         "match_id": str(match.id),
         "compatibility": int(round(match.compatibility_score * 100)),

@@ -235,11 +235,19 @@ class DiscoveryService:
         }
 
 
-    async def get_public_profile(self, viewer_id: uuid.UUID, target_id: uuid.UUID) -> dict:
+    async def get_public_profile(
+        self, viewer_id: uuid.UUID, target_id: uuid.UUID, *, for_match_member: bool = False
+    ) -> dict:
         if viewer_id == target_id:
             # Looking at your own card is not a visibility question: a hidden or unfinished
             # profile still has to open for the person it belongs to.
             profile = await self.users.get_profile_with_user(target_id)
+        elif for_match_member:
+            # The caller is not browsing the deck: a `matches` row already connects the two, and
+            # the route proved membership before reaching here. Filtered by the deck's rule, this
+            # path made «Скрыть из подбора» erase a pair from the screen that still listed it,
+            # still carried its unread badge and still let both sides write in.
+            profile = await self.users.get_match_peer_profile(target_id)
         else:
             # The deck's own rule, asked about one id. `POST /users/{id}/like` already answers
             # through it, so a profile that is hidden, deactivated or never onboarded has to

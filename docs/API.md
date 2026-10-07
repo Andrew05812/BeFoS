@@ -204,6 +204,14 @@
 | GET | `/matches/{match_id}/recommendations` | `force` | `{match_id, recommendations: [...]}` |
 | POST | `/matches/{match_id}/recommendations/{activity_id}/select` | — | `204`; `404`, если активности нет в каталоге |
 
+`GET /matches/{match_id}` смотрит на собеседника глазами участника пары, а не колоды.
+«Скрыть из подбора» снимает анкету из выдачи, с публичной карточки `GET /users/{id}` и с
+путей `like`/`pass`, но не стирает матч, который оба уже подтвердили: список пар, история
+сообщений и `/compatibility` продолжают его отдавать, поэтому и заголовок пары обязан
+отвечать 200, а не «Match not found» под открытым чатом. Из правила колоды здесь исключено
+только `is_hidden` — удалённый, деактивированный или не прошедший анкету аккаунт остаётся
+недоступен и для того, кто с ним матчился.
+
 `score` совместимости и рекомендаций — процент `0..100`; границы объявлены в выходных
 Pydantic-схемах (`CategoryScoreOut.score`, `CompatibilityOut.overall`, `DiscoveryCard.
 compatibility`, `LikeResponse.compatibility`, `MatchSummary.compatibility`, `RecommendationOut.score`),

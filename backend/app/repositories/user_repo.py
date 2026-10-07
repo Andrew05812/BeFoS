@@ -70,6 +70,28 @@ class UserRepository:
         )
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
+    async def get_match_peer_profile(self, user_id: uuid.UUID) -> Profile | None:
+        """The peer as an established match sees them: ``get_showable_profile`` without the
+        ``is_hidden`` condition.
+
+        The switch is a deck preference — its label reads «Скрыть из подбора» — so it withdraws
+        introductions that have not happened yet, not a pair that already said yes to each other.
+        The rest stays: a deleted, deactivated or never-onboarded account is unavailable to the
+        person who matched with it too.
+        """
+        stmt = (
+            select(Profile)
+            .join(User, User.id == Profile.user_id)
+            .options(selectinload(Profile.interests))
+            .where(
+                Profile.user_id == user_id,
+                User.is_deleted.is_(False),
+                User.is_active.is_(True),
+                Profile.onboarding_completed_at.is_not(None),
+            )
+        )
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
     async def get_profiles_by_ids(self, user_ids: list[uuid.UUID]) -> list[Profile]:
         if not user_ids:
             return []
