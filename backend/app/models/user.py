@@ -19,7 +19,7 @@ from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
-from app.models.base import TimestampMixin
+from app.models.base import TimestampMixin, age_years, utc_today
 from app.models.enums import DatingGoal, Gender
 
 
@@ -114,12 +114,7 @@ class Profile(TimestampMixin, Base):
 
     @property
     def age(self) -> int:
-        today = datetime.utcnow().date()
-        return (
-            today.year
-            - self.birth_date.year
-            - ((today.month, today.day) < (self.birth_date.month, self.birth_date.day))
-        )
+        return age_years(self.birth_date, utc_today())
 
 
 class Photo(TimestampMixin, Base):

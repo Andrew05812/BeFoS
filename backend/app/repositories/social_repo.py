@@ -9,7 +9,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Block, DiscoveryQueue, Like, Match, Pass, Report, User, Profile
-from app.models.base import utcnow
+from app.models.base import utcnow, utc_today
 from app.models.discovery import READY, SEEN
 
 
@@ -331,7 +331,7 @@ class DiscoveryRepository:
     def _preference_conditions(
         gender_pref: list[str], age_min: int, age_max: int, city: str | None
     ) -> list:
-        today = date.today()
+        today = utc_today()
         # age >= age_min  <=>  birth_date <= today - age_min years.
         # age <= age_max  <=>  birth_date >  today - (age_max + 1) years, strictly: a
         # candidate whose birthday lands exactly on that lower bound turns age_max + 1

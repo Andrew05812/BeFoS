@@ -10,14 +10,14 @@ an inclusive ``>=`` let through — so it showed a 31-year-old to a viewer who a
 from __future__ import annotations
 
 import uuid
-from datetime import date, date as _real_date
+from datetime import date
 
 from httpx import AsyncClient
 from sqlalchemy import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Profile, User
-from app.models.base import utcnow
+from app.models.base import utc_today, utcnow
 from app.repositories.social_repo import DiscoveryRepository, shift_years
 
 from .conftest import answer_all_questions, auth_headers, complete_onboarding, register_and_auth
@@ -30,12 +30,7 @@ def test_shift_years_clamps_to_the_last_real_day():
 
 
 def test_preference_conditions_survive_a_february_29(monkeypatch):
-    class _Feb29(_real_date):
-        @classmethod
-        def today(cls):
-            return cls(2028, 2, 29)
-
-    monkeypatch.setattr("app.repositories.social_repo.date", _Feb29)
+    monkeypatch.setattr("app.repositories.social_repo.utc_today", lambda: date(2028, 2, 29))
     conds = DiscoveryRepository._preference_conditions([], 25, 40, None)
     assert len(conds) == 2  # age_min upper bound + age_max lower bound; no gender, no city
 
@@ -71,7 +66,7 @@ async def test_candidate_turning_age_max_plus_one_today_is_excluded(
     )
     assert patch.status_code == 200, patch.text
 
-    today = date.today()
+    today = utc_today()
     # Born exactly today's month/day N years ago, so their age is precisely N on this request.
     over = await _candidate(session, tag="over", birth=date(today.year - 31, today.month, today.day))
     within = await _candidate(session, tag="within", birth=date(today.year - 30, today.month, today.day))

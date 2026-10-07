@@ -47,6 +47,7 @@ from app.models import (
     TestResult,
     User,
 )
+from app.models.base import utc_today
 from app.seed_data.activities_catalog import ACTIVITIES
 from app.seed_data.interests_catalog import INTERESTS
 from app.seed_data.placeholder_images import generate_avatar
@@ -354,7 +355,7 @@ async def run_seed(session: AsyncSession, *, force: bool = False) -> None:
         ("Тоже обожаю гулять! Может, как-нибудь устроим фотопрогулку?", False),
         ("Отличная идея! Давай обсудим детали.", True),
     ]
-    now = date.today()
+    now = utc_today()
     for idx, match in enumerate(demo_matches):
         base_time = now - timedelta(days=idx)
         other_id = match.user_b_id if match.user_a_id == demo.id else match.user_a_id
