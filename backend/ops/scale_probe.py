@@ -389,6 +389,15 @@ def _build_paths():
     async def chat_history(session, ctx):
         await ChatService(session).history(ctx["match_id"], ctx["viewer_id"], limit=50)
 
+    async def recommendations(session, ctx):
+        from app.services.recommendation_service import RecommendationService
+
+        # `force` because the cached answer is one read plus one page of the catalogue, and the
+        # number worth knowing is what it costs to produce the page when nothing is cached.
+        await RecommendationService(session).for_match(
+            ctx["match_id"], ctx["viewer_id"], force=True
+        )
+
     return {
         "login": login,
         "public_profile": public_profile,
@@ -397,6 +406,7 @@ def _build_paths():
         "matches_list": matches_list,
         "compatibility": compatibility,
         "chat_history": chat_history,
+        "recommendations": recommendations,
     }
 
 
