@@ -17,7 +17,6 @@ from app.core.rate_limit import (
 from app.core.security import decode_token
 from app.core.exceptions import NotFoundError
 from app.models import Match, User
-from app.repositories.chat_repo import ChatRepository
 from app.services.chat_service import ChatService
 from app.websocket.manager import manager
 
@@ -195,9 +194,17 @@ async def _handle_socket(
                     await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
                     return
                 async with AsyncSessionLocal() as session:
-                    repo = ChatRepository(session)
-                    count = await repo.mark_read(match_id, user_id)
-                    await session.commit()
+                    # The receipt goes through ChatService.mark_read, the same door the REST route
+                    # uses: it takes the pair lock before inserting, so a block dissolving this match
+                    # either cascades the receipt away behind us or makes the mark find the match gone.
+                    # Writing repo.mark_read directly here raced that window and the child insert threw
+                    # a foreign-key violation, which killed the socket instead of refusing it.
+                    service = ChatService(session)
+                    try:
+                        count = await service.mark_read(match_id, user_id)
+                    except NotFoundError:
+                        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+                        return
                 if count:
                     # Same contract as the REST `/matches/{id}/read`: the receipt fires only for
                     # messages this call actually marked, and exclude_user keeps it off every
