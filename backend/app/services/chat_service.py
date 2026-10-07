@@ -26,18 +26,19 @@ class ChatService:
         return match
 
     async def _require_membership_for_write(self, match_id: uuid.UUID, user_id: uuid.UUID):
-        """Membership that still holds at the instant the write begins.
+        """Membership that still holds at the instant a write into the chat begins.
 
-        ``send`` reads the pair to authorise itself and then inserts a child row whose foreign
-        key points at the match. A block taken between the two deletes that parent row, and the
-        insert then raises ``ForeignKeyViolation`` — an HTTP 500 to a user whose only act was to
-        send while being blocked. ``block`` serialises on the pair advisory lock (see
-        ``SafetyService.block``), so taking the same lock here makes the two transactions take
-        turns: the send writes under the lock and the later block cascades its rows away, or the
-        block lands first and the re-check finds no match and returns the same 404 a send into an
-        absent match already gives. The first read only names the pair to lock; the authoritative
-        check is made under the lock, and it reads the database rather than the session's identity
-        map, which still holds the match this connection loaded moments ago.
+        A write into a match — a sent message, a read receipt — reads the pair to authorise itself
+        and then inserts a child row whose foreign key points at a row the block cascade removes
+        (`messages`, and `message_reads` through them). A block taken between the read and the insert
+        deletes that parent, and the insert then raises ``ForeignKeyViolation`` — an HTTP 500 to a
+        user whose only act was to open or write a chat while being blocked. ``block`` serialises on
+        the pair advisory lock (see ``SafetyService.block``), so taking the same lock here makes the
+        two transactions take turns: the write happens under the lock and the later block cascades
+        its rows away, or the block lands first and the re-check finds no match and returns the same
+        404 a write into an absent match already gives. The first read only names the pair to lock;
+        the authoritative check is made under the lock, and it reads the database rather than the
+        session's identity map, which still holds the match this connection loaded moments ago.
         """
         match = await self._require_membership(match_id, user_id)
         await self.social.lock_pair(match.user_a_id, match.user_b_id)
@@ -72,7 +73,7 @@ class ChatService:
     async def history(
         self, match_id: uuid.UUID, user_id: uuid.UUID, *, limit: int = 50, before_id: uuid.UUID | None = None
     ) -> dict:
-        await self._require_membership(match_id, user_id)
+        await self._require_membership_for_write(match_id, user_id)
         messages = await self.repo.list_messages(match_id, limit=limit + 1, before_id=before_id)
         has_more = len(messages) > limit
         messages = messages[:limit]
@@ -88,7 +89,7 @@ class ChatService:
         }
 
     async def mark_read(self, match_id: uuid.UUID, user_id: uuid.UUID) -> int:
-        await self._require_membership(match_id, user_id)
+        await self._require_membership_for_write(match_id, user_id)
         count = await self.repo.mark_read(match_id, user_id)
         await self.session.commit()
         return count

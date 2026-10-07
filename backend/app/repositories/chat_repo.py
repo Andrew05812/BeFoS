@@ -121,8 +121,9 @@ class ChatRepository:
         rows.reverse()  # return ascending order
         return rows
 
-    async def mark_read(self, match_id: uuid.UUID, reader_id: uuid.UUID) -> int:
-        """Mark all messages in a match not sent by reader as read. Returns count."""
+    async def _pending_unread_ids(
+        self, match_id: uuid.UUID, reader_id: uuid.UUID
+    ) -> list[uuid.UUID]:
         # The already-read test runs in SQL: this fires on every chat open, and reading
         # the whole history into Python to drop it again made the cost grow with the
         # length of the conversation instead of the number of unread messages.
@@ -133,7 +134,11 @@ class ChatRepository:
             .where(MessageRead.message_id == Message.id, MessageRead.reader_id == reader_id)
             .correlate(Message),
         )
-        pending = [row[0] for row in (await self.session.execute(unread)).all()]
+        return [row[0] for row in (await self.session.execute(unread)).all()]
+
+    async def mark_read(self, match_id: uuid.UUID, reader_id: uuid.UUID) -> int:
+        """Mark all messages in a match not sent by reader as read. Returns count."""
+        pending = await self._pending_unread_ids(match_id, reader_id)
         if not pending:
             return 0
         now = datetime.now(timezone.utc)
