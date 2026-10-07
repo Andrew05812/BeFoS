@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics.tracker import Event, tracker
 from app.core.exceptions import NotFoundError, ValidationError
+from app.models import Profile
 from app.repositories.social_repo import SocialRepository
 from app.repositories.user_repo import UserRepository
 from app.services.compatibility_service import CompatibilityService
@@ -18,7 +19,7 @@ class MatchService:
         self.users = UserRepository(session)
         self.compatibility = CompatibilityService(session)
 
-    async def _ensure_target(self, viewer_id: uuid.UUID, target_id: uuid.UUID) -> None:
+    async def _ensure_target(self, viewer_id: uuid.UUID, target_id: uuid.UUID) -> Profile:
         if viewer_id == target_id:
             raise ValidationError("You cannot act on your own profile.")
         # Not `get_profile_with_user`: that one only asks whether the account still exists,
@@ -31,6 +32,7 @@ class MatchService:
             raise NotFoundError("User not found.")
         if await self.social.is_blocked_either(viewer_id, target_id):
             raise NotFoundError("User not found.")
+        return target
 
     async def like(self, viewer_id: uuid.UUID, target_id: uuid.UUID) -> dict:
         await self._ensure_target(viewer_id, target_id)
@@ -45,9 +47,13 @@ class MatchService:
         # is what separates a like that answers 404 from one that silently re-creates the
         # match a fresh block just dissolved or that writes a Match row against a
         # soft-deleted peer with no future cascade able to clean it.
-        await self._ensure_target(viewer_id, target_id)
+        target = await self._ensure_target(viewer_id, target_id)
 
-        result = await self.compatibility.score_pair(viewer_id, target_id)
+        # Scored from the rows this request already read: `score_pair` would fetch the peer a
+        # third time (once per check above, once here) for a number computed from data in hand.
+        viewer_input = await self.compatibility.build_input(viewer_id)
+        target_input = await self.compatibility.input_for(target)
+        result = self.compatibility.score_inputs(viewer_input, target_input)
         # Stored as the engine produced it, not snapped to four decimals. The match list
         # shows this value multiplied by 100 and rounded, and a rounded snapshot can land
         # on the other side of that boundary from the number the live screen computes.
