@@ -269,11 +269,17 @@ class DiscoveryService:
             raise NotFoundError("User not found.")
         tracker.track(Event.PROFILE_VIEWED, str(viewer_id), target=str(target_id))
 
-        result = await self.compatibility.score_pair(viewer_id, target_id)
+        if viewer_id == target_id:
+            target_input = await self.compatibility.input_for(profile)
+            viewer_input = target_input
+        else:
+            viewer_input = await self.compatibility.build_input(viewer_id)
+            # `profile` was loaded above through the deck's own rule and carries its interests;
+            # asking for the same row again by id is what made this path read a person twice.
+            target_input = await self.compatibility.input_for(profile)
+        result = self.compatibility.score_inputs(viewer_input, target_input)
         photos_stmt = select(Photo).where(Photo.user_id == target_id).order_by(*PHOTO_DISPLAY_ORDER)
         photos = list((await self.session.execute(photos_stmt)).scalars().all())
-        viewer_input = await self.compatibility.build_input(viewer_id)
-        target_input = await self.compatibility.build_input(target_id)
         shared = sorted(viewer_input.interests & target_input.interests)
         name_by_slug = {i.slug: i.name for i in profile.interests}
         shared = [name_by_slug.get(s, s) for s in shared]

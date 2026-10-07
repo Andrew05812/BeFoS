@@ -26,7 +26,16 @@ class CompatibilityService:
         profile = await self.users.get_profile(user_id)
         if profile is None:
             raise NotFoundError("Profile not found.")
-        cp = await self.tests.get_compatibility_profile(user_id)
+        return await self.input_for(profile)
+
+    async def input_for(self, profile: Profile) -> CompatibilityInput:
+        """The input for a profile that is already in hand: its row is not read a second time.
+
+        Callers that fetched the profile for their own reasons — the deck's rule, the card the
+        response is built from — otherwise pay a fresh ``SELECT profiles`` plus its interests
+        loader for numbers they were about to compute from data they already hold.
+        """
+        cp = await self.tests.get_compatibility_profile(profile.user_id)
         return self.input_from(profile, cp)
 
     @staticmethod
@@ -38,10 +47,13 @@ class CompatibilityService:
             dating_goal=profile.dating_goal,
         )
 
+    def score_inputs(self, a: CompatibilityInput, b: CompatibilityInput) -> CompatibilityResult:
+        return compute_compatibility(a, b, self.weight_config)
+
     async def score_pair(self, a_id: uuid.UUID, b_id: uuid.UUID) -> CompatibilityResult:
         a = await self.build_input(a_id)
         b = await self.build_input(b_id)
-        return compute_compatibility(a, b, self.weight_config)
+        return self.score_inputs(a, b)
 
     async def refresh_pair_scores(self, user_id: uuid.UUID) -> None:
         """Rewrite the stored percent of every match this user is in.
@@ -72,6 +84,6 @@ class CompatibilityService:
     async def explain_pair(self, a_id: uuid.UUID, b_id: uuid.UUID) -> tuple[CompatibilityResult, CompatibilityExplanation]:
         a = await self.build_input(a_id)
         b = await self.build_input(b_id)
-        result = compute_compatibility(a, b, self.weight_config)
+        result = self.score_inputs(a, b)
         explanation = build_explanation(a, b, result)
         return result, explanation
