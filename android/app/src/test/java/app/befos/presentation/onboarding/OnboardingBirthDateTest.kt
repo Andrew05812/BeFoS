@@ -4,7 +4,9 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 import java.time.LocalDate
-import java.time.format.DateTimeFormatter
+import java.time.ZoneId
+import java.time.ZoneOffset
+import java.util.TimeZone
 
 /** The birth-date field collects digits; these helpers turn them into a checked ISO date. */
 class OnboardingBirthDateTest {
@@ -38,10 +40,30 @@ class OnboardingBirthDateTest {
 
     @Test
     fun `anyone under eighteen is turned away`() {
-        val justUnder = LocalDate.now().minusYears(18).plusDays(1)
-        val justOver = LocalDate.now().minusYears(18).minusDays(1)
-        val fmt = DateTimeFormatter.ofPattern("yyyyMMdd")
-        assertEquals("BeFoS доступен с 18 лет.", birthDateError(justUnder.format(fmt)))
-        assertNull(birthDateError(justOver.format(fmt)))
+        // A frozen "today" instead of the machine's, so the boundary is the same on every host.
+        val today = LocalDate.of(2026, 10, 7)
+        assertEquals("BeFoS доступен с 18 лет.", birthDateError("20081008", today))
+        assertNull(birthDateError("20081007", today))
+        assertNull(birthDateError("19900514", today))
+    }
+
+    @Test
+    fun `the pre-check does not take the device zone as its today`() {
+        // The server counts age on the UTC calendar, so the pre-check has to ask it too: a device
+        // fourteen hours behind Greenwich lives a day late for most of the UTC day and would deny
+        // the field a person the API is about to admit. Two zones fourteen hours apart on either
+        // side of UTC cannot both agree with the UTC date, so a "today" that followed the device
+        // zone would return two different dates here.
+        val previous = TimeZone.getDefault()
+        try {
+            TimeZone.setDefault(TimeZone.getTimeZone(ZoneId.of("+14:00")))
+            val ahead = utcToday()
+            TimeZone.setDefault(TimeZone.getTimeZone(ZoneId.of("-14:00")))
+            val behind = utcToday()
+            assertEquals(ahead, behind)
+            assertEquals(LocalDate.now(ZoneOffset.UTC), behind)
+        } finally {
+            TimeZone.setDefault(previous)
+        }
     }
 }

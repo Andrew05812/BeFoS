@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.Period
+import java.time.ZoneOffset
 
 data class OnboardingUiState(
     val step: Int = 0,
@@ -133,13 +134,15 @@ fun isoBirthDate(digits: String): String? {
 }
 
 /** Why the typed birth date cannot be accepted yet, or null when it can. */
-fun birthDateError(digits: String): String? {
+fun birthDateError(digits: String, today: LocalDate = utcToday()): String? {
     if (digits.isBlank()) return "Укажите дату рождения."
     if (digits.length < 8) return "Введите дату рождения целиком — 8 цифр."
     val iso = isoBirthDate(digits) ?: return "Такой даты не бывает."
-    val today = LocalDate.now()
     val date = LocalDate.parse(iso)
     if (date.isAfter(today)) return "Такой даты не бывает."
     if (Period.between(date, today).years < 18) return "BeFoS доступен с 18 лет."
     return null
 }
+
+/** The calendar the server counts age on — UTC, so the device's zone cannot disagree with it. */
+fun utcToday(): LocalDate = LocalDate.now(ZoneOffset.UTC)

@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundError, ValidationError
 from app.models import Photo, Profile
+from app.models.base import age_years, utc_today
 from app.repositories.activity_repo import ActivityRepository
 from app.repositories.social_repo import DiscoveryRepository
 from app.repositories.user_repo import UserRepository
@@ -32,8 +33,7 @@ def _parse_birth_date(value: str) -> date:
 
 
 def _validate_age(birth: date) -> int:
-    today = date.today()
-    age = today.year - birth.year - ((today.month, today.day) < (birth.month, birth.day))
+    age = age_years(birth, utc_today())
     if age < 18:
         raise ValidationError("Users must be 18 or older.")
     if age > 120:
