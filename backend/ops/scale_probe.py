@@ -410,6 +410,14 @@ def _build_paths():
         ]
         await TestService(session).save_answers(ctx["viewer_id"], rows)
 
+    async def test_complete(session, ctx):
+        from app.services.test_service import TestService
+
+        # The screen after the last answer: the gate, then the same recompute the submission
+        # just did. Measured on the answered-through viewer, so it costs a completion, not a
+        # refusal.
+        await TestService(session).complete(ctx["viewer_id"])
+
     return {
         "login": login,
         "public_profile": public_profile,
@@ -420,6 +428,7 @@ def _build_paths():
         "chat_history": chat_history,
         "recommendations": recommendations,
         "answers_submit": answers_submit,
+        "test_complete": test_complete,
     }
 
 
@@ -428,26 +437,40 @@ async def _seed_catalog(engine) -> None:
 
     The population is written as vectors straight into `compatibility_profiles`, so a stand
     without these rows has no catalogue for the test-submission path to validate against, and
-    that path would measure a refusal instead of a save.
+    that path would measure a refusal instead of a save. The viewer also gets one answer per
+    question: finishing the test is gated on the catalog being answered through, and the gate
+    must pass for the completion path to measure a completion.
     """
+    from sqlalchemy import text
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    from app.models import TestOption, TestQuestion
+    from app.models import TestAnswer, TestOption, TestQuestion
     from app.seed_data.questions_catalog import QUESTIONS
 
     async with AsyncSession(bind=engine) as session:
-        for position, (category, trait, text, options) in enumerate(QUESTIONS):
+        answered: list[tuple[int, int]] = []
+        for position, (category, trait, text_, options) in enumerate(QUESTIONS):
             question = TestQuestion(
-                category=category, trait=trait, text=text, position=position, is_active=True
+                category=category, trait=trait, text=text_, position=position, is_active=True
             )
             session.add(question)
             await session.flush()
-            for option_position, (option_text, value) in enumerate(options):
-                session.add(
-                    TestOption(
-                        question_id=question.id, text=option_text, value=value, position=option_position
-                    )
+            option_rows = [
+                TestOption(
+                    question_id=question.id,
+                    text=option_text,
+                    value=value,
+                    position=option_position,
                 )
+                for option_position, (option_text, value) in enumerate(options)
+            ]
+            session.add_all(option_rows)
+            # Flushed before the id is read: an unpersisted option still carries None.
+            await session.flush()
+            answered.append((question.id, option_rows[0].id))
+        viewer = await session.scalar(text("SELECT id FROM users WHERE email = :e"), {"e": VIEWER_EMAIL})
+        for question_id, option_id in answered:
+            session.add(TestAnswer(user_id=viewer, question_id=question_id, option_id=option_id))
         await session.commit()
 
 
