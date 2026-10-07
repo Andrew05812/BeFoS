@@ -99,6 +99,19 @@ class SocialRepository:
     async def get_match(self, match_id: uuid.UUID) -> Match | None:
         return await self.session.get(Match, match_id)
 
+    async def match_still_present(self, match_id: uuid.UUID) -> bool:
+        """Ask the database, not the identity map, whether the match row is still there.
+
+        Same reason ``ChatRepository.match_still_present`` exists (see the note on stage 11):
+        ``session.get`` hands back an object this session already loaded without re-querying,
+        so after a concurrent writer on another connection has committed a DELETE that took
+        this row away — block (stage 9) via ``add_block`` or ``delete_account`` (stage 13)
+        via ``purge_social_graph`` — the cached ``Match`` is a phantom. Reading the id
+        column asks the current snapshot, which is what a post-lock re-check has to see.
+        """
+        stmt = select(Match.id).where(Match.id == match_id)
+        return (await self.session.execute(stmt)).first() is not None
+
     async def get_match_between(self, a: uuid.UUID, b: uuid.UUID) -> Match | None:
         ua, ub = ordered_pair(a, b)
         stmt = select(Match).where(Match.user_a_id == ua, Match.user_b_id == ub)

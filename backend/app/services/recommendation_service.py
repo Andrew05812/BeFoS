@@ -9,6 +9,7 @@ from app.core.exceptions import NotFoundError
 from app.models import Match
 from app.recommendations.engine import ActivitySignal, UserSignal, recommend
 from app.repositories.activity_repo import ActivityRepository
+from app.repositories.social_repo import SocialRepository
 from app.repositories.user_repo import UserRepository
 
 
@@ -17,6 +18,7 @@ class RecommendationService:
         self.session = session
         self.activities = ActivityRepository(session)
         self.users = UserRepository(session)
+        self.social = SocialRepository(session)
 
     async def _require_match(self, match_id: uuid.UUID, user_id: uuid.UUID) -> Match:
         match = await self.session.get(Match, match_id)
@@ -77,6 +79,21 @@ class RecommendationService:
             }
             for s in scored
         ]
+        # The pair advisory lock is the same one `block` (stage 9), `delete_account`'s purge
+        # (stage 13) and every chat write (stages 11–12) already serialise on. Without it the
+        # wide window between the initial membership read and the INSERT below is a
+        # read-then-write race on `recommendations.match_id`, which FKs `matches.id ON DELETE
+        # CASCADE`: a concurrent dissolve commits its `DELETE FROM matches` here, the child
+        # INSERT references an absent parent, and asyncpg raises `ForeignKeyViolationError`
+        # — HTTP 500 on `GET /matches/{id}/recommendations?force=true`. Taking the lock makes
+        # the two writers take turns: whoever commits last either writes under the lock (and
+        # the later dissolve cascades the row away, 200 then a follow-up 404) or lands first
+        # and the post-lock re-check via `select(Match.id)` — fresh snapshot, not the
+        # identity map — answers the same 404 that a write into an absent match already gives.
+        await self.social.lock_pair(match.user_a_id, match.user_b_id)
+        if not await self.social.match_still_present(match_id):
+            raise NotFoundError("Match not found.")
+
         await self.activities.replace_recommendations(match_id, recs)
         await self.session.commit()
         tracker.track(Event.RECOMMENDATION_VIEWED, str(user_id), match=str(match_id), count=len(recs))
