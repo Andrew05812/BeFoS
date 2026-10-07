@@ -35,15 +35,17 @@ class MatchService:
     async def like(self, viewer_id: uuid.UUID, target_id: uuid.UUID) -> dict:
         await self._ensure_target(viewer_id, target_id)
         # Taken before the first read so a simultaneous like from the other side — and a
-        # simultaneous block, which SafetyService.block guards with this same pair lock —
-        # waits here until that transaction commits; see SocialRepository.lock_pair.
+        # simultaneous block, which SafetyService.block guards with this same pair lock, or
+        # a peer's delete_account, whose purge now takes the pair lock too — waits here
+        # until that transaction commits; see SocialRepository.lock_pair.
         await self.social.lock_pair(viewer_id, target_id)
-        # The block check in _ensure_target ran before the lock became ours, so a block that
-        # committed while we waited is invisible to it. Reading again now, with the lock held,
-        # is the difference between a like that answers 404 and one that silently re-creates
-        # the match a fresh block just dissolved — leaving a blocked pair matched and chatting.
-        if await self.social.is_blocked_either(viewer_id, target_id):
-            raise NotFoundError("User not found.")
+        # The pre-lock `_ensure_target` ran at a snapshot that could already be stale by the
+        # time the pair lock became ours: a block committed while we waited, or a peer's
+        # account deletion, is invisible to that earlier read. Re-running the same check now
+        # is what separates a like that answers 404 from one that silently re-creates the
+        # match a fresh block just dissolved or that writes a Match row against a
+        # soft-deleted peer with no future cascade able to clean it.
+        await self._ensure_target(viewer_id, target_id)
 
         result = await self.compatibility.score_pair(viewer_id, target_id)
         # Stored as the engine produced it, not snapped to four decimals. The match list

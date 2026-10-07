@@ -159,6 +159,58 @@ class SocialRepository:
         ).scalar()
         return dissolved
 
+    async def _purge_lock_targets(self, user_id: uuid.UUID) -> list[uuid.UUID]:
+        """Every peer whose pair lock a purge has to hold before reading or deleting edges.
+
+        The set is read from what has been committed *now*: an edge to a peer that appears
+        later is not something this transaction can serialise against, but it is also not
+        a race — a like or a block arriving after the reading only succeeds against an
+        account that is still live, and the post-lock ``_ensure_target`` re-check inside
+        ``MatchService.like`` turns a like whose peer has committed its deletion into a 404.
+        Sorting by ``str(uuid)`` gives every purge the same global order, so two
+        simultaneous deletions of peers who liked each other cannot take their locks in
+        opposite orders and deadlock.
+        """
+        partners: set[uuid.UUID] = set()
+        for row in (
+            await self.session.execute(
+                select(Match.user_a_id, Match.user_b_id).where(
+                    or_(Match.user_a_id == user_id, Match.user_b_id == user_id)
+                )
+            )
+        ).all():
+            a, b = row
+            partners.add(b if a == user_id else a)
+        for row in (
+            await self.session.execute(
+                select(Like.from_user_id, Like.to_user_id).where(
+                    or_(Like.from_user_id == user_id, Like.to_user_id == user_id)
+                )
+            )
+        ).all():
+            f, t = row
+            partners.add(t if f == user_id else f)
+        for row in (
+            await self.session.execute(
+                select(Pass.from_user_id, Pass.to_user_id).where(
+                    or_(Pass.from_user_id == user_id, Pass.to_user_id == user_id)
+                )
+            )
+        ).all():
+            f, t = row
+            partners.add(t if f == user_id else f)
+        for row in (
+            await self.session.execute(
+                select(Block.blocker_id, Block.blocked_id).where(
+                    or_(Block.blocker_id == user_id, Block.blocked_id == user_id)
+                )
+            )
+        ).all():
+            blocker, blocked = row
+            partners.add(blocked if blocker == user_id else blocker)
+        partners.discard(user_id)
+        return sorted(partners, key=str)
+
     async def purge_social_graph(self, user_id: uuid.UUID) -> list[uuid.UUID]:
         """Delete every edge that points at an account which no longer represents a person.
 
@@ -167,7 +219,18 @@ class SocialRepository:
         leftover like can turn into a match with an account that has already been deleted.
         Matches take their messages, read receipts and recommendations with them via the
         schema's ON DELETE CASCADE.
+
+        The purge is a writer: it deletes Match rows and lets their CASCADE take child
+        messages and read receipts. ``ChatService._require_membership_for_write`` and
+        ``MatchService.like`` both serialise on the pair advisory lock, and
+        ``SafetyService.block`` does too — a purge that skipped that lock could land in the
+        window between a chat write's post-lock ``match_still_present`` re-check and its own
+        ``INSERT INTO messages`` and produce a foreign-key violation, or miss a Match row
+        whose parent like committed after the purge had already listed. Holding the same
+        lock, in a canonical order across the pairs, makes the two take turns.
         """
+        for other in await self._purge_lock_targets(user_id):
+            await self.lock_pair(user_id, other)
         match_ids = await self.list_match_ids_for_user(user_id)
         if match_ids:
             await self.session.execute(delete(Match).where(Match.id.in_(match_ids)))
