@@ -27,7 +27,11 @@ class MatchesService:
         # Batch-load per-match data: no query inside the loop.
         match_ids = [m.id for m in matches]
         other_ids = [m.other_user(user_id) for m in matches]
-        profiles = {p.user_id: p for p in await self.users.get_profiles_by_ids(other_ids)}
+        # The cards on this screen show a name, an age, a city and a photo, and the percent the
+        # pair stored at the like. Interests appear nowhere in it, so they are not read here.
+        profiles = {
+            p.user_id: p for p in await self.users.get_profiles_without_interests(other_ids)
+        }
         photos = await self.users.get_primary_photos(other_ids)
         last_messages = await self.chat.last_messages(match_ids)
         unread_counts = await self.chat.unread_counts(match_ids, user_id)

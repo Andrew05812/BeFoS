@@ -48,25 +48,32 @@ class ActivityRepository:
         self, match_id: uuid.UUID, recs: list[dict]
     ) -> None:
         await self.session.execute(delete(Recommendation).where(Recommendation.match_id == match_id))
-        for position, item in enumerate(recs):
-            await self.session.execute(
-                pg_insert(Recommendation)
-                .values(
-                    match_id=match_id,
-                    activity_id=item["activity_id"],
-                    score=item["score"],
-                    explanation=item["explanation"],
-                    position=position,
-                )
-                .on_conflict_do_update(
-                    constraint="uq_match_activity_rec",
-                    set_={
-                        "score": item["score"],
-                        "explanation": item["explanation"],
-                        "position": position,
-                    },
-                )
+        if not recs:
+            return
+        # One statement for the page. Inserting row by row sent eight round trips for the
+        # eight cards a pair is shown, and a screen that regenerates its page on a cold cache
+        # paid for them on every one of those reads.
+        values = [
+            {
+                "match_id": match_id,
+                "activity_id": item["activity_id"],
+                "score": item["score"],
+                "explanation": item["explanation"],
+                "position": position,
+            }
+            for position, item in enumerate(recs)
+        ]
+        stmt = pg_insert(Recommendation).values(values)
+        await self.session.execute(
+            stmt.on_conflict_do_update(
+                constraint="uq_match_activity_rec",
+                set_={
+                    "score": stmt.excluded.score,
+                    "explanation": stmt.excluded.explanation,
+                    "position": stmt.excluded.position,
+                },
             )
+        )
 
     async def list_recommendations(self, match_id: uuid.UUID) -> list[Recommendation]:
         stmt = (

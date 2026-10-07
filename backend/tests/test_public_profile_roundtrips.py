@@ -124,11 +124,13 @@ async def test_reading_your_own_card_reads_you_once(client: AsyncClient) -> None
 
 
 async def test_the_like_repeats_only_the_check_that_has_to_repeat(client: AsyncClient) -> None:
-    """`POST /users/{id}/like` reads the peer twice on purpose, and everything else once.
+    """`POST /users/{id}/like` checks the peer twice and reads the peer once.
 
     The pair lock forces a second visibility check after the lock is held (see the race tests),
-    so two reads of the peer's row are the invariant, not waste. What was waste is the third one:
-    the score used to be built by fetching the peer and the viewer again.
+    so two checks are the invariant, not waste. What was waste is what the first one cost: it
+    loaded the person, their city and their whole interest list to answer four boolean columns,
+    and then read them again properly after the lock. The score used to fetch both people a
+    third time as well.
     """
     viewer = await _account(client, "rt_like_viewer@befos.app", name="Вера", gender="female")
     peer = await _account(client, "rt_like_peer@befos.app", name="Пётр", gender="male")
@@ -145,8 +147,9 @@ async def test_the_like_repeats_only_the_check_that_has_to_repeat(client: AsyncC
 
     assert resp.status_code == 200, resp.text
     counts = _reads(seen)
-    assert counts["profile"] == 3, (
-        f"peer and viewer rows read {counts['profile']} times: "
-        "two visibility checks plus the viewer's own row is the floor"
+    assert counts["profile"] == 2, (
+        f"peer and viewer rows read {counts['profile']} times: the post-lock check and the "
+        "viewer's own row is the floor, and the pre-lock check asks for a boolean"
     )
+    assert counts["interests"] == 2, "an interest list read more than once per person"
     assert counts["vector"] == 2, "an answer vector read more than once per person"

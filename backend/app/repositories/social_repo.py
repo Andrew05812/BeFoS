@@ -178,7 +178,7 @@ class SocialRepository:
         The set is read from what has been committed *now*: an edge to a peer that appears
         later is not something this transaction can serialise against, but it is also not
         a race — a like or a block arriving after the reading only succeeds against an
-        account that is still live, and the post-lock ``_ensure_target`` re-check inside
+        account that is still live, and the post-lock ``_available_target`` re-check inside
         ``MatchService.like`` turns a like whose peer has committed its deletion into a 404.
         Sorting by ``str(uuid)`` gives every purge the same global order, so two
         simultaneous deletions of peers who liked each other cannot take their locks in

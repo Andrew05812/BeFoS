@@ -190,7 +190,10 @@ class DiscoveryService:
 
         after_rank = decode_cursor(cursor)
         prefs = self._preferences(viewer_profile)
-        viewer_input = await self.compatibility.build_input(viewer_id)
+        # The viewer's own row is already in hand, and it is the row the preferences above were
+        # read out of. Asking for it again by id cost one more profile read plus one more
+        # interest list on every page — the same repeat the card path was fixed for.
+        viewer_input = await self.compatibility.input_for(viewer_profile)
 
         # Rank more candidates before the viewer runs out, not after: the page that
         # follows a rebuild costs the same as any other.

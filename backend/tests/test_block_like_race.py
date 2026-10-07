@@ -63,7 +63,7 @@ async def test_a_block_racing_a_matching_like_leaves_the_pair_unmatched(
     state = {"fired": False}
 
     async def gated(self, x, y):  # type: ignore[no-untyped-def]
-        # Read the real answer first: on B's like this is the pre-_ensure_target block check,
+        # Read the real answer first: on B's like this is the pre-lock block check,
         # taken while the block has not committed, so it honestly returns "not blocked". Then,
         # on that first call only, let the block run to completion before the like proceeds.
         # The like is thus guaranteed to have read "no block" and to write its match only after
