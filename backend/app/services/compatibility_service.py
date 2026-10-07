@@ -55,6 +55,26 @@ class CompatibilityService:
         b = await self.build_input(b_id)
         return self.score_inputs(a, b)
 
+    async def pair_inputs(
+        self, a_id: uuid.UUID, b_id: uuid.UUID
+    ) -> tuple[CompatibilityInput, CompatibilityInput]:
+        """Both halves of a pair from one read per concern, the way the deck reads a page.
+
+        ``build_input`` asks for one person: their row, their interest list, their answer vector.
+        Called twice it made the pair screen pay six times for what one batch of profiles carries
+        for both and one batch of vectors answers for both — the deck has always read a page of
+        people in two statements and one.
+        """
+        ids = [a_id, b_id]
+        profiles = {p.user_id: p for p in await self.users.get_profiles_by_ids(ids)}
+        vectors = await self.tests.get_compatibility_profiles(ids)
+        if a_id not in profiles or b_id not in profiles:
+            raise NotFoundError("Profile not found.")
+        return (
+            self.input_from(profiles[a_id], vectors.get(a_id)),
+            self.input_from(profiles[b_id], vectors.get(b_id)),
+        )
+
     async def refresh_pair_scores(self, user_id: uuid.UUID) -> None:
         """Rewrite the stored percent of every match this user is in.
 
@@ -68,9 +88,15 @@ class CompatibilityService:
         if not matches:
             return
         other_ids = [match.other_user(user_id) for match in matches]
-        profiles = {p.user_id: p for p in await self.users.get_profiles_by_ids(other_ids)}
-        vectors = await self.tests.get_compatibility_profiles(other_ids)
-        me = await self.build_input(user_id)
+        # This user is one of the people whose row the loop needs, and the peers are the rest, so
+        # both halves of every pair come from the same two batch reads.
+        ids = [user_id, *other_ids]
+        profiles = {p.user_id: p for p in await self.users.get_profiles_by_ids(ids)}
+        vectors = await self.tests.get_compatibility_profiles(ids)
+        me_profile = profiles.get(user_id)
+        if me_profile is None:
+            raise NotFoundError("Profile not found.")
+        me = self.input_from(me_profile, vectors.get(user_id))
         for match in matches:
             other_id = match.other_user(user_id)
             profile = profiles.get(other_id)
@@ -82,8 +108,7 @@ class CompatibilityService:
                 match.compatibility_score = score
 
     async def explain_pair(self, a_id: uuid.UUID, b_id: uuid.UUID) -> tuple[CompatibilityResult, CompatibilityExplanation]:
-        a = await self.build_input(a_id)
-        b = await self.build_input(b_id)
+        a, b = await self.pair_inputs(a_id, b_id)
         result = self.score_inputs(a, b)
         explanation = build_explanation(a, b, result)
         return result, explanation
