@@ -1,8 +1,14 @@
 # База данных BeFoS
 
-PostgreSQL 16, SQLAlchemy 2.0 (async) + asyncpg. Миграции — Alembic (`backend/alembic/versions/`). Первичная миграция `03f0ea587029_initial_schema` создаёт 21 таблицу, `4f2a1c9d7b30_discovery_deck_and_indexes` добавляет колоду подбора и индексы, нужные горячим чтением, `9c1f5b7d2a40_message_idempotency_key` — ключ повторяемости отправки в `messages`, `b7e3d0a9c421_onboarding_completed_at` — отметку законченного онбординга в `profiles`, `c5a7d1e0b342_unique_deck_rank_per_viewer` — уникальный индекс `(viewer_id, rank)`, `d8f4b2c6a157_index_email_lookup_a_sign_in_actually_uses` — функциональный индекс `lower(email)`, которым заканчивается цепочка (head на 2026-10-06, `alembic check` чист).
+PostgreSQL 16, SQLAlchemy 2.0 (async) + asyncpg. Миграции — Alembic (`backend/alembic/versions/`). Первичная миграция `03f0ea587029_initial_schema` создаёт 21 таблицу, `4f2a1c9d7b30_discovery_deck_and_indexes` добавляет колоду подбора и индексы, нужные горячим чтением, `9c1f5b7d2a40_message_idempotency_key` — ключ повторяемости отправки в `messages`, `b7e3d0a9c421_onboarding_completed_at` — отметку законченного онбординга в `profiles`, `c5a7d1e0b342_unique_deck_rank_per_viewer` — уникальный индекс `(viewer_id, rank)`, `d8f4b2c6a157_index_email_lookup_a_sign_in_actually_uses` — функциональный индекс `lower(email)`, а `e6b28c4a13d0_indexes_that_only_cost_writes` снимает 15 индексов, которые были левым префиксом другого ключа и чтению не служили (head на 2026-10-07, `alembic check` чист).
 
 Все таблицы наследуют `TimestampMixin` (`created_at`, `updated_at`), кроме чисто справочных. Первичные ключи пользователей и связанных сущностей — `UUID`; справочники — `INTEGER` (autoincrement). Внешние ключи на `users.id` используют `ON DELETE CASCADE`.
+
+После `e6b28c4a13d0` в схеме 23 таблицы и 62 индекса. Одиночный индекс по внешней колонке здесь
+есть там, где с этой колонки не начинается более длинный ключ: свайп — это `INSERT` в `passes`, и
+каждый лишний btree на этой таблице оплачивается при каждом свайпе. Замерено: 100 000 строк
+входят в `passes` за 4 047 мс с префиксным индексом и за 3 514 мс без него, в `messages` — 4 234
+против 3 518 мс. План, числа и SQL эксперимента — в [`docs/SCALE_PLAN.md`](SCALE_PLAN.md).
 
 ## Диаграмма связей (обзор)
 
@@ -111,13 +117,19 @@ users ─1:1─ profiles ─M:N─ interests   (через user_interests)
 ## Тест и профиль совместимости
 
 ### `test_questions`
-`id` (Int PK), `category` (index), `trait`, `text`, `position`, `is_active`. Индекс `ix_question_category_position (category, position)`.
+`id` (Int PK), `category`, `trait`, `text`, `position`, `is_active`. Чтение категорий идёт индексом `ix_question_category_position (category, position)`; одиночный индекс по `category` удалён `e6b28c4a13d0` — он был префиксом этого же ключа.
 
 ### `test_options`
 `id` (Int PK), `question_id` (FK, cascade, index), `text`, `value` (Float — вклад варианта в признак), `position`.
 
 ### `test_answers`
-`id` (UUID PK), `user_id` (FK, cascade), `question_id` (FK), `option_id` (FK). Ограничение `uq_user_question_answer (user_id, question_id)` — один ответ на вопрос; индекс `ix_answer_user_question`.
+`id` (UUID PK), `user_id` (FK, cascade), `question_id` (FK), `option_id` (FK). Ограничение `uq_user_question_answer (user_id, question_id)` — один ответ на вопрос; оно же служит чтению по `user_id`, поэтому отдельный индекс по пользователю удалён `e6b28c4a13d0`.
+
+Дырка, оставленная намеренно: `question_id` и `option_id` — FK с `ON DELETE CASCADE`, и ни один
+индекс с них не начинается, поэтому удаление вопроса будет читать `test_answers` целиком.
+Недостижимо сегодня: каталог вопросов не удаляется, `is_active` его только выключает. Индекс
+под это удаление стоил бы записи на каждом ответе, чтобы ускорить операцию, которой в продукте
+нет. Если админка с удалением вопросов появится — первым делом нужен индекс по `question_id`.
 
 Читается всегда с `ORDER BY question_id` (`TestRepository.list_answers`). Без порядка
 ответы приходят в порядке кучи, а `upsert_answer` — это `UPDATE`, то есть новая версия
@@ -135,13 +147,13 @@ users ─1:1─ profiles ─M:N─ interests   (через user_interests)
 ## Социальный граф
 
 ### `likes`
-`from_user_id`, `to_user_id` (FK users, cascade, index), `compatibility_score` (Float, null). `uq_like_pair (from_user_id, to_user_id)`.
+`from_user_id`, `to_user_id` (FK users, cascade), `compatibility_score` (Float, null). `uq_like_pair (from_user_id, to_user_id)`; индекс `ix_likes_to_user_id` — «кто меня лайкнул» ведёт вторую колонку, и ни один ключ с неё не начинается. Чтение `from_user_id` обслуживает тот же уникальный ключ: одиночный индекс по нему удалён `e6b28c4a13d0`.
 
 ### `passes`
 Аналогично `likes`, `uq_pass_pair`. Используется, чтобы не показывать пропущенных повторно.
 
 ### `matches`
-`user_a_id`, `user_b_id` (FK users, cascade, index), `compatibility_score` (Float, default 0). `uq_match_pair (user_a_id, user_b_id)`. Создаётся при взаимном лайке.
+`user_a_id`, `user_b_id` (FK users, cascade), `compatibility_score` (Float, default 0). `uq_match_pair (user_a_id, user_b_id)`; индекс `ix_matches_user_b_id`. Создаётся при взаимном лайке.
 
 `compatibility_score` — не архив, а то, что показывают список пар и заголовок пары.
 Пишется один раз при создании mutual-лайка (полным float-ом движка, не округлённым до 4
@@ -153,15 +165,15 @@ users ─1:1─ profiles ─M:N─ interests   (через user_interests)
 пересдачи одним человеком — `list=100 single=100 live=46`.
 
 ### `blocks`
-`blocker_id`, `blocked_id` (FK, cascade), `uq_block_pair`. Скрывает пару из подбора.
+`blocker_id`, `blocked_id` (FK, cascade), `uq_block_pair (blocker_id, blocked_id)`; индекс `ix_blocks_blocked_id` ведёт обратное чтение — «кто меня заблокировал», — которое больше ни один ключ этой таблицы не начинает. Скрывает пару из подбора.
 
 ### `reports`
-`reporter_id`, `reported_id` (FK, cascade), `reason` (String 80), `details` (Text, null), `status` (String). `uq_report (reporter_id, reported_id, reason)`.
+`reporter_id`, `reported_id` (FK, cascade), `reason` (String 80), `details` (Text, null), `status` (String). `uq_report (reporter_id, reported_id, reason)`; индексы `ix_reports_reported_id` и `ix_reports_status` — очередь жалоб фильтруется статусом. Одиночный индекс по `reporter_id` удалён `e6b28c4a13d0`: он был префиксом `uq_report`.
 
 ## Чат
 
 ### `messages`
-`id` (UUID PK), `match_id` (FK matches, cascade, index), `sender_id` (FK users, cascade, index), `body` (Text), `is_deleted` (Boolean), `client_msg_id` (String 64, null). Индекс `ix_message_match_created (match_id, created_at)` — для пагинации истории.
+`id` (UUID PK), `match_id` (FK matches, cascade), `sender_id` (FK users, cascade, index), `body` (Text), `is_deleted` (Boolean), `client_msg_id` (String 64, null). Индекс `ix_message_match_created (match_id, created_at)` — для пагинации истории; одиночный индекс по `match_id` удалён `e6b28c4a13d0`, потому что был его префиксом. Замер на 40 120 сообщениях: история пары читается именно им (`Index Scan messages`, 52 строки, 0.23 мс), а не перебором таблицы.
 
 `client_msg_id` — имя отправки, данное клиентом; оно уникально в пределах `(match_id, sender_id)`
 и поэтому повтор уснувшего запроса находит уже сохранённую строку вместо второй копии. Индекс
@@ -195,15 +207,15 @@ users ─1:1─ profiles ─M:N─ interests   (через user_interests)
 Каталог активностей: `id` (Int PK), `slug`, `title`, `description`, `category`, `energy`/`social`/`cost` (Float 0..1) — сигналы для детерминированной оценки.
 
 ### `activity_preferences`
-`user_id` (FK, cascade), `activity_id` (FK, cascade), `uq_activity_pref`. Явные предпочтения пользователя.
+`user_id` (FK, cascade), `activity_id` (FK, cascade), `uq_activity_pref (user_id, activity_id)`; индекс `ix_activity_preferences_activity_id` ведёт обратное чтение — «кто это любит», — а одиночный индекс по `user_id` удалён `e6b28c4a13d0` как префикс уникального ключа. Явные предпочтения пользователя.
 
 ### `recommendations`
-`id` (UUID PK), `match_id` (FK matches, cascade, index), `activity_id` (FK activities, cascade), `score` (Float, default 0), `explanation` (JSONB — структурированные причины `{"positive": [...], "context": [...]}`), `position` (Integer). `uq_match_activity_rec (match_id, activity_id)`; индекс `ix_rec_match_position (match_id, position)`. Выбор пользователем активности (`POST /matches/{id}/recommendations/{activity_id}/select`) сохраняется в `activity_preferences`.
+`id` (UUID PK), `match_id` (FK matches, cascade), `activity_id` (FK activities, cascade), `score` (Float, default 0), `explanation` (JSONB — структурированные причины `{"positive": [...], "context": [...]}`), `position` (Integer). `uq_match_activity_rec (match_id, activity_id)`; индекс `ix_rec_match_position (match_id, position)` — порядок выдачи. Одиночный индекс по `match_id` удалён `e6b28c4a13d0`: оба ключа начинаются с него. Выбор пользователем активности (`POST /matches/{id}/recommendations/{activity_id}/select`) сохраняется в `activity_preferences`.
 
 ## Токены
 
 ### `refresh_tokens`
-`id` (UUID PK), `user_id` (FK, cascade, index), `token_hash` (String 64, unique — SHA-256 от refresh-токена), `expires_at` (timestamptz), `revoked` (Boolean), `revoked_at`, `user_agent` (String, null). Refresh-токены ротируются: при обновлении старый отзывается.
+`id` (UUID PK), `user_id` (FK, cascade), `token_hash` (String 64, unique — SHA-256 от refresh-токена), `expires_at` (timestamptz), `revoked` (Boolean), `revoked_at`, `user_agent` (String, null). Индекс `ix_refresh_user_revoked (user_id, revoked)` — отзыв сессий пользователя; одиночный индекс по `user_id` удалён `e6b28c4a13d0` как его префикс. Refresh-токены ротируются: при обновлении старый отзывается.
 
 ## Пул и что он не покрывает
 
