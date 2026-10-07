@@ -29,18 +29,31 @@ class RecommendationService:
             raise NotFoundError("Match not found.")
         return match
 
-    async def _signal(self, user_id: uuid.UUID) -> UserSignal:
-        profile = await self.users.get_profile_with_user(user_id)
+    async def _signals(self, user_ids: list[uuid.UUID]) -> list[UserSignal]:
+        """Both halves of the pair in two reads rather than two reads each.
+
+        The deck already batches this: one profile read over a list of ids carries the interest
+        loader of everyone in it, and one compatibility read carries all of their vectors. A
+        pair is two people, so asking per person cost the same rows twice.
+        """
         from app.repositories.test_repo import TestRepository
 
-        cp = await TestRepository(self.session).get_compatibility_profile(user_id)
-        return UserSignal(
-            interests={i.slug for i in profile.interests} if profile else set(),
-            vector=cp.vector if cp and isinstance(cp.vector, dict) else {},
-            city=profile.city if profile else "",
-            dating_goal=profile.dating_goal if profile else "",
-            interest_titles={i.slug: i.name for i in profile.interests} if profile else {},
-        )
+        profiles = {p.user_id: p for p in await self.users.get_profiles_by_ids(user_ids)}
+        vectors = await TestRepository(self.session).get_compatibility_profiles(user_ids)
+        signals: list[UserSignal] = []
+        for user_id in user_ids:
+            profile = profiles.get(user_id)
+            cp = vectors.get(user_id)
+            signals.append(
+                UserSignal(
+                    interests={i.slug for i in profile.interests} if profile else set(),
+                    vector=cp.vector if cp and isinstance(cp.vector, dict) else {},
+                    city=profile.city if profile else "",
+                    dating_goal=profile.dating_goal if profile else "",
+                    interest_titles={i.slug: i.name for i in profile.interests} if profile else {},
+                )
+            )
+        return signals
 
     async def for_match(self, match_id: uuid.UUID, user_id: uuid.UUID, *, force: bool = False) -> list[dict]:
         match = await self._require_match(match_id, user_id)
@@ -50,9 +63,7 @@ class RecommendationService:
             tracker.track(Event.RECOMMENDATION_VIEWED, str(user_id), match=str(match_id))
             return await self._hydrate(existing)
 
-        other_id = match.other_user(user_id)
-        a = await self._signal(match.user_a_id)
-        b = await self._signal(match.user_b_id)
+        a, b = await self._signals([match.user_a_id, match.user_b_id])
 
         cities = list({c for c in (a.city, b.city) if c})
         catalogue = await self.activities.list_for_cities(cities)
@@ -97,19 +108,27 @@ class RecommendationService:
         await self.activities.replace_recommendations(match_id, recs)
         await self.session.commit()
         tracker.track(Event.RECOMMENDATION_VIEWED, str(user_id), match=str(match_id), count=len(recs))
-        stored = await self.activities.list_recommendations(match_id)
-        return await self._hydrate(stored)
+        # The page was just written by this session, with `position` equal to the enumerate order
+        # below, and the catalogue rows behind it are the ones `list_for_cities` returned. Asking
+        # the database for the page and for those rows again asked for two result sets this
+        # request already owns. The conflict clause of `replace_recommendations` cannot fold a
+        # card away here: the DELETE above removed every stored page of this match, and one page
+        # scores each activity of the catalogue once.
+        return self._render(
+            [
+                (item["activity_id"], item["score"], position, item["explanation"])
+                for position, item in enumerate(recs)
+            ],
+            {act.id: act for act in catalogue},
+        )
 
-    async def _hydrate(self, stored: list) -> list[dict]:
-        # The catalogue rows are read once for the whole page: one round trip per card
-        # made opening the tab cost eight queries to fetch eight rows of the same table.
-        by_id = await self.activities.get_by_ids([rec.activity_id for rec in stored])
+    def _render(self, rows: list, by_id: dict) -> list[dict]:
         out: list[dict] = []
-        for rec in stored:
-            act = by_id.get(rec.activity_id)
+        for activity_id, score, position, explanation in rows:
+            act = by_id.get(activity_id)
             if act is None:
                 continue
-            reasons = rec.explanation.get("reasons", []) if isinstance(rec.explanation, dict) else []
+            reasons = explanation.get("reasons", []) if isinstance(explanation, dict) else []
             out.append(
                 {
                     "activity": {
@@ -122,13 +141,21 @@ class RecommendationService:
                         "social": act.social,
                         "cost": act.cost,
                     },
-                    "score": int(round(rec.score * 100)),
-                    "position": rec.position,
+                    "score": int(round(score * 100)),
+                    "position": position,
                     "reasons": reasons,
                 }
             )
         out.sort(key=lambda r: r["position"])
         return out
+
+    async def _hydrate(self, stored: list) -> list[dict]:
+        # The catalogue rows are read once for the whole page: one round trip per card
+        # made opening the tab cost eight queries to fetch eight rows of the same table.
+        by_id = await self.activities.get_by_ids([rec.activity_id for rec in stored])
+        return self._render(
+            [(rec.activity_id, rec.score, rec.position, rec.explanation) for rec in stored], by_id
+        )
 
     async def mark_selected(self, match_id: uuid.UUID, user_id: uuid.UUID, activity_id: int) -> None:
         await self._require_match(match_id, user_id)

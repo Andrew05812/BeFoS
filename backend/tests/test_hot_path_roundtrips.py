@@ -22,11 +22,11 @@ from collections import Counter
 from typing import Callable
 
 from httpx import AsyncClient
-from sqlalchemy import event, update
+from sqlalchemy import event, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import engine
-from app.models import Profile
+from app.models import Profile, Recommendation
 from app.repositories.user_repo import UserRepository
 from app.services.compatibility_service import CompatibilityService
 
@@ -79,6 +79,11 @@ def _person_reads(seen: list[tuple[str, str]], marker: str, person_id: str) -> i
     )
 
 
+def _statements(seen: list[tuple[str, str]], prefix: str) -> int:
+    """Statements that begin with this SQL, so a result set can be counted without a marker."""
+    return sum(1 for statement, _ in seen if statement.startswith(prefix))
+
+
 async def _account(client: AsyncClient, email: str, *, name: str, gender: str) -> dict:
     creds = await register_and_auth(client, email)
     await complete_onboarding(client, creds["token"], name=name, gender=gender)
@@ -102,6 +107,22 @@ async def _counted(client: AsyncClient, coro):
     finally:
         event.remove(engine.sync_engine, "before_cursor_execute", listener)
     return resp, seen
+
+
+async def _matched_pair(client: AsyncClient, prefix: str) -> tuple[dict, str]:
+    """Two onboarded, answered accounts and the match between them."""
+    viewer = await _account(client, f"{prefix}_viewer@befos.app", name="Вера", gender="female")
+    peer = await _account(client, f"{prefix}_peer@befos.app", name="Пётр", gender="male")
+    await client.post(
+        f"/api/v1/users/{peer['user_id']}/like", headers=auth_headers(viewer["token"])
+    )
+    back = await client.post(
+        f"/api/v1/users/{viewer['user_id']}/like", headers=auth_headers(peer["token"])
+    )
+    assert back.status_code == 200, back.text
+    match_id = back.json()["match_id"]
+    assert match_id
+    return viewer, match_id
 
 
 async def test_a_deck_page_reads_the_viewer_once(client: AsyncClient) -> None:
@@ -257,17 +278,7 @@ async def test_the_match_list_never_reads_the_interest_table(client: AsyncClient
 
 async def test_a_cold_recommendation_page_is_written_once(client: AsyncClient) -> None:
     """Eight cards in one INSERT, and the page still comes back ordered and complete."""
-    viewer = await _account(client, "s20_rec_viewer@befos.app", name="Вера", gender="female")
-    peer = await _account(client, "s20_rec_peer@befos.app", name="Пётр", gender="male")
-    await client.post(
-        f"/api/v1/users/{peer['user_id']}/like", headers=auth_headers(viewer["token"])
-    )
-    back = await client.post(
-        f"/api/v1/users/{viewer['user_id']}/like", headers=auth_headers(peer["token"])
-    )
-    assert back.status_code == 200, back.text
-    match_id = back.json()["match_id"]
-    assert match_id
+    viewer, match_id = await _matched_pair(client, "s20_rec")
 
     resp, seen = await _counted(
         client,
@@ -296,3 +307,79 @@ async def test_a_cold_recommendation_page_is_written_once(client: AsyncClient) -
     assert [r["activity"]["id"] for r in cached.json()["recommendations"]] == [
         r["activity"]["id"] for r in recs
     ]
+
+
+async def test_a_recomputed_page_asks_for_each_half_of_the_pair_once(client: AsyncClient) -> None:
+    """A pair is two rows, so its signals are two batches rather than two reads of each concern.
+
+    Scoring the pair needed both profiles, both interest lists and both answer vectors, and asked
+    for them one person at a time. The deck already reads a page of people in one statement per
+    concern; the same batch over two ids is what this path was missing.
+    """
+    viewer, match_id = await _matched_pair(client, "s24_pair")
+
+    resp, seen = await _counted(
+        client,
+        client.get(
+            f"/api/v1/matches/{match_id}/recommendations?force=true",
+            headers=auth_headers(viewer["token"]),
+        ),
+    )
+    assert resp.status_code == 200, resp.text
+
+    counts = _reads(seen)
+    assert counts["profile"] == 1, f"profile rows read {counts['profile']} times for two people"
+    assert counts["interests"] == 1, f"interest lists read {counts['interests']} times"
+    assert counts["vector"] == 1, f"answer vectors read {counts['vector']} times"
+
+
+async def test_a_recomputed_page_answers_from_the_rows_it_just_wrote(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """Nothing is read back on a path that wrote the page and still holds the catalogue.
+
+    The recomputation ended by SELECTing the page it had INSERTed two statements earlier and by
+    SELECTing the catalogue rows it had read to score it. Both result sets belong to this request,
+    so the guard is the answer: what comes back has to be what the rows say.
+    """
+    viewer, match_id = await _matched_pair(client, "s24_back")
+
+    resp, seen = await _counted(
+        client,
+        client.get(
+            f"/api/v1/matches/{match_id}/recommendations?force=true",
+            headers=auth_headers(viewer["token"]),
+        ),
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()["recommendations"]
+    assert len(body) >= 3, f"only {len(body)} cards came back for a pair"
+
+    # One read of `recommendations` — the cache probe — and one of `activities`, the catalogue.
+    assert _statements(seen, "select recommendations.") == 1, (
+        "the page was written and read back inside the same request"
+    )
+    assert _statements(seen, "select activities.") == 1, (
+        "the catalogue was read twice for one page"
+    )
+    assert len(seen) <= 11, f"{len(seen)} trips to the database to rebuild a pair's page"
+
+    await session.rollback()
+    stored = list(
+        (
+            await session.execute(
+                select(
+                    Recommendation.activity_id,
+                    Recommendation.score,
+                    Recommendation.position,
+                    Recommendation.explanation,
+                )
+                .where(Recommendation.match_id == uuid.UUID(match_id))
+                .order_by(Recommendation.position)
+            )
+        ).all()
+    )
+    assert [row[0] for row in stored] == [card["activity"]["id"] for card in body]
+    assert [row[2] for row in stored] == [card["position"] for card in body]
+    assert [int(round(row[1] * 100)) for row in stored] == [card["score"] for card in body]
+    assert [row[3]["reasons"] for row in stored] == [card["reasons"] for card in body]
