@@ -14,7 +14,7 @@ class TestQuestion(TimestampMixin, Base):
     __tablename__ = "test_questions"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    category: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    category: Mapped[str] = mapped_column(String(40), nullable=False)
     trait: Mapped[str] = mapped_column(String(60), nullable=False)
     text: Mapped[str] = mapped_column(Text, nullable=False)
     position: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
@@ -47,7 +47,8 @@ class TestAnswer(TimestampMixin, Base):
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+        # uq_user_question_answer already covers user_id as its leading column.
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     question_id: Mapped[int] = mapped_column(
         ForeignKey("test_questions.id", ondelete="CASCADE"), nullable=False
@@ -61,7 +62,6 @@ class TestAnswer(TimestampMixin, Base):
 
     __table_args__ = (
         UniqueConstraint("user_id", "question_id", name="uq_user_question_answer"),
-        Index("ix_answer_user_question", "user_id", "question_id"),
     )
 
 
@@ -72,7 +72,8 @@ class TestResult(TimestampMixin, Base):
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+        # uq_user_category_result already covers user_id as its leading column.
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     category: Mapped[str] = mapped_column(String(40), nullable=False)
     score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)

@@ -15,7 +15,8 @@ class Message(TimestampMixin, Base):
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     match_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("matches.id", ondelete="CASCADE"), nullable=False, index=True
+        # ix_message_match_created already covers match_id as its leading column.
+        ForeignKey("matches.id", ondelete="CASCADE"), nullable=False
     )
     sender_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
@@ -53,7 +54,8 @@ class MessageRead(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     message_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("messages.id", ondelete="CASCADE"), nullable=False, index=True
+        # uq_message_read already covers message_id as its leading column.
+        ForeignKey("messages.id", ondelete="CASCADE"), nullable=False
     )
     reader_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), nullable=False

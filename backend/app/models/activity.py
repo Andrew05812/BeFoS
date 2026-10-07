@@ -38,7 +38,8 @@ class ActivityPreference(TimestampMixin, Base):
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+        # uq_activity_pref already covers user_id as its leading column.
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     activity_id: Mapped[int] = mapped_column(
         ForeignKey("activities.id", ondelete="CASCADE"), nullable=False, index=True
@@ -55,7 +56,8 @@ class Recommendation(TimestampMixin, Base):
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     match_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("matches.id", ondelete="CASCADE"), nullable=False, index=True
+        # uq_match_activity_rec already covers match_id as its leading column.
+        ForeignKey("matches.id", ondelete="CASCADE"), nullable=False
     )
     activity_id: Mapped[int] = mapped_column(
         ForeignKey("activities.id", ondelete="CASCADE"), nullable=False

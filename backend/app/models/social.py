@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, ForeignKey, String, Text, UniqueConstraint, Index, CheckConstraint
+from sqlalchemy import DateTime, Float, ForeignKey, String, Text, UniqueConstraint, CheckConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -16,7 +16,8 @@ class Like(TimestampMixin, Base):
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     from_user_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+        # uq_like_pair already covers from_user_id as its leading column.
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     to_user_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
@@ -34,7 +35,8 @@ class Pass(TimestampMixin, Base):
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     from_user_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+        # uq_pass_pair already covers from_user_id as its leading column.
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     to_user_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
@@ -52,7 +54,8 @@ class Match(TimestampMixin, Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     # user_a_id is always the lexicographically smaller UUID to keep pairs unique.
     user_a_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+        # uq_match_pair already covers user_a_id as its leading column.
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     user_b_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
@@ -66,7 +69,6 @@ class Match(TimestampMixin, Base):
     __table_args__ = (
         UniqueConstraint("user_a_id", "user_b_id", name="uq_match_pair"),
         CheckConstraint("user_a_id <> user_b_id", name="ck_match_not_self"),
-        Index("ix_match_users", "user_a_id", "user_b_id"),
     )
 
     def other_user(self, user_id: uuid.UUID) -> uuid.UUID:
@@ -78,7 +80,8 @@ class Block(TimestampMixin, Base):
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     blocker_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+        # uq_block_pair already covers blocker_id as its leading column.
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     blocked_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
@@ -95,7 +98,8 @@ class Report(TimestampMixin, Base):
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     reporter_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+        # uq_report already covers reporter_id as its leading column.
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     reported_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
