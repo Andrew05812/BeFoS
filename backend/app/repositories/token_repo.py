@@ -39,6 +39,22 @@ class TokenRepository:
         token.revoked_at = datetime.now(timezone.utc)
         await self.session.flush()
 
+    async def consume(self, token_hash: str) -> bool:
+        """Revoke an active token in one statement; False means it was already redeemed or revoked.
+
+        The ``WHERE revoked = false`` predicate is what makes a single-use refresh token
+        single-use under concurrency. Two redeem requests can both read the row as active, but
+        this UPDATE takes the row lock, and the loser re-evaluates the predicate only after the
+        winner commits — so it matches no row and is refused. The rotation therefore happens
+        exactly once instead of every racing request minting its own session.
+        """
+        result = await self.session.execute(
+            update(RefreshToken)
+            .where(RefreshToken.token_hash == token_hash, RefreshToken.revoked.is_(False))
+            .values(revoked=True, revoked_at=datetime.now(timezone.utc))
+        )
+        return result.rowcount == 1
+
     async def revoke_all_for_user(self, user_id: uuid.UUID) -> None:
         await self.session.execute(
             update(RefreshToken)

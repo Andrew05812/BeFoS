@@ -97,15 +97,20 @@ class AuthService:
 
         token_hash = generate_token_hash(refresh_token)
         stored = await self.tokens.get_by_hash(token_hash)
-        if stored is None or stored.revoked:
+        if stored is None:
             raise UnauthorizedError("Refresh token has been revoked.")
 
         user = await self.users.get_by_id(uuid.UUID(payload["sub"]))
         if user is None or not user.is_active or user.is_deleted:
             raise UnauthorizedError("User no longer active.")
 
-        # Rotate: revoke the old token, issue a new pair.
-        await self.tokens.revoke(stored)
+        # Rotate: redeem the old token and issue a new pair in one transaction. consume() revokes
+        # only a token that is still active, so a token that arrives twice at the same instant is
+        # turned into a session by exactly one request — the loser finds the row already revoked
+        # and is refused, the same answer a serial retry would get. Reading stored.revoked here
+        # would not do: both racing requests read it while it is still active.
+        if not await self.tokens.consume(token_hash):
+            raise UnauthorizedError("Refresh token has been revoked.")
         return await self.issue_tokens(user, user_agent)
 
     async def logout(self, user_id: uuid.UUID, refresh_token: str | None) -> None:
