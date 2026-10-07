@@ -189,14 +189,16 @@ class UserRepository:
         await self.session.execute(
             UserInterest.__table__.delete().where(UserInterest.profile_id == profile_id)
         )
-        for interest in interests:
-            # A second onboarding submit can land while the first is still in flight;
-            # both delete and both insert the same pairs, so the constraint decides.
-            await self.session.execute(
-                pg_insert(UserInterest)
-                .values(profile_id=profile_id, interest_id=interest.id)
-                .on_conflict_do_nothing(constraint="uq_user_interest")
-            )
+        if not interests:
+            return
+        # One statement for the whole set. A profile carries up to thirty interests, and one
+        # insert per interest made the write grow with the answer rather than with the request.
+        # A second onboarding submit can land while the first is still in flight; both delete
+        # and both insert the same pairs, so the constraint decides.
+        rows = [{"profile_id": profile_id, "interest_id": interest.id} for interest in interests]
+        await self.session.execute(
+            pg_insert(UserInterest).values(rows).on_conflict_do_nothing(constraint="uq_user_interest")
+        )
 
     async def list_all_interests(self) -> list[Interest]:
         stmt = select(Interest).order_by(Interest.name)
