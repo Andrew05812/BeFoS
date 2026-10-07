@@ -3,12 +3,12 @@
 Three paths turn a stored ``birth_date`` into a number of years: the 18+ gate at signup
 (``profile_service._validate_age``), the age printed on a card (``Profile.age``, which every
 profile read returns), and the birth-date window that fills the deck
-(``DiscoveryRepository._preference_conditions``). They used to read "today" from three
-different clocks — the UTC calendar, that calendar asked through the deprecated
-``datetime.utcnow()``, and the server's own local calendar. Whenever the machine's clock ran
-ahead of UTC (any timezone east of Greenwich, in the hours after local midnight) the local
-sites were already a day further along: the product admitted a person as an adult and then
-showed that same person a year younger than the gate had promised.
+(``DiscoveryRepository._preference_conditions``). They used to ask different clocks: the gate
+and the deck took the server's own local calendar (``date.today()``), the card took the UTC
+calendar through ``datetime.utcnow()``, which is deprecated in 3.12 and answers a naive value.
+Whenever the machine's clock ran ahead of UTC (any timezone east of Greenwich, in the hours
+after local midnight) the local sites were already a day further along: the product admitted a
+person as an adult and then showed that same person a year younger than the gate had promised.
 """
 
 from __future__ import annotations

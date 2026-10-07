@@ -57,6 +57,15 @@ users ─1:1─ profiles ─M:N─ interests   (через user_interests)
 ### `profiles` (1:1 с `users`)
 `user_id` (FK users, unique, cascade), `name` (String 80), `birth_date` (Date), `gender` (String 20), `city` (String 120), `about` (Text, null), `dating_goal` (String), `age_min`/`age_max` (Integer, 18/60), `gender_preference` (`ARRAY(String(20))` — массив, не JSON: пустой список сюда пишется как `'{}'::varchar[]`, и `[]'::jsonb` — это ошибка типа, а не тихая подмена), `city_preference` (String, null), `lifestyle` (JSONB, default `{}`), `is_hidden` (Boolean), `onboarding_completed_at` (timestamptz, null).
 
+`birth_date` — `date` без часового пояса, а «сколько лет» считается от UTC-даты:
+`app.models.base.utc_today()` — единственный источник «сегодня» для гейта 18+, `Profile.age`
+и окна по `birth_date` в `_preference_conditions`. Пока каждый читал дату сам (два пути —
+локальный календарь сервера, третий — UTC), в часы, когда эти даты различаются, колода «18+»
+несла карточку с числом 17, а вечер дня рождения закрывал регистрацию. Держит правило тест
+[`backend/tests/test_single_age_calendar.py`](../backend/tests/test_single_age_calendar.py):
+он читает исходники, а не часовой пояс машины, — расхождение нельзя спрятать в UTC, где
+живёт CI.
+
 `city_preference` — зарезервированная колонка, а не работающая функция: ни один эндпоинт и
 ни один экран её не пишет, и `discovery_service` передаёт в фильтр
 `viewer_profile.city_preference or None`. `_preference_conditions` добавляет условие по
