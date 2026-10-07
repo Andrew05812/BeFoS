@@ -18,6 +18,18 @@ class ChatRepository:
     async def get_match(self, match_id: uuid.UUID) -> Match | None:
         return await self.session.get(Match, match_id)
 
+    async def match_still_present(self, match_id: uuid.UUID) -> bool:
+        """Ask the database, not the identity map, whether the match row is still there.
+
+        ``get_match`` goes through ``session.get``, which hands back an object this session
+        already loaded without re-querying — correct in a normal request, but after a block
+        on another connection has committed its DELETE the cached ``Match`` is a row that no
+        longer exists. Reading the id column asks the current snapshot instead, which is what
+        a post-lock re-check needs to see the dissolve.
+        """
+        stmt = select(Match.id).where(Match.id == match_id)
+        return (await self.session.execute(stmt)).first() is not None
+
     async def is_member(self, match_id: uuid.UUID, user_id: uuid.UUID) -> bool:
         match = await self.get_match(match_id)
         return bool(match and (match.user_a_id == user_id or match.user_b_id == user_id))
