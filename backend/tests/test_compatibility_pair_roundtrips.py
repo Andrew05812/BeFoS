@@ -145,14 +145,17 @@ async def test_a_profile_edit_refreshes_the_pairs_from_one_read_per_concern(
     `refresh_pair_scores` read the peers' answers in a batch and then this user's own separately,
     which asked for the same table twice in one statement-sized job. The stored percent the match
     list shows has to still move with the edit, so the count is paired with the number agreeing
-    with the screen.
+    with the screen. Stage 35 narrowed the seam to the fields the percent is built from, so the
+    edit here is a goal, not a city — a city edit no longer reaches the fan at all.
     """
     viewer, peer, match_id = await _pair(client, "s25_fan")
 
     resp, seen = await _counted(
         client,
         client.patch(
-            "/api/v1/users/me", headers=auth_headers(viewer["token"]), json={"city": "Казань"}
+            "/api/v1/users/me",
+            headers=auth_headers(viewer["token"]),
+            json={"dating_goal": "marriage"},
         ),
     )
     assert resp.status_code == 200, resp.text

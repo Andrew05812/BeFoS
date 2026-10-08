@@ -268,9 +268,11 @@ async def test_a_patch_that_changes_nothing_repairs_a_percent_seeded_wrong(
     client: AsyncClient, session: AsyncSession
 ):
     # docs/OPERATIONS.md §16 tells an operator to repair a stand seeded before the engine
-    # was fixed by PATCHing a field back to the value it already has: the refresh seam keys
-    # on the field being sent, not on its value changing. Narrow _REC_FIELDS and that
-    # recipe becomes a silent no-op, so the recipe is pinned here instead of trusted.
+    # was fixed by PATCHing a percent input back to the value it already has: the refresh seam
+    # keys on the field being sent, not on its value changing. Narrow the seam and that
+    # recipe becomes a silent no-op, so the recipe is pinned here instead of trusted. Stage 35
+    # took `city` out of the seam — the engine reads a vector, an interest set and a goal, and
+    # city is none of them — so the runbook has to name a field the percent depends on.
     a = await _tested(client, "seedfix_a@befos.app", "Аня", "female", 0)
     b = await _tested(client, "seedfix_b@befos.app", "Боря", "male", 0)
     match_id = await _match_a_pair(client, a, b)
@@ -283,11 +285,25 @@ async def test_a_patch_that_changes_nothing_repairs_a_percent_seeded_wrong(
     assert before["list"] == 82, f"the row should read as the old seed literal: {before}"
     assert before["live"] != 82, f"nothing to repair if the engine also says 82: {before}"
 
+    moved = await client.patch(
+        "/api/v1/users/me", json={"city": "Казань"}, headers=auth_headers(a["token"])
+    )
+    assert moved.status_code == 200, moved.text
+
+    still_stale = await _shown_percent(client, a["token"], match_id)
+    assert still_stale["list"] == 82, (
+        f"a city edit rewrote a percent that has no city in it: {still_stale}"
+    )
+
+    shown = await client.get("/api/v1/users/me", headers=auth_headers(a["token"]))
+    assert shown.status_code == 200, shown.text
+    goal = shown.json()["dating_goal"]
+
     edited = await client.patch(
-        "/api/v1/users/me", json={"city": "Москва"}, headers=auth_headers(a["token"])
+        "/api/v1/users/me", json={"dating_goal": goal}, headers=auth_headers(a["token"])
     )
     assert edited.status_code == 200, edited.text
-    assert edited.json()["city"] == "Москва", "the profile itself must not have moved"
+    assert edited.json()["dating_goal"] == goal, "the profile itself must not have moved"
 
     after = await _shown_percent(client, a["token"], match_id)
     assert after["list"] == after["live"], f"the runbook patch left {after['list']}: {after}"
