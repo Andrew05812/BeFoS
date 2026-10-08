@@ -77,9 +77,11 @@ class ChatViewModel(
                 is ApiResult.Success -> _uiState.update {
                     it.copy(loading = false, messages = result.data.sortedBy { m -> m.createdAt }, historyError = null)
                 }
+                // The read itself writes the receipt and tells the partner's socket, so a page
+                // that arrived needs no second call — and a page that did not arrive must not
+                // claim a backlog the person never saw.
                 is ApiResult.Error -> _uiState.update { it.copy(loading = false, historyError = result.message) }
             }
-            chatRepository.markRead(matchId)
         }
     }
 
