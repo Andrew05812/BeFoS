@@ -383,6 +383,14 @@ def _build_paths():
     async def matches_list(session, ctx):
         await MatchesService(session).list_matches(ctx["viewer_id"])
 
+    async def match_detail(session, ctx):
+        # The pair's own page: the peer's card and the percent the pair carries. `public_profile`
+        # above asks the same service with the deck's rule; this one asks it as an established
+        # match, which is a different read of the same two people.
+        await DiscoveryService(session).get_public_profile(
+            ctx["viewer_id"], ctx["peer_id"], for_match_member=True
+        )
+
     async def compatibility(session, ctx):
         await CompatibilityService(session).explain_pair(ctx["viewer_id"], ctx["peer_id"])
 
@@ -469,6 +477,7 @@ def _build_paths():
         "discovery_rebuild": discovery_rebuild,
         "discovery_page": discovery_page,
         "matches_list": matches_list,
+        "match_detail": match_detail,
         "compatibility": compatibility,
         "chat_history": chat_history,
         "recommendations": recommendations,

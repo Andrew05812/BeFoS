@@ -307,6 +307,8 @@ class DiscoveryService:
     async def get_public_profile(
         self, viewer_id: uuid.UUID, target_id: uuid.UUID, *, for_match_member: bool = False
     ) -> dict:
+        # Set only by the read that already brings the viewer's own row together with the peer's.
+        viewer_profile: Profile | None = None
         if viewer_id == target_id:
             # Looking at your own card is not a visibility question: a hidden or unfinished
             # profile still has to open for the person it belongs to.
@@ -316,7 +318,9 @@ class DiscoveryService:
             # the route proved membership before reaching here. Filtered by the deck's rule, this
             # path made «Скрыть из подбора» erase a pair from the screen that still listed it,
             # still carried its unread badge and still let both sides write in.
-            profile = await self.users.get_match_peer_profile(target_id)
+            pair = await self.users.get_match_pair_profiles(viewer_id, target_id)
+            profile = pair.get(target_id)
+            viewer_profile = pair.get(viewer_id)
         else:
             # The deck's own rule, asked about one id. `POST /users/{id}/like` already answers
             # through it, so a profile that is hidden, deactivated or never onboarded has to
@@ -333,11 +337,17 @@ class DiscoveryService:
         if viewer_id == target_id:
             target_input = await self.compatibility.input_for(profile)
             viewer_input = target_input
-        else:
+        elif viewer_profile is None:
             viewer_input = await self.compatibility.build_input(viewer_id)
             # `profile` was loaded above through the deck's own rule and carries its interests;
             # asking for the same row again by id is what made this path read a person twice.
             target_input = await self.compatibility.input_for(profile)
+        else:
+            # A pair is two people, and this read already holds both rows, so both answer vectors
+            # come from the one batch the pair's compatibility screen was brought to in stage 25
+            # while this page still asked for them one person at a time.
+            inputs = await self.compatibility.inputs_from([viewer_profile, profile])
+            viewer_input, target_input = inputs[viewer_id], inputs[target_id]
         result = self.compatibility.score_inputs(viewer_input, target_input)
         photos_stmt = select(Photo).where(Photo.user_id == target_id).order_by(*PHOTO_DISPLAY_ORDER)
         photos = list((await self.session.execute(photos_stmt)).scalars().all())
