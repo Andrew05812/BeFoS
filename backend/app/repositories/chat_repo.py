@@ -161,52 +161,45 @@ class ChatRepository:
         ).all()
         return len(inserted)
 
-    async def last_message(self, match_id: uuid.UUID) -> Message | None:
-        stmt = (
-            select(Message)
-            .where(Message.match_id == match_id, Message.is_deleted.is_(False))
-            .order_by(Message.created_at.desc())
-            .limit(1)
-        )
-        return (await self.session.execute(stmt)).scalar_one_or_none()
+    async def chat_summaries(
+        self, match_ids: list[uuid.UUID], reader_id: uuid.UUID
+    ) -> dict[uuid.UUID, tuple[Message | None, int]]:
+        """The newest line and the unread counter of every pair, in one pass over ``messages``.
 
-    async def unread_count(self, match_id: uuid.UUID, user_id: uuid.UUID) -> int:
-        sub_read = select(MessageRead.message_id).where(
-            MessageRead.reader_id == user_id
-        )
-        stmt = select(func.count(Message.id)).where(
-            Message.match_id == match_id,
-            Message.sender_id != user_id,
-            Message.is_deleted.is_(False),
-            Message.id.not_in(sub_read),
-        )
-        return int((await self.session.execute(stmt)).scalar_one())
+        Two statements used to walk the same rows of the same table for the same list of match ids:
+        ``DISTINCT ON`` picked the newest message of each pair, a second ``count(…) GROUP BY``
+        counted the waiting ones. A window aggregate over the pair's partition puts that counter on
+        the row ``DISTINCT ON`` keeps, so one read carries both columns of the card.
 
-    async def last_messages(self, match_ids: list[uuid.UUID]) -> dict[uuid.UUID, Message]:
+        The receipt is joined on the reader, so a row written by the partner — and every sent
+        message carries its author's own receipt — leaves this counter alone. The join cannot fan a
+        message into two rows: ``uq_message_read`` allows one receipt per (message, reader).
+
+        A pair without messages simply does not appear, which is what the caller expects: no line,
+        zero waiting.
+        """
         if not match_ids:
             return {}
-        # PostgreSQL DISTINCT ON picks the newest row per match in one pass.
+        waiting = and_(Message.sender_id != reader_id, MessageRead.id.is_(None))
         stmt = (
-            select(Message)
-            .distinct(Message.match_id)
+            select(
+                Message,
+                func.count()
+                .filter(waiting)
+                .over(partition_by=Message.match_id)
+                .label("unread"),
+            )
+            .outerjoin(
+                MessageRead,
+                and_(
+                    MessageRead.message_id == Message.id,
+                    MessageRead.reader_id == reader_id,
+                ),
+            )
             .where(Message.match_id.in_(match_ids), Message.is_deleted.is_(False))
+            # PostgreSQL DISTINCT ON picks the newest row per match in one pass.
+            .distinct(Message.match_id)
             .order_by(Message.match_id, Message.created_at.desc())
         )
-        return {m.match_id: m for m in (await self.session.execute(stmt)).scalars()}
-
-    async def unread_counts(self, match_ids: list[uuid.UUID], user_id: uuid.UUID) -> dict[uuid.UUID, int]:
-        if not match_ids:
-            return {}
-        sub_read = select(MessageRead.message_id).where(MessageRead.reader_id == user_id)
-        stmt = (
-            select(Message.match_id, func.count(Message.id))
-            .where(
-                Message.match_id.in_(match_ids),
-                Message.sender_id != user_id,
-                Message.is_deleted.is_(False),
-                Message.id.not_in(sub_read),
-            )
-            .group_by(Message.match_id)
-        )
-        counts = {mid: int(n) for mid, n in (await self.session.execute(stmt)).all()}
-        return {mid: counts.get(mid, 0) for mid in match_ids}
+        rows = (await self.session.execute(stmt)).all()
+        return {message.match_id: (message, int(unread)) for message, unread in rows}
