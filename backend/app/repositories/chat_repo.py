@@ -3,8 +3,8 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import select, func, and_, exists, or_, text
-from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy import select, func, and_, bindparam, exists, or_, text, DateTime
+from sqlalchemy.dialects.postgresql import UUID as pg_uuid, insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -121,34 +121,40 @@ class ChatRepository:
         rows.reverse()  # return ascending order
         return rows
 
-    async def _pending_unread_ids(
-        self, match_id: uuid.UUID, reader_id: uuid.UUID
-    ) -> list[uuid.UUID]:
-        # The already-read test runs in SQL: this fires on every chat open, and reading
-        # the whole history into Python to drop it again made the cost grow with the
-        # length of the conversation instead of the number of unread messages.
-        unread = select(Message.id).where(
-            Message.match_id == match_id,
-            Message.sender_id != reader_id,
-            ~exists()
-            .where(MessageRead.message_id == Message.id, MessageRead.reader_id == reader_id)
-            .correlate(Message),
-        )
-        return [row[0] for row in (await self.session.execute(unread)).all()]
-
     async def mark_read(self, match_id: uuid.UUID, reader_id: uuid.UUID) -> int:
-        """Mark all messages in a match not sent by reader as read. Returns count."""
-        pending = await self._pending_unread_ids(match_id, reader_id)
-        if not pending:
-            return 0
-        now = datetime.now(timezone.utc)
-        # Two devices (or the REST call and the socket) can mark the same message read at
-        # once; the constraint decides which one recorded it, and RETURNING counts the rows
-        # this call actually inserted so the receipt is broadcast only for those.
+        """Mark every message of the match the reader did not send as read. Returns the count.
+
+        The already-read test stays in SQL, and so do the ids it finds. This used to be two
+        round trips that asked one question: a SELECT carried the unread ids into Python and an
+        INSERT carried the same ids back as one parameter group per message. Written as
+        ``INSERT … SELECT`` the ids never leave the table, so opening a chat with a backlog
+        costs one statement instead of two and the text of the write no longer grows with the
+        length of the conversation.
+
+        Two devices (or the REST call and the socket) can mark the same message read at once;
+        the constraint decides which one recorded it, and RETURNING counts the rows this call
+        actually inserted so the receipt is broadcast only for those.
+        """
+        pending = (
+            select(
+                func.gen_random_uuid(),
+                Message.id,
+                bindparam("receipt_reader", reader_id, type_=pg_uuid(as_uuid=True)),
+                bindparam(
+                    "receipt_at", datetime.now(timezone.utc), type_=DateTime(timezone=True)
+                ),
+            ).where(
+                Message.match_id == match_id,
+                Message.sender_id != reader_id,
+                ~exists()
+                .where(MessageRead.message_id == Message.id, MessageRead.reader_id == reader_id)
+                .correlate(Message),
+            )
+        )
         inserted = (
             await self.session.execute(
                 pg_insert(MessageRead)
-                .values([{"message_id": mid, "reader_id": reader_id, "read_at": now} for mid in pending])
+                .from_select(["id", "message_id", "reader_id", "read_at"], pending)
                 .on_conflict_do_nothing(constraint="uq_message_read")
                 .returning(MessageRead.id)
             )
