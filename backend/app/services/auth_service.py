@@ -95,29 +95,27 @@ class AuthService:
         if payload.get("type") != "refresh":
             raise UnauthorizedError("Invalid token type.")
 
-        token_hash = generate_token_hash(refresh_token)
-        stored = await self.tokens.get_by_hash(token_hash)
-        if stored is None:
-            raise UnauthorizedError("Refresh token has been revoked.")
-
         user = await self.users.get_by_id(uuid.UUID(payload["sub"]))
         if user is None or not user.is_active or user.is_deleted:
             raise UnauthorizedError("User no longer active.")
 
-        # Rotate: redeem the old token and issue a new pair in one transaction. consume() revokes
-        # only a token that is still active, so a token that arrives twice at the same instant is
-        # turned into a session by exactly one request — the loser finds the row already revoked
-        # and is refused, the same answer a serial retry would get. Reading stored.revoked here
-        # would not do: both racing requests read it while it is still active.
-        if not await self.tokens.consume(token_hash):
+        # Rotate: redeem the old token and issue a new pair in one transaction. The stored row is
+        # not raised first — ``consume`` is an ``UPDATE … WHERE revoked = false``, so its row count
+        # already says whether a live token with this hash was there, and both fates (never stored,
+        # or already redeemed) answer the same one thing. Reading the row beforehand decided
+        # nothing: it only opened a window in which two requests could each see the token active.
+        # That window is what made ``consume`` the arbiter of the rotation — a token that arrives
+        # twice at the same instant is turned into a session by exactly one request, because the
+        # loser re-evaluates the predicate only after the winner commits and matches no row.
+        if not await self.tokens.consume(generate_token_hash(refresh_token)):
             raise UnauthorizedError("Refresh token has been revoked.")
         return await self.issue_tokens(user, user_agent)
 
     async def logout(self, user_id: uuid.UUID, refresh_token: str | None) -> None:
         if refresh_token:
-            stored = await self.tokens.get_by_hash(generate_token_hash(refresh_token))
-            if stored and stored.user_id == user_id and not stored.revoked:
-                await self.tokens.revoke(stored)
+            # One statement: the same guard the read applied in Python — this caller owns the row
+            # and the row is still live — now sits in the WHERE clause of the write.
+            await self.tokens.revoke_for_owner(generate_token_hash(refresh_token), user_id)
         await self.session.commit()
 
     async def change_password(self, user: User, old_password: str, new_password: str) -> None:

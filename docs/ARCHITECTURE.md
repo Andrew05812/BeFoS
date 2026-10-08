@@ -142,7 +142,7 @@
 | Доставка в открытую комнату | `app/websocket/manager.py:59` (`broadcast_to_match`) | кадр уходит всем подключённым в комнате |
 | Кто сейчас в комнате | `app/websocket/manager.py:92` (`presence`) | множество `user_id` с открытым сокетом этой пары |
 | Право быть в комнате | `app/websocket/chat_ws.py:41` (`_refusal_reason`) | перепроверяется на рукопожатии и на каждом кадре |
-| Выход из аккаунта | `app/services/auth_service.py:111` (`logout`) | отзывает refresh-токен |
+| Выход из аккаунта | `app/services/auth_service.py:114` (`logout`) | отзывает refresh-токен одним условным `UPDATE` |
 | Удаление аккаунта | `app/services/safety_service.py:71` (`delete_account`) | стирает всё, что описывает человека |
 | Клиентский момент «сессия известна / сессии нет» | `app/src/main/java/app/befos/core/network/TokenStore.kt` | публикует `signedOut`, на который реагирует навигатор |
 

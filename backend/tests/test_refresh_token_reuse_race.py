@@ -1,19 +1,19 @@
 """A single-use refresh token must rotate once, even when it arrives twice at the same instant.
 
 Rotation is the defence that makes a stolen refresh token useless: redeem it, the old one dies, a
-new pair is born. ``AuthService.refresh`` read the stored row, checked ``revoked`` and then revoked
-it — a read-then-write with a window. Two requests bearing the same token both read ``revoked =
-false`` before either commits, so both rotate and both mint a fresh pair: one stolen token, two
-live sessions, and the rotation guarantee is void. Sequential reuse was already caught (the second
-sees the row revoked); only the simultaneous replay slipped through.
+new pair is born. ``AuthService.refresh`` used to read the stored row, check ``revoked`` and then
+revoke it — a read-then-write with a window. Two requests bearing the same token both read
+``revoked = false`` before either commits, so both rotate and both mint a fresh pair: one stolen
+token, two live sessions, and the rotation guarantee is void. Sequential reuse was already caught
+(the second sees the row revoked); only the simultaneous replay slipped through.
 
-The fix turns the redeem into a single ``UPDATE ... WHERE revoked = false`` (``consume``): the row
-lock serialises the two requests, the loser re-evaluates the predicate after the winner commits,
-matches no row, and is refused — the same answer a serial retry gets.
+The fix makes a single ``UPDATE … WHERE revoked = false`` (``consume``) the first touch of the row
+and its own arbiter: the row lock serialises the two requests, the loser re-evaluates the predicate
+after the winner commits, matches no row, and is refused — the same answer a serial retry gets. The
+read that opened the window is gone rather than merely locked, so this test now makes the two
+requests rendezvous at the redeem itself, which is where the decision is made.
 
-The test forces that simultaneous replay. Both ``get_by_hash`` calls are made to rendezvous so the
-two requests are guaranteed to read the token as active before either redeems it. Without the fix
-both return 200 with two different new tokens; with it exactly one succeeds.
+Without the fix both return 200 with two different new tokens; with it exactly one succeeds.
 """
 
 from __future__ import annotations
@@ -56,14 +56,14 @@ async def test_the_same_refresh_token_redeemed_twice_at_once_rotates_once(
     account = await register_and_auth(client, "refresh-race@befos.app")
     stolen = account["refresh"]
 
-    original = TokenRepository.get_by_hash
+    original = TokenRepository.consume
     gate = _TwoPartyGate(parties=2, timeout=1.0)
 
     async def rendezvous(self, token_hash):  # type: ignore[no-untyped-def]
         await gate.wait()
         return await original(self, token_hash)
 
-    monkeypatch.setattr(TokenRepository, "get_by_hash", rendezvous)
+    monkeypatch.setattr(TokenRepository, "consume", rendezvous)
 
     responses = await asyncio.gather(
         client.post("/api/v1/auth/refresh", json={"refresh_token": stolen}),
