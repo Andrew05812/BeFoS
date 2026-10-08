@@ -6,6 +6,7 @@ from sqlalchemy import and_, or_, select, func
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import raiseload, selectinload
+from sqlalchemy.orm.attributes import set_committed_value
 
 from app.models import PHOTO_DISPLAY_ORDER, Interest, Photo, Profile, User, UserInterest
 
@@ -43,9 +44,9 @@ class UserRepository:
 
         A request that writes the profile does not ask what is in the set it is replacing:
         ``set_profile_interests`` clears the rows with a DELETE and writes the answered ones in
-        one INSERT, and a write that leaves interests out of the payload never touches them. The
-        answer's copy comes from the read after the commit, so loading the list here as well read
-        the same rows twice on four routes.
+        one INSERT, and a write that leaves interests out of its payload never touches them. The
+        answer uses the row this read returns — ``attach_interests`` puts the set onto it after the
+        commit — so loading the list here as well would read the same rows twice on four routes.
 
         ``Profile.interests`` loads by default with every profile, so the default has to be
         turned off rather than left out, and it is turned off with ``raiseload`` rather than
@@ -264,6 +265,37 @@ class UserRepository:
             return []
         stmt = select(Interest).where(Interest.slug.in_(slugs))
         return list((await self.session.execute(stmt)).scalars().all())
+
+    async def load_interests(self, profile_id: uuid.UUID) -> list[Interest]:
+        """The stored set alone, without raising the profile row that owns it.
+
+        A write that did not touch the interests still has to answer with them, and the row it
+        holds is already the row to answer from — this is the one read the answer genuinely adds.
+        """
+        stmt = (
+            select(Interest)
+            .join(UserInterest, UserInterest.interest_id == Interest.id)
+            .where(UserInterest.profile_id == profile_id)
+            .order_by(UserInterest.interest_id)
+        )
+        return list((await self.session.execute(stmt)).scalars().all())
+
+    @staticmethod
+    def attach_interests(profile: Profile, interests: list[Interest]) -> Profile:
+        """Put a set the request already has onto the row it holds, as loaded and not as changed.
+
+        ``set_committed_value`` fills the collection the way a loader would: the row is not marked
+        dirty, so the commit that follows the answer flushes no link rows a second time. The write
+        path stores the set with a DELETE and one INSERT, so the rows it read from the catalogue
+        are exactly the rows the table now holds for this profile.
+
+        Ordered by the interest id because that is the order the loader returned on the dev stand
+        (measured: catalogue read, stored-set read and eager load all handed over the same six
+        rows in the same order), and neither of the two reads writes an ORDER BY of its own.
+        """
+        ordered = sorted(interests, key=lambda interest: interest.id)
+        set_committed_value(profile, "interests", ordered)
+        return profile
 
     async def set_profile_interests(self, profile_id: uuid.UUID, interests: list[Interest]) -> None:
         await self.session.execute(

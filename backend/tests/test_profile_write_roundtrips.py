@@ -6,20 +6,25 @@ inserted the new ones one at a time, so the onboarding write grew with the answe
 with the request. Counting the statements of ``POST /users/me/onboarding`` on a fresh account
 gave 15 trips for one interest and 44 for the thirty a profile is allowed to carry —
 twenty-nine of them the same insert with different parameters. On top of that the route threw
-away the profile its service had just written and refreshed and read the same row again, with
-its interests, to build the answer: 13 trips became 15.
+away the profile its service had just written and read the same row again, with its interests,
+to build the answer.
 
 Both are bounded here. The write stays one statement whatever the answer says, and the totals
-below are the stage-29 numbers for the same accounts: 12 trips to write a profile with one
-interest, 12 with the thirty a profile may carry. What stage 29 took out is a read nobody
-consulted. Every write path loaded the interest list together with the profile, before writing,
-and then read it again for the answer — while the write itself replaces the whole set with a
-DELETE and one INSERT and never asks what was in it, ``POST /users/me/visibility`` answers with a
-single boolean, and ``DELETE /users/me`` answers that the account is gone. Four routes were
-paying for that read: 13 trips became 12 for onboarding, 7 became 6 for a one-field ``PATCH``,
-12 became 11 for an edit that invalidates a match, 4 became 3 for the visibility switch and 21
-became 20 for the erasure. ``GET /users/me`` stayed at 4 — it shows the list, so it is the one
-route that is allowed to read it, and it reads it once.
+below are what the same accounts cost after stage 36 took the second read out: 10 trips to write
+a profile with one interest, 10 with the thirty a profile may carry. Stages 23 and 29 had already
+brought those from 15 and 44, and 12 and 12 was the number they left behind — the row the write
+holds is readable after the commit (``expire_on_commit=False``), so the answer needed the interest
+set and nothing else, and a write that replaces the set had already read those rows from the
+catalogue in order to store them. Every write path used to load the interest list together with
+the profile, before writing, and then read it again for the answer — while the write itself
+replaces the whole set with a DELETE and one INSERT and never asks what was in it,
+``POST /users/me/visibility`` answers with a single boolean, and ``DELETE /users/me`` answers that
+the account is gone. Four routes were paying for that read: 13 trips became 12 for onboarding,
+7 became 6 for a one-field ``PATCH``, 12 became 11 for an edit that invalidates a match, 4 became
+3 for the visibility switch and 21 became 20 for the erasure; stage 36 took the same read out of
+the same four routes again — 12 became 10 for onboarding, 6 became 5 for a one-field ``PATCH``,
+11 became 9 for an edit that writes the set. ``GET /users/me`` stayed at 4 — it shows the list, so
+it is the one route that is allowed to read it, and it reads it once.
 
 What the batch must still do is checked next to the counts: the set that gets stored is the set
 that was answered, a replace really drops the old rows, the cap still cuts at thirty, and a pair
@@ -133,18 +138,17 @@ async def test_the_write_does_not_grow_with_the_answer(client: AsyncClient) -> N
     assert _count_of(few, _INTEREST_INSERT) == 1
     assert _count_of(many, _INTEREST_INSERT) == 1, "the set was written one row per statement"
     assert len(many) == len(few), f"{len(few)} trips for one interest, {len(many)} for thirty"
-    assert len(many) <= 12, f"{len(many)} trips to write a profile and its interests"
+    assert len(many) <= 10, f"{len(many)} trips to write a profile and its interests"
 
 
 async def test_the_answer_comes_from_the_row_the_write_returned(client: AsyncClient) -> None:
-    """The response is built from the profile read back after the commit, not from a further
-    read of it."""
+    """The response is built from the profile the write holds, not from a second read of it."""
     creds, resp, seen = await _onboard(client, "s23_echo@befos.app", _REAL_INTERESTS)
     assert resp.status_code == 200, resp.text
 
-    assert _profile_row_reads(seen) == 2, (
-        f"{_profile_row_reads(seen)} reads of the profile row: loading it for the write "
-        "and reading it back after the commit, which is what the answer is built from"
+    assert _profile_row_reads(seen) == 1, (
+        f"{_profile_row_reads(seen)} reads of the profile row: the request that writes the row "
+        "answers from the instance it already holds, and only the interest set comes from a table"
     )
     body = resp.json()
     assert {item["slug"] for item in body["interests"]} == set(_REAL_INTERESTS)
@@ -152,14 +156,14 @@ async def test_the_answer_comes_from_the_row_the_write_returned(client: AsyncCli
     assert body["age_min"] == 20 and body["age_max"] == 45
     assert body["gender_preference"] == ["female"]
     assert body["lifestyle"] == _onboarding(_REAL_INTERESTS)["lifestyle"]
-    # The age the answer carries is the server's computed column, so the refresh the response
-    # relies on has to have brought it back rather than leaving the pre-write value in place.
+    # `age` is a property over the stored birth_date rather than a column the server computes, so
+    # the answer carries it from the row the write holds and needs no read for it.
     assert body["age"] == 30
 
 
 async def test_a_write_reads_its_interest_list_once(client: AsyncClient) -> None:
-    """The list the answer carries is read for the answer, not twice — once before a write
-    that never asks what is in it."""
+    """The list is read for the answer only when the request did not write it: a write that
+    replaces the set answers from the rows it stored."""
     creds = await register_and_auth(client, "s29_catalog@befos.app")
     slugs = await _catalog(client, creds["token"])
 
@@ -167,10 +171,11 @@ async def test_a_write_reads_its_interest_list_once(client: AsyncClient) -> None
     assert resp.status_code == 200, resp.text
     assert {item["slug"] for item in resp.json()["interests"]} == set(slugs[:6])
 
-    assert _interest_list_reads(seen) == 1, (
+    assert _interest_list_reads(seen) == 0, (
         f"{_interest_list_reads(seen)} reads of the interest list on a request that writes it: "
         "the write replaces the whole set with a DELETE and one INSERT and never asks what was "
-        "there, so only the answer's read is spent for something"
+        "there, and the rows it read from the catalogue to store them are the rows the answer "
+        "shows"
     )
 
     resp, second = await _counted(
