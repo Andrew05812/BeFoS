@@ -24,6 +24,11 @@ _DECK_FIELDS = {"age_min", "age_max", "gender_preference", "interests", "dating_
 # cached page of another person's match stale rather than merely older.
 _REC_FIELDS = {"interests", "city", "dating_goal"}
 
+# The percent a match row carries is computed from less than the page above: CompatibilityInput
+# is the answer vector, the interest set and the goal, and city enters none of them. Editing a
+# city therefore drops the cached page and rewrites a number that cannot move.
+_SCORE_FIELDS = {"interests", "dating_goal"}
+
 
 def _parse_birth_date(value: str) -> date:
     try:
@@ -169,6 +174,7 @@ class ProfileService:
 
         touched_deck = bool(_DECK_FIELDS & data.keys())
         touched_pair = bool(_REC_FIELDS & data.keys())
+        touched_score = bool(_SCORE_FIELDS & data.keys())
         await self.session.commit()
         profile = await self.get_or_404(user_id)
         # What the viewer wants decides who lands in their deck and in what order. The
@@ -182,8 +188,12 @@ class ProfileService:
             if touched_pair:
                 await ActivityRepository(self.session).invalidate_for_user(user_id)
                 # The goal and the interests are two of the three inputs a pair's percent is
-                # computed from, so the number the match list shows has just gone stale too.
-                await CompatibilityService(self.session).refresh_pair_scores(user_id)
+                # computed from, so the number the match list shows has just gone stale too. An
+                # edit that moves neither of them has nothing to recompute: the rewrite reads
+                # every pair of this person's matches, both profiles of each and both answer
+                # vectors, and hands back the number that is already on the row.
+                if touched_score:
+                    await CompatibilityService(self.session).refresh_pair_scores(user_id)
             await self.session.commit()
         return profile
 
