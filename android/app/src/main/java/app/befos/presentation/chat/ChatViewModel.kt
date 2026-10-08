@@ -108,7 +108,11 @@ class ChatViewModel(
                         }
                     }
                     is ChatEvent.Disconnected -> {
-                        socketWasDown = true
+                        // The connection lives in a StateFlow, which re-states its current value to
+                        // every new collector, so the first frame of a screen can be `Disconnected`
+                        // while the socket has never been up. Only losing a connection this screen
+                        // has actually had leaves a page nobody has read.
+                        if (_uiState.value.connected) socketWasDown = true
                         _uiState.update { it.copy(connected = false, otherTyping = false) }
                     }
                     // A frame the server refused while the socket is healthy says nothing the
