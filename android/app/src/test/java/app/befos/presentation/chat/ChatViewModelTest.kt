@@ -333,4 +333,55 @@ class ChatViewModelTest {
         assertEquals(listOf("1"), vm.uiState.value.messages.map { it.id })
         assertEquals("черновик", vm.uiState.value.draft)
     }
+
+    @Test
+    fun `opening a chat does not ask for the receipt the read already wrote`() = runTest {
+        coEvery { repo.history("m1", any()) } returns ApiResult.Success(listOf(message("1", false)))
+        coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
+        coEvery { repo.sendTyping(any(), any()) } returns Unit
+
+        val vm = ChatViewModel(repo, matchRepo, "m1")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 0) { repo.markRead(any()) }
+
+        // The same holds for the retry button: it re-reads the page, and the read marks again.
+        vm.retryHistory()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(listOf("1"), vm.uiState.value.messages.map { it.id })
+        coVerify(exactly = 0) { repo.markRead(any()) }
+    }
+
+    @Test
+    fun `a chat that did not load does not claim its backlog was read`() = runTest {
+        coEvery { repo.history("m1", any()) } returns ApiResult.Error(0, "no network")
+        coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
+        coEvery { repo.sendTyping(any(), any()) } returns Unit
+
+        val vm = ChatViewModel(repo, matchRepo, "m1")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        assertTrue(vm.uiState.value.historyError != null)
+        coVerify(exactly = 0) { repo.markRead(any()) }
+    }
+
+    @Test
+    fun `a message arriving over the socket is still marked read`() = runTest {
+        coEvery { repo.history("m1", any()) } returns ApiResult.Success(emptyList())
+        coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
+        coEvery { repo.sendTyping(any(), any()) } returns Unit
+
+        val vm = ChatViewModel(repo, matchRepo, "m1")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        // Nothing re-reads the page here, so this receipt has no other way to travel.
+        events.tryEmit(ChatEvent.IncomingMessage(message("7", false, "пока")))
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(listOf("7"), vm.uiState.value.messages.map { it.id })
+        coVerify(exactly = 1) { repo.markRead("m1") }
+
+        events.tryEmit(ChatEvent.IncomingMessage(message("8", true, "ага")))
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 1) { repo.markRead("m1") }
+    }
 }
