@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import select, func
+from sqlalchemy import and_, or_, select, func
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import raiseload, selectinload
@@ -121,24 +121,57 @@ class UserRepository:
     async def get_match_peer_profile(self, user_id: uuid.UUID) -> Profile | None:
         """The peer as an established match sees them: ``get_showable_profile`` without the
         ``is_hidden`` condition.
+        """
+        stmt = (
+            select(Profile)
+            .join(User, User.id == Profile.user_id)
+            .options(selectinload(Profile.interests))
+            .where(*self._match_peer_conditions(user_id))
+        )
+        return (await self.session.execute(stmt)).scalar_one_or_none()
 
-        The switch is a deck preference — its label reads «Скрыть из подбора» — so it withdraws
-        introductions that have not happened yet, not a pair that already said yes to each other.
-        The rest stays: a deleted, deactivated or never-onboarded account is unavailable to the
-        person who matched with it too.
+    async def get_match_pair_profiles(
+        self, viewer_id: uuid.UUID, target_id: uuid.UUID
+    ) -> dict[uuid.UUID, Profile]:
+        """Both halves of a pair from one read, with the peer half still filtered by the peer rule.
+
+        A pair page is about two people: the peer's card, and the viewer's own row that the shown
+        percent is computed from. Asked one at a time that is two profile statements, two interest
+        loaders and two answer vectors — the shape stage 25 took off the compatibility screen of the
+        same pair. One statement brings both, and the rule stays exact because it belongs to one
+        half and not to the other: the viewer's row is unconditional, the peer's only while the peer
+        rule holds. A missing key says which half did not arrive.
         """
         stmt = (
             select(Profile)
             .join(User, User.id == Profile.user_id)
             .options(selectinload(Profile.interests))
             .where(
-                Profile.user_id == user_id,
-                User.is_deleted.is_(False),
-                User.is_active.is_(True),
-                Profile.onboarding_completed_at.is_not(None),
+                or_(
+                    Profile.user_id == viewer_id,
+                    and_(*self._match_peer_conditions(target_id)),
+                )
             )
         )
-        return (await self.session.execute(stmt)).scalar_one_or_none()
+        rows = (await self.session.execute(stmt)).scalars().all()
+        return {profile.user_id: profile for profile in rows}
+
+    @staticmethod
+    def _match_peer_conditions(user_id: uuid.UUID) -> list:
+        """The peer rule as one list of conditions, shared by the two reads above.
+
+        ``is_hidden`` is a deck preference — its label reads «Скрыть из подбора» — so it withdraws
+        introductions that have not happened yet, not a pair that already said yes to each other.
+        The rest stays: a deleted, deactivated or never-onboarded account is unavailable to the
+        person who matched with it too. Written once because what a caller learns about a person
+        must not depend on which of the two reads it came through.
+        """
+        return [
+            Profile.user_id == user_id,
+            User.is_deleted.is_(False),
+            User.is_active.is_(True),
+            Profile.onboarding_completed_at.is_not(None),
+        ]
 
     async def get_profiles_by_ids(self, user_ids: list[uuid.UUID]) -> list[Profile]:
         if not user_ids:
