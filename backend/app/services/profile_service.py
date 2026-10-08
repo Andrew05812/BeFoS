@@ -6,7 +6,7 @@ from datetime import date, datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundError, ValidationError
-from app.models import Photo, Profile
+from app.models import Interest, Photo, Profile
 from app.models.base import age_years, utc_today
 from app.repositories.activity_repo import ActivityRepository
 from app.repositories.social_repo import DiscoveryRepository
@@ -51,24 +51,38 @@ class ProfileService:
         self.session = session
         self.users = UserRepository(session)
 
-    async def get_or_404(self, user_id: uuid.UUID) -> Profile:
-        """The profile as a screen shows it: the row, with its interest list loaded."""
-        profile = await self.users.get_profile(user_id)
-        if profile is None:
-            raise NotFoundError("Profile not found.")
-        return profile
-
     async def get_for_write(self, user_id: uuid.UUID) -> Profile:
         """The row a request is about to write, held without the list that write consults.
 
         ``set_profile_interests`` replaces the whole set and a write that leaves interests out of
         its payload never touches them, so the list belongs to the answer rather than to the
-        write. The answer is built from ``get_or_404`` after the commit, which brings it.
+        write. The session keeps its objects after the commit (``expire_on_commit=False``,
+        ``app/core/database.py:43``), so this row is still readable then and already carries the
+        values the request wrote; ``answer_from`` adds only the set.
         """
         profile = await self.users.get_profile_for_write(user_id)
         if profile is None:
             raise NotFoundError("Profile not found.")
         return profile
+
+    async def answer_from(
+        self, profile: Profile, written_interests: list[Interest] | None
+    ) -> Profile:
+        """The same row the write holds, with the interest set the answer shows hung onto it.
+
+        Two reads used to follow every profile write: the row again, and with it the set. The row
+        is not needed — ``expire_on_commit=False`` keeps the instance readable and its column
+        values are the ones this request just wrote, and ``age`` is a property over ``birth_date``
+        rather than a value the server computes, so nothing in the answer waits on the table. The
+        set is needed only when the request did not replace it: a write that did has the rows in
+        hand already, since it read them from the catalogue in order to store them.
+        """
+        interests = (
+            await self.users.load_interests(profile.id)
+            if written_interests is None
+            else written_interests
+        )
+        return self.users.attach_interests(profile, interests)
 
     async def complete_onboarding(self, user_id: uuid.UUID, data: dict) -> Profile:
         profile = await self.get_for_write(user_id)
@@ -110,14 +124,11 @@ class ProfileService:
         if profile.onboarding_completed_at is None:
             profile.onboarding_completed_at = datetime.now(timezone.utc)
 
-        await self._set_interests(profile, data.get("interests") or [])
+        written_interests = await self._set_interests(profile, data.get("interests") or [])
         await self.session.commit()
-        # The row comes back through the read that carries the interest list, because the answer
-        # shows it: after a commit the identity map holds nothing cached, so this one read is both
-        # the server's own values and the set that was just stored. A refresh of the row alone
-        # would leave the list behind, and the answer would carry either an empty set or a load
-        # the write path refused.
-        profile = await self.get_or_404(user_id)
+        # The set onboarding wrote is the set the answer shows, and the row this request wrote is
+        # the row it answers from, so neither comes back from the table.
+        profile = await self.answer_from(profile, written_interests)
         # Onboarding answers the whole preference set in one request — age band, genders,
         # goal, city, interests — and every one of those is an input to the deck, to the
         # cached activity page, and to the percent a stored match row carries. `update()`
@@ -169,14 +180,15 @@ class ProfileService:
             profile.gender_preference = self._clean_genders(data["gender_preference"])
         if "is_hidden" in data and data["is_hidden"] is not None:
             profile.is_hidden = bool(data["is_hidden"])
+        written_interests: list[Interest] | None = None
         if "interests" in data and data["interests"] is not None:
-            await self._set_interests(profile, data["interests"])
+            written_interests = await self._set_interests(profile, data["interests"])
 
         touched_deck = bool(_DECK_FIELDS & data.keys())
         touched_pair = bool(_REC_FIELDS & data.keys())
         touched_score = bool(_SCORE_FIELDS & data.keys())
         await self.session.commit()
-        profile = await self.get_or_404(user_id)
+        profile = await self.answer_from(profile, written_interests)
         # What the viewer wants decides who lands in their deck and in what order. The
         # ranked part of that deck was built for the previous answer, so it is dropped;
         # cards already shown stay shown-once, which is what the seen rows remember.
@@ -197,10 +209,17 @@ class ProfileService:
             await self.session.commit()
         return profile
 
-    async def _set_interests(self, profile: Profile, slugs: list[str]) -> None:
+    async def _set_interests(self, profile: Profile, slugs: list[str]) -> list[Interest]:
+        """Store the answered set and hand back the rows it stores, in the order the answer shows.
+
+        The catalogue read is what turns slugs into interests, so the rows the answer needs are in
+        hand before the link rows are written — returning them is what lets the response skip both
+        the profile row and the set.
+        """
         cleaned = list(dict.fromkeys(s.strip().lower() for s in slugs if s and s.strip()))[:30]
         interests = await self.users.list_interests_by_slugs(cleaned)
         await self.users.set_profile_interests(profile.id, interests)
+        return interests
 
     def _clean_genders(self, genders: list[str]) -> list[str]:
         cleaned = [g for g in genders if g in VALID_GENDERS]
