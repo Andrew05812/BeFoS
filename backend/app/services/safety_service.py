@@ -82,7 +82,7 @@ class SafetyService:
         user = await self.users.get_by_id(user_id)
         if user is None:
             raise NotFoundError("User not found.")
-        profile = await self.users.get_profile(user_id)
+        profile = await self.users.get_profile_for_write(user_id)
         if profile is not None:
             profile.name = "Deleted User"
             profile.about = None
@@ -133,7 +133,7 @@ class SafetyService:
         return {"deleted": True}
 
     async def set_hidden(self, user_id: uuid.UUID, hidden: bool) -> dict:
-        profile = await self.users.get_profile(user_id)
+        profile = await self.users.get_profile_for_write(user_id)
         if profile is None:
             raise NotFoundError("Profile not found.")
         profile.is_hidden = hidden

@@ -38,6 +38,27 @@ class UserRepository:
         )
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
+    async def get_profile_for_write(self, user_id: uuid.UUID) -> Profile | None:
+        """The mutable profile row, without the interest list that rides along with it.
+
+        A request that writes the profile does not ask what is in the set it is replacing:
+        ``set_profile_interests`` clears the rows with a DELETE and writes the answered ones in
+        one INSERT, and a write that leaves interests out of the payload never touches them. The
+        answer's copy comes from the read after the commit, so loading the list here as well read
+        the same rows twice on four routes.
+
+        ``Profile.interests`` loads by default with every profile, so the default has to be
+        turned off rather than left out, and it is turned off with ``raiseload`` rather than
+        ``noload``: a caller that starts asking for the set gets an error instead of an empty
+        answer, which is the same rule ``get_profiles_without_interests`` states for the batch.
+        """
+        stmt = (
+            select(Profile)
+            .options(raiseload(Profile.interests))
+            .where(Profile.user_id == user_id)
+        )
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
     async def get_profile_with_user(self, user_id: uuid.UUID) -> Profile | None:
         stmt = (
             select(Profile)
