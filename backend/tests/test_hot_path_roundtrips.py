@@ -148,12 +148,13 @@ async def test_a_deck_page_reads_the_viewer_once(client: AsyncClient) -> None:
 
 
 async def test_a_deck_page_reads_each_concern_once_per_batch(client: AsyncClient) -> None:
-    """Three batches per page at most — the viewer, the ranked candidates, the delivered ones.
+    """Two batches per page at most — the viewer and the candidates this page ranks and serves.
 
     A page in a test population is also a rebuild: the deck holds fewer than the floor of 40
-    undelivered cards, so candidates get ranked here and delivered here too. That is three
-    profile reads for three concerns, and the fourth of any kind would be a loader wired into
-    this path without being counted.
+    undelivered cards, so candidates get ranked here and delivered here too. Those two halves read
+    the same people and, until stage 28, each paid its own three statements for them; one batch of
+    reads now answers both. A third of any kind here would be a loader wired into this path without
+    being counted.
     """
     viewer = await _account(client, "s20_batch_viewer@befos.app", name="Вера", gender="female")
     await _peers(client, 6, "s20-batch")
@@ -164,9 +165,9 @@ async def test_a_deck_page_reads_each_concern_once_per_batch(client: AsyncClient
     assert resp.status_code == 200, resp.text
 
     counts = _reads(seen)
-    assert counts["profile"] == 3, f"profile rows read {counts['profile']} times"
-    assert counts["interests"] == 3, f"interest lists read {counts['interests']} times"
-    assert counts["vector"] == 3, f"answer vectors read {counts['vector']} times"
+    assert counts["profile"] == 2, f"profile rows read {counts['profile']} times"
+    assert counts["interests"] == 2, f"interest lists read {counts['interests']} times"
+    assert counts["vector"] == 2, f"answer vectors read {counts['vector']} times"
     assert counts["photos"] == 1, f"photos read {counts['photos']} times"
 
 
