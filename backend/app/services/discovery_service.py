@@ -322,12 +322,16 @@ class DiscoveryService:
             profile = pair.get(target_id)
             viewer_profile = pair.get(viewer_id)
         else:
-            # The deck's own rule, asked about one id. `POST /users/{id}/like` already answers
-            # through it, so a profile that is hidden, deactivated or never onboarded has to
-            # give the same "not found" here — otherwise hiding is only a change of screen, and
-            # a registration that never finished the questions still publishes a card carrying
-            # the local part of somebody's email as its name.
-            profile = await self.users.get_showable_profile(target_id)
+            # The deck's own rule, asked about one id, in the same statement that brings the
+            # viewer's row. `POST /users/{id}/like` already answers through this rule, so a profile
+            # that is hidden, deactivated or never onboarded has to give the same "not found" here —
+            # otherwise hiding is only a change of screen, and a registration that never finished the
+            # questions still publishes a card carrying the local part of somebody's email as its
+            # name. Asking the rule about the target alone used to leave the viewer's row to be read
+            # again below, with its own interest list and its own answer vector.
+            pair = await self.users.get_deck_pair_profiles(viewer_id, target_id)
+            profile = pair.get(target_id)
+            viewer_profile = pair.get(viewer_id)
         if profile is None:
             raise NotFoundError("User not found.")
         if await self.social.is_blocked_either(viewer_id, target_id):
@@ -338,14 +342,17 @@ class DiscoveryService:
             target_input = await self.compatibility.input_for(profile)
             viewer_input = target_input
         elif viewer_profile is None:
+            # The read brought the card but not the viewer's row: that account has never filled a
+            # profile in, and `build_input` answers it with the same "Profile not found." this path
+            # gave before the two rows came in one statement.
             viewer_input = await self.compatibility.build_input(viewer_id)
             # `profile` was loaded above through the deck's own rule and carries its interests;
             # asking for the same row again by id is what made this path read a person twice.
             target_input = await self.compatibility.input_for(profile)
         else:
-            # A pair is two people, and this read already holds both rows, so both answer vectors
-            # come from the one batch the pair's compatibility screen was brought to in stage 25
-            # while this page still asked for them one person at a time.
+            # Two people, two rows already in hand, so both answer vectors come from the one batch
+            # read the pair's compatibility screen was brought to in stage 25 and the pair's page in
+            # stage 30 — one statement over `user_id in (…)`, not one per person.
             inputs = await self.compatibility.inputs_from([viewer_profile, profile])
             viewer_input, target_input = inputs[viewer_id], inputs[target_id]
         result = self.compatibility.score_inputs(viewer_input, target_input)

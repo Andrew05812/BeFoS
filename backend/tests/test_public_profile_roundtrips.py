@@ -76,19 +76,25 @@ async def _account(client: AsyncClient, email: str, *, name: str, gender: str) -
 
 
 async def test_one_profile_read_asks_each_table_once(client: AsyncClient) -> None:
+    """Stage 31 put both people into one statement, so the bound is one read per concern.
+
+    Measured on the batched card: six statements, and each of the three tables a person is made of
+    appears in exactly one of them, carrying both ids. The count is of statements, not of rows — the
+    two profiles and the two interest lists are still both there, which the percent check below is for.
+    """
     viewer = await _account(client, "rt_viewer@befos.app", name="Вера", gender="female")
     peer = await _account(client, "rt_peer@befos.app", name="Пётр", gender="male")
 
     total, counts = await _counted_get(client, viewer["token"], peer["user_id"])
 
-    # Two people answer for one card: each row of each kind is read once per person.
-    assert counts["profile"] == 2, f"profile rows read {counts['profile']} times: {total} queries"
-    assert counts["vector"] == 2, f"answer vectors read {counts['vector']} times"
-    assert counts["interests"] == 2, f"interest lists read {counts['interests']} times"
+    # One card is two people, and one statement now answers for both of them.
+    assert counts["profile"] == 1, f"profile rows read {counts['profile']} times: {total} queries"
+    assert counts["vector"] == 1, f"answer vectors read {counts['vector']} times"
+    assert counts["interests"] == 1, f"interest lists read {counts['interests']} times"
     assert counts["photos"] == 1, f"photos read {counts['photos']} times"
-    # The slack above the 7 reads that do the work is the auth lookup and the visibility checks;
+    # The two reads the batch does not cover are the account behind the token and the block check;
     # it is a ceiling on the whole request, so a new per-card query in this path shows up here.
-    assert total <= 10, f"{total} trips to the database for one profile card"
+    assert total <= 6, f"{total} trips to the database for one profile card"
 
 
 async def test_the_card_carries_the_number_the_engine_gives(

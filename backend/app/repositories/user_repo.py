@@ -118,6 +118,32 @@ class UserRepository:
         )
         return (await self.session.execute(stmt)).first() is not None
 
+    async def get_deck_pair_profiles(
+        self, viewer_id: uuid.UUID, target_id: uuid.UUID
+    ) -> dict[uuid.UUID, Profile]:
+        """Both halves of a deck card from one read, the target half still filtered by the deck rule.
+
+        The card shows the target's profile and the percent the viewer sees, so it needs the viewer's
+        row as well: asked one person at a time that was two profile statements, two interest loaders
+        and two answer vectors. One statement brings both, and the rule stays exact the way stage 30
+        kept it for a pair — the viewer's row is unconditional, the target's only while the deck still
+        shows them, since «Скрыть из подбора» withdraws a stranger and nothing else. A missing key
+        says which half did not arrive.
+        """
+        stmt = (
+            select(Profile)
+            .join(User, User.id == Profile.user_id)
+            .options(selectinload(Profile.interests))
+            .where(
+                or_(
+                    Profile.user_id == viewer_id,
+                    and_(*self._showable_conditions(target_id)),
+                )
+            )
+        )
+        rows = (await self.session.execute(stmt)).scalars().all()
+        return {profile.user_id: profile for profile in rows}
+
     async def get_match_peer_profile(self, user_id: uuid.UUID) -> Profile | None:
         """The peer as an established match sees them: ``get_showable_profile`` without the
         ``is_hidden`` condition.
