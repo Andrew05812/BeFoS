@@ -33,8 +33,8 @@ class MatchesService:
             p.user_id: p for p in await self.users.get_profiles_without_interests(other_ids)
         }
         photos = await self.users.get_primary_photos(other_ids)
-        last_messages = await self.chat.last_messages(match_ids)
-        unread_counts = await self.chat.unread_counts(match_ids, user_id)
+        # The newest line and the unread counter come from one pass over `messages`.
+        summaries = await self.chat.chat_summaries(match_ids, user_id)
 
         result: list[dict] = []
         for match in matches:
@@ -43,7 +43,7 @@ class MatchesService:
             if profile is None:
                 continue
             photo = photos.get(other_id)
-            last = last_messages.get(match.id)
+            last, unread = summaries.get(match.id, (None, 0))
             result.append(
                 {
                     "match_id": str(match.id),
@@ -55,7 +55,7 @@ class MatchesService:
                     "compatibility": int(round(match.compatibility_score * 100)),
                     "last_message": last.body if last else None,
                     "last_message_at": last.created_at if last else None,
-                    "unread": unread_counts.get(match.id, 0),
+                    "unread": unread,
                     "created_at": match.created_at,
                 }
             )
