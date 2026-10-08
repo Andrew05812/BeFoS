@@ -3,12 +3,13 @@ from __future__ import annotations
 import base64
 import binascii
 import uuid
+from typing import Mapping, NamedTuple
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics.tracker import Event, tracker
-from app.compatibility.engine import compute_compatibility
+from app.compatibility.engine import CompatibilityInput, CompatibilityResult, compute_compatibility
 from app.core.exceptions import NotFoundError, ValidationError
 from app.models import PHOTO_DISPLAY_ORDER, Photo, Profile
 from app.repositories.social_repo import DiscoveryRepository, SocialRepository
@@ -61,6 +62,19 @@ def decode_cursor(cursor: str | None) -> int:
     return rank
 
 
+class _RankedCandidate(NamedTuple):
+    """A candidate this request has already read and scored: the row, its inputs, its result.
+
+    The deck ranks a batch and serves cards out of it inside one request. Handing the ranked rows
+    over instead of reading them again keeps the page's two halves on the same numbers: the
+    percentage a card reports is the one the queue row that ordered it stores.
+    """
+
+    profile: Profile
+    candidate_input: CompatibilityInput
+    result: CompatibilityResult
+
+
 def _highlight(viewer_profile: Profile, profile: Profile, shared_slugs: set[str], result) -> str | None:
     """One-line, data-derived answer to 'why is this person shown to me?'."""
     names = [i.name for i in profile.interests if i.slug in shared_slugs]
@@ -98,76 +112,101 @@ class DiscoveryService:
             "city": viewer_profile.city_preference or None,
         }
 
-    async def _ranked_scores(
-        self, viewer_input, ids: list[uuid.UUID]
-    ) -> dict[uuid.UUID, int]:
-        """Compatibility of every id in ``ids`` against the viewer, in one batch."""
+    async def _read_candidates(
+        self, viewer_input: CompatibilityInput, ids: list[uuid.UUID]
+    ) -> dict[uuid.UUID, _RankedCandidate]:
+        """Every candidate in ``ids`` against the viewer, in one batch per concern.
+
+        The rows with their interest lists, then their answer vectors: three statements for the
+        whole batch, and the two paths that read candidates — ranking a deck, building a page of
+        cards — now share them instead of each paying its own three for the same ids. Only ids that
+        carry a profile come back, so a row the selection scan named and the ``users`` table no
+        longer has is simply absent, and the caller serves the candidates that are there.
+        """
         profiles = {p.user_id: p for p in await self.users.get_profiles_by_ids(ids)}
         comp_profiles = await self.compatibility.tests.get_compatibility_profiles(ids)
 
-        scores: dict[uuid.UUID, int] = {}
+        candidates: dict[uuid.UUID, _RankedCandidate] = {}
         for candidate_id, profile in profiles.items():
             candidate_input = CompatibilityService.input_from(
                 profile, comp_profiles.get(candidate_id)
             )
-            result = compute_compatibility(
-                viewer_input, candidate_input, self.compatibility.weight_config
+            candidates[candidate_id] = _RankedCandidate(
+                profile=profile,
+                candidate_input=candidate_input,
+                result=compute_compatibility(
+                    viewer_input, candidate_input, self.compatibility.weight_config
+                ),
             )
-            scores[candidate_id] = result.overall_percent
-        return scores
+        return candidates
 
     async def _refill_deck(
-        self, viewer_id: uuid.UUID, viewer_input, prefs: dict
-    ) -> tuple[bool, bool]:
+        self, viewer_id: uuid.UUID, viewer_input: CompatibilityInput, prefs: dict
+    ) -> tuple[bool, bool, dict[uuid.UUID, _RankedCandidate]]:
         """Rank a fresh batch of never-shown candidates and put it at the end of the deck.
 
-        Returns whether the deck grew and whether the selection scan found anybody in it at all.
+        Returns whether the deck grew, whether the selection scan found anybody in it at all, and
+        the candidates it read to rank them.
+
         The second answer is what the caller needs to stop asking: a scan that came back empty
         already told it «there is nobody left», and re-reading that costs the widest query in the
-        system a second time.
+        system a second time. The third is what this page's cards are then built from: a deck that
+        refills and serves in one request ranks people it is about to show, and reading them again
+        for the card path asked the same three questions about the same ids twice.
         """
         fresh = await self.discovery.new_candidate_ids(
             viewer_id=viewer_id, limit=DECK_BATCH, **prefs
         )
         if not fresh:
-            return False, False
-        scores = await self._ranked_scores(viewer_input, fresh)
+            return False, False, {}
+        candidates = await self._read_candidates(viewer_input, fresh)
         # Highest compatibility first. The batch came out of SQL newest-first and sorted
         # by id, so a tie keeps that order and the deck is reproducible for the same data.
         ranked = sorted(
-            ((cid, scores[cid]) for cid in fresh if cid in scores),
-            key=lambda item: (-item[1], str(item[0])),
+            candidates.items(),
+            key=lambda item: (-item[1].result.overall_percent, str(item[0])),
         )
         if not ranked:
-            return False, True
+            return False, True, {}
         await self.discovery.deck_append(
-            viewer_id, ranked, first_rank=await self.discovery.deck_next_rank(viewer_id)
+            viewer_id,
+            [(candidate_id, candidate.result.overall_percent) for candidate_id, candidate in ranked],
+            first_rank=await self.discovery.deck_next_rank(viewer_id),
         )
-        return True, True
+        return True, True, dict(ranked)
 
     async def _build_cards(
-        self, viewer_profile: Profile, viewer_input, ids: list[uuid.UUID]
+        self,
+        viewer_profile: Profile,
+        viewer_input: CompatibilityInput,
+        ids: list[uuid.UUID],
+        ranked: Mapping[uuid.UUID, _RankedCandidate],
     ) -> list[dict]:
-        """Cards for the claimed ids, in deck order — one query per concern, not per card."""
+        """Cards for the claimed ids, in deck order — one query per concern, not per card.
+
+        ``ranked`` holds the candidates this request loaded to order the deck, and a claimed id in
+        it is not read a second time. One that is not in it was queued by an earlier request, so
+        the batch below pays for those ids and only those. What no ranking reads is the photo, and
+        that stays a read for every card served.
+        """
         if not ids:
             return []
-        profiles = {p.user_id: p for p in await self.users.get_profiles_by_ids(ids)}
+        missing = [candidate_id for candidate_id in ids if candidate_id not in ranked]
+        candidates = {
+            candidate_id: ranked[candidate_id] for candidate_id in ids if candidate_id in ranked
+        }
+        candidates.update(await self._read_candidates(viewer_input, missing))
         photos = await self.users.get_primary_photos(ids)
-        comp_profiles = await self.compatibility.tests.get_compatibility_profiles(ids)
 
         cards: list[dict] = []
         for candidate_id in ids:
-            profile = profiles.get(candidate_id)
-            if profile is None:
+            candidate = candidates.get(candidate_id)
+            if candidate is None:
                 continue
-            candidate_input = CompatibilityService.input_from(
-                profile, comp_profiles.get(candidate_id)
-            )
-            result = compute_compatibility(
-                viewer_input, candidate_input, self.compatibility.weight_config
-            )
+            profile = candidate.profile
+            result = candidate.result
             photo = photos.get(candidate_id)
-            shared_slugs = viewer_input.interests & candidate_input.interests
+            shared_slugs = viewer_input.interests & candidate.candidate_input.interests
             cards.append(
                 {
                     "user_id": str(candidate_id),
@@ -209,8 +248,13 @@ class DiscoveryService:
         # §«Что останавливается первым»), and the page that runs out of cards was paying it three
         # times per request.
         nobody_left = False
+        # The candidates this request has already read, whether it read them to rank a batch or to
+        # build a card. A deck that refills and serves in the same request ranks people it is about
+        # to show, and the card path used to load their rows, interests and vectors a second time.
+        ranked: dict[uuid.UUID, _RankedCandidate] = {}
         if await self.discovery.deck_ready_count(viewer_id, cap=DECK_FLOOR) < DECK_FLOOR:
-            refilled, found = await self._refill_deck(viewer_id, viewer_input, prefs)
+            refilled, found, batch = await self._refill_deck(viewer_id, viewer_input, prefs)
+            ranked.update(batch)
             nobody_left = not found
 
         # Fill the page from the deck. A claim can come back short: a queued row is a
@@ -232,7 +276,8 @@ class DiscoveryService:
                 # read the same answer twice, so one attempt per request is enough.
                 if refilled or nobody_left:
                     break
-                refilled, found = await self._refill_deck(viewer_id, viewer_input, prefs)
+                refilled, found, batch = await self._refill_deck(viewer_id, viewer_input, prefs)
+                ranked.update(batch)
                 nobody_left = not found
                 if not refilled:
                     break
@@ -240,7 +285,7 @@ class DiscoveryService:
             last_rank = rows[-1][1]
             ids.extend(await self.discovery.deck_fresh_ids(viewer_id, [row[0] for row in rows]))
 
-        cards = await self._build_cards(viewer_profile, viewer_input, ids)
+        cards = await self._build_cards(viewer_profile, viewer_input, ids, ranked)
         # The cards delivered are the cards consumed: a page that came up short still moved
         # the cursor to the last row it read, so nothing behind it is skipped and nothing
         # before it returns.
