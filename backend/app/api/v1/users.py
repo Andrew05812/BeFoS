@@ -64,9 +64,9 @@ async def complete_onboarding(
     session: AsyncSession = Depends(get_session),
 ):
     service = ProfileService(session)
-    # The service hands back the row it just wrote and refreshed, interests included, so the
-    # answer is built from it. Reading the profile again here asked the database for a row the
-    # session already holds.
+    # The service hands back the row it just wrote, read back after its own commit with the
+    # interests that write stored, so the answer is built from it. Asking for the profile again
+    # here would read a row and a set the session is already holding.
     profile = await service.complete_onboarding(current_user.id, payload.model_dump())
     from app.models import Photo
     from sqlalchemy import select

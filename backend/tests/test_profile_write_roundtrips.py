@@ -1,4 +1,5 @@
-"""Writing a profile paid for the answer twice: once per interest, and once for the response.
+"""Writing a profile paid for the same rows more than once: per interest, for a list the write
+never reads, and again for the response.
 
 ``UserRepository.set_profile_interests`` deleted the old rows with one statement and then
 inserted the new ones one at a time, so the onboarding write grew with the answer rather than
@@ -8,13 +9,22 @@ twenty-nine of them the same insert with different parameters. On top of that th
 away the profile its service had just written and refreshed and read the same row again, with
 its interests, to build the answer: 13 trips became 15.
 
-Both are bounded here. The write stays one statement whatever the answer says (15 → 13 for one
-interest, 44 → 13 for thirty), and the profile row is read three times on the path — the read
-that loads it, the refresh after the write, and the one the invalidation fan needs — so the
-response cannot add a fourth. What the batch must still do is checked next to the counts: the
-set that gets stored is the set that was answered, a replace really drops the old rows, the cap
-still cuts at thirty, and a pair the statement meets twice is skipped instead of aborting the
-whole write, which is the reason the conflict guard was there in the first place.
+Both are bounded here. The write stays one statement whatever the answer says, and the totals
+below are the stage-29 numbers for the same accounts: 12 trips to write a profile with one
+interest, 12 with the thirty a profile may carry. What stage 29 took out is a read nobody
+consulted. Every write path loaded the interest list together with the profile, before writing,
+and then read it again for the answer — while the write itself replaces the whole set with a
+DELETE and one INSERT and never asks what was in it, ``POST /users/me/visibility`` answers with a
+single boolean, and ``DELETE /users/me`` answers that the account is gone. Four routes were
+paying for that read: 13 trips became 12 for onboarding, 7 became 6 for a one-field ``PATCH``,
+12 became 11 for an edit that invalidates a match, 4 became 3 for the visibility switch and 21
+became 20 for the erasure. ``GET /users/me`` stayed at 4 — it shows the list, so it is the one
+route that is allowed to read it, and it reads it once.
+
+What the batch must still do is checked next to the counts: the set that gets stored is the set
+that was answered, a replace really drops the old rows, the cap still cuts at thirty, and a pair
+the statement meets twice is skipped instead of aborting the whole write, which is the reason the
+conflict guard was there in the first place.
 """
 
 from __future__ import annotations
@@ -42,16 +52,23 @@ def _count_of(seen: list[str], prefix: str) -> int:
     return sum(1 for statement in seen if statement.startswith(prefix))
 
 
-def _from_table(statement: str) -> str:
-    lowered = statement.lower()
-    parts = lowered.split(" from ")
-    if len(parts) < 2:
-        return ""
-    return parts[1].split()[0].rstrip(",(")
+# The two shapes one question takes: «what does this profile like». The eager loader joins the
+# link table onto the profile row, the plain loader selects the interests through it, and the
+# identity map answers one of them from the other. A bound that counted only one shape would be
+# met by a path that switched to the other, so both are counted as the same read.
+_INTEREST_LIST_SHAPES = ("join user_interests", "from interests, user_interests")
+
+# The shape the ORM gives a read of the profile row itself — the entity select, not the join
+# that carries somebody else's interests with it.
+_PROFILE_ROW = "select profiles.id, profiles.user_id"
 
 
-def _reads(seen: list[str], table: str) -> list[str]:
-    return [statement for statement in seen if _from_table(statement) == table]
+def _interest_list_reads(seen: list[str]) -> int:
+    return sum(1 for statement in seen if any(shape in statement for shape in _INTEREST_LIST_SHAPES))
+
+
+def _profile_row_reads(seen: list[str]) -> int:
+    return _count_of(seen, _PROFILE_ROW)
 
 
 async def _counted(coro) -> tuple[object, list[str]]:
@@ -116,17 +133,18 @@ async def test_the_write_does_not_grow_with_the_answer(client: AsyncClient) -> N
     assert _count_of(few, _INTEREST_INSERT) == 1
     assert _count_of(many, _INTEREST_INSERT) == 1, "the set was written one row per statement"
     assert len(many) == len(few), f"{len(few)} trips for one interest, {len(many)} for thirty"
-    assert len(many) <= 14, f"{len(many)} trips to write a profile and its interests"
+    assert len(many) <= 12, f"{len(many)} trips to write a profile and its interests"
 
 
 async def test_the_answer_comes_from_the_row_the_write_returned(client: AsyncClient) -> None:
-    """The response is built from the refreshed profile, not from a fourth read of it."""
+    """The response is built from the profile read back after the commit, not from a further
+    read of it."""
     creds, resp, seen = await _onboard(client, "s23_echo@befos.app", _REAL_INTERESTS)
     assert resp.status_code == 200, resp.text
 
-    assert len(_reads(seen, "profiles")) == 3, (
-        f"{len(_reads(seen, 'profiles'))} reads of the profile row: loading it, refreshing it "
-        "after the write, and one the invalidation fan makes for the same person"
+    assert _profile_row_reads(seen) == 2, (
+        f"{_profile_row_reads(seen)} reads of the profile row: loading it for the write "
+        "and reading it back after the commit, which is what the answer is built from"
     )
     body = resp.json()
     assert {item["slug"] for item in body["interests"]} == set(_REAL_INTERESTS)
@@ -137,6 +155,76 @@ async def test_the_answer_comes_from_the_row_the_write_returned(client: AsyncCli
     # The age the answer carries is the server's computed column, so the refresh the response
     # relies on has to have brought it back rather than leaving the pre-write value in place.
     assert body["age"] == 30
+
+
+async def test_a_write_reads_its_interest_list_once(client: AsyncClient) -> None:
+    """The list the answer carries is read for the answer, not twice — once before a write
+    that never asks what is in it."""
+    creds = await register_and_auth(client, "s29_catalog@befos.app")
+    slugs = await _catalog(client, creds["token"])
+
+    creds, resp, seen = await _onboard(client, "s29_interests@befos.app", slugs[:6])
+    assert resp.status_code == 200, resp.text
+    assert {item["slug"] for item in resp.json()["interests"]} == set(slugs[:6])
+
+    assert _interest_list_reads(seen) == 1, (
+        f"{_interest_list_reads(seen)} reads of the interest list on a request that writes it: "
+        "the write replaces the whole set with a DELETE and one INSERT and never asks what was "
+        "there, so only the answer's read is spent for something"
+    )
+
+    resp, second = await _counted(
+        client.patch(
+            "/api/v1/users/me", json={"about": "строчка"}, headers=auth_headers(creds["token"])
+        )
+    )
+    assert resp.status_code == 200, resp.text
+    assert _interest_list_reads(second) == 1, (
+        f"{_interest_list_reads(second)} reads of the interest list for a request that names "
+        "one field of the profile and leaves the interests alone"
+    )
+
+
+async def test_hiding_a_profile_does_not_read_what_the_person_likes(client: AsyncClient) -> None:
+    """The switch answers yes or no; the interest list belongs to neither the question nor the
+    answer."""
+    creds = await register_and_auth(client, "s29_hide@befos.app")
+    slugs = await _catalog(client, creds["token"])
+    creds, _, _ = await _onboard(client, "s29_hidden@befos.app", slugs[:6])
+
+    resp, seen = await _counted(
+        client.post(
+            "/api/v1/users/me/visibility", json={"hidden": True}, headers=auth_headers(creds["token"])
+        )
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {"hidden": True}
+
+    assert _interest_list_reads(seen) == 0, (
+        f"{_interest_list_reads(seen)} reads of the interest list on the request that only "
+        "flips `is_hidden`"
+    )
+    assert len(seen) <= 3, f"{len(seen)} trips to write one boolean"
+
+
+async def test_deleting_an_account_does_not_read_the_interests_it_drops(client: AsyncClient) -> None:
+    """Erasure writes the empty set: what the profile liked is about to be gone, and the answer
+    says only that it happened."""
+    creds = await register_and_auth(client, "s29_delete@befos.app")
+    slugs = await _catalog(client, creds["token"])
+    creds, _, _ = await _onboard(client, "s29_gone@befos.app", slugs[:6])
+
+    resp, seen = await _counted(
+        client.delete("/api/v1/users/me", headers=auth_headers(creds["token"]))
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {"deleted": True}
+
+    assert _interest_list_reads(seen) == 0, (
+        f"{_interest_list_reads(seen)} reads of the interest list on the request that deletes "
+        "those rows"
+    )
+    assert len(seen) <= 20, f"{len(seen)} trips to erase an account"
 
 
 async def test_the_stored_set_is_the_answered_set(client: AsyncClient, session) -> None:

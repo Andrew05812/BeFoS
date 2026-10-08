@@ -47,13 +47,26 @@ class ProfileService:
         self.users = UserRepository(session)
 
     async def get_or_404(self, user_id: uuid.UUID) -> Profile:
+        """The profile as a screen shows it: the row, with its interest list loaded."""
         profile = await self.users.get_profile(user_id)
         if profile is None:
             raise NotFoundError("Profile not found.")
         return profile
 
+    async def get_for_write(self, user_id: uuid.UUID) -> Profile:
+        """The row a request is about to write, held without the list that write consults.
+
+        ``set_profile_interests`` replaces the whole set and a write that leaves interests out of
+        its payload never touches them, so the list belongs to the answer rather than to the
+        write. The answer is built from ``get_or_404`` after the commit, which brings it.
+        """
+        profile = await self.users.get_profile_for_write(user_id)
+        if profile is None:
+            raise NotFoundError("Profile not found.")
+        return profile
+
     async def complete_onboarding(self, user_id: uuid.UUID, data: dict) -> Profile:
-        profile = await self.get_or_404(user_id)
+        profile = await self.get_for_write(user_id)
 
         name = data.get("name")
         if not name or not name.strip():
@@ -94,7 +107,12 @@ class ProfileService:
 
         await self._set_interests(profile, data.get("interests") or [])
         await self.session.commit()
-        await self.session.refresh(profile)
+        # The row comes back through the read that carries the interest list, because the answer
+        # shows it: after a commit the identity map holds nothing cached, so this one read is both
+        # the server's own values and the set that was just stored. A refresh of the row alone
+        # would leave the list behind, and the answer would carry either an empty set or a load
+        # the write path refused.
+        profile = await self.get_or_404(user_id)
         # Onboarding answers the whole preference set in one request — age band, genders,
         # goal, city, interests — and every one of those is an input to the deck, to the
         # cached activity page, and to the percent a stored match row carries. `update()`
@@ -109,7 +127,7 @@ class ProfileService:
         return profile
 
     async def update(self, user_id: uuid.UUID, data: dict) -> Profile:
-        profile = await self.get_or_404(user_id)
+        profile = await self.get_for_write(user_id)
 
         if "name" in data and data["name"] is not None:
             if not data["name"].strip():
@@ -152,7 +170,7 @@ class ProfileService:
         touched_deck = bool(_DECK_FIELDS & data.keys())
         touched_pair = bool(_REC_FIELDS & data.keys())
         await self.session.commit()
-        await self.session.refresh(profile)
+        profile = await self.get_or_404(user_id)
         # What the viewer wants decides who lands in their deck and in what order. The
         # ranked part of that deck was built for the previous answer, so it is dropped;
         # cards already shown stay shown-once, which is what the seen rows remember.
