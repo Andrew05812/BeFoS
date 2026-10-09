@@ -19,6 +19,7 @@ import io.ktor.client.plugins.websocket.webSocket
 import io.ktor.client.request.get
 import io.ktor.websocket.Frame
 import io.ktor.websocket.readText
+import java.util.Base64
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -150,9 +151,12 @@ class ChatSocket(
     /**
      * The socket authorizes via a token query param, which cannot trigger the
      * Ktor refresh flow on 401. A cheap authenticated call rotates an expired
-     * access token before the socket dials, avoiding a 403 reconnect loop.
+     * access token before the socket dials, avoiding a 403 reconnect loop — but
+     * only when the token really is expired, which its own payload says.
      */
     private suspend fun freshAccessToken(): String? {
+        val stored = tokenStore.current()?.accessToken ?: return null
+        if (!accessTokenNeedsProbe(stored, System.currentTimeMillis() / 1000)) return stored
         runCatching { client.get(ApiConfig.api("users/me")).body<JsonObject>() }
         return tokenStore.current()?.accessToken
     }
@@ -245,6 +249,35 @@ internal fun reconnectBackoffMs(failures: Int): Long =
  * against it; six capped attempts span about a minute and a half.
  */
 internal fun keepDialing(tokenlessStreak: Int): Boolean = tokenlessStreak < MAX_TOKENLESS_DIALS
+
+/**
+ * Whether the dial must pay for a probe before knocking.
+ *
+ * The probe exists for one case: an access token the server no longer accepts, which the socket
+ * cannot repair by itself. The token answers that question on its own — it is a JWT whose payload
+ * names the second it stops working, and an expiry date is not a secret. A token with minutes of
+ * life left cannot be that case, so the request that would have asked is dropped. Anything the
+ * client cannot read stays suspect and the probe runs: this guess only ever removes a request,
+ * never adds one.
+ */
+internal fun accessTokenNeedsProbe(token: String?, nowEpochSeconds: Long): Boolean {
+    val exp = token?.let(::jwtExpirySeconds) ?: return true
+    return exp - nowEpochSeconds < PROBE_MARGIN_SECONDS
+}
+
+private fun jwtExpirySeconds(token: String): Long? =
+    token.split('.').getOrNull(1)?.let { payload ->
+        runCatching {
+            val json = String(Base64.getUrlDecoder().decode(payload), Charsets.UTF_8)
+            (befosJson.parseToJsonElement(json) as JsonObject)["exp"]?.jsonPrimitive?.content?.toLongOrNull()
+        }.getOrNull()
+    }
+
+/**
+ * How much future a token must still have for the dial to trust it. Kept well below the 30 minutes
+ * the backend signs, and above the time a handshake takes; not measured against a device clock.
+ */
+private const val PROBE_MARGIN_SECONDS = 60L
 
 private const val BASE_BACKOFF_MS = 2_000L
 private const val MAX_BACKOFF_MS = 30_000L
