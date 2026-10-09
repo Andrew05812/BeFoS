@@ -27,14 +27,16 @@ import app.befos.core.designsystem.Ember
 import app.befos.core.designsystem.Peach
 import app.befos.core.designsystem.Iris
 import app.befos.core.designsystem.Motion
-import app.befos.core.di.beFosViewModel
 import kotlinx.coroutines.launch
 
 @Composable
 fun SplashScreen(
+    // The gate comes from the navigation host, which owns exactly one of them. Building a
+    // second one here put it in the splash entry's own ViewModelStore, so a launch asked
+    // the backend for the profile twice (measured: two GET /users/me per cold start).
+    vm: RootViewModel,
     onRoute: (RootDestination) -> Unit,
 ) {
-    val vm: RootViewModel = beFosViewModel { RootViewModel(it.authRepository, it.profileRepository) }
     val destination by vm.destination.collectAsState()
 
     // Entrance animation: logo scales up + fades in, wordmark/tagline follow.

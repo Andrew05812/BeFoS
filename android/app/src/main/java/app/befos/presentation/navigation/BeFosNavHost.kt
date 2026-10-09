@@ -59,6 +59,7 @@ fun BeFosNavHost(navController: NavHostController) {
     NavHost(navController = navController, startDestination = Routes.SPLASH) {
         composable(Routes.SPLASH) {
             SplashScreen(
+                vm = rootVm,
                 onRoute = { destination ->
                     val target = when (destination) {
                         RootDestination.AUTH -> Routes.AUTH
