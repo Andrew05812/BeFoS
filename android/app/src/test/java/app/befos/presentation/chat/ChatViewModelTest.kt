@@ -13,6 +13,9 @@ import io.mockk.mockk
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -383,5 +386,72 @@ class ChatViewModelTest {
         events.tryEmit(ChatEvent.IncomingMessage(message("8", true, "ага")))
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
         coVerify(exactly = 1) { repo.markRead("m1") }
+    }
+
+    @Test
+    fun `a socket opening for the first time does not read the page again`() = runTest {
+        // `ChatSocket` keeps the connection in a StateFlow, and a StateFlow re-states its current
+        // value to every new collector: a screen that joins before the dial answers is handed
+        // `Disconnected` as its first frame although the socket was never up. The shared flow the
+        // other cases use cannot say that, so this one builds the stream the way production does.
+        val connection = MutableStateFlow(false)
+        val frames = MutableSharedFlow<ChatEvent>(extraBufferCapacity = 16)
+        val dialingRepo: ChatRepository = mockk {
+            every { socket(any()) } returns merge(
+                connection.map { if (it) ChatEvent.Connected else ChatEvent.Disconnected },
+                frames,
+            )
+            coEvery { history("m1", any()) } returns ApiResult.Success(listOf(message("1", false, "привет")))
+            coEvery { markRead("m1") } returns ApiResult.Success(Unit)
+            coEvery { sendTyping(any(), any()) } returns Unit
+        }
+
+        val vm = ChatViewModel(dialingRepo, matchRepo, "m1")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        // The dial answers. Nothing arrived while the screen waited for the page it already has.
+        connection.value = true
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(true, vm.uiState.value.connected)
+        assertEquals(listOf("1"), vm.uiState.value.messages.map { it.id })
+        coVerify(exactly = 1) { dialingRepo.history("m1", any()) }
+    }
+
+    @Test
+    fun `a socket that was up and came back still reads what arrived between`() = runTest {
+        val connection = MutableStateFlow(false)
+        val frames = MutableSharedFlow<ChatEvent>(extraBufferCapacity = 16)
+        val dialingRepo: ChatRepository = mockk {
+            every { socket(any()) } returns merge(
+                connection.map { if (it) ChatEvent.Connected else ChatEvent.Disconnected },
+                frames,
+            )
+            coEvery { history("m1", any()) } returnsMany listOf(
+                ApiResult.Success(listOf(message("1", false, "привет"))),
+                ApiResult.Success(listOf(message("1", false, "привет"), message("2", false, "пока"))),
+            )
+            coEvery { markRead("m1") } returns ApiResult.Success(Unit)
+            coEvery { sendTyping(any(), any()) } returns Unit
+        }
+
+        val vm = ChatViewModel(dialingRepo, matchRepo, "m1")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        connection.value = true
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 1) { dialingRepo.history("m1", any()) }
+
+        // A connection this screen really had, lost and won back: the page it never showed is
+        // still only in the database.
+        connection.value = false
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(false, vm.uiState.value.connected)
+
+        connection.value = true
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(true, vm.uiState.value.connected)
+        assertEquals(listOf("1", "2"), vm.uiState.value.messages.map { it.id })
+        coVerify(exactly = 2) { dialingRepo.history("m1", any()) }
     }
 }
