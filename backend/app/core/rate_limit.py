@@ -85,6 +85,13 @@ def _client_key(client: Request | WebSocket) -> str:
     rotate the header and get a fresh bucket per request, which walks straight past the
     limit this exists to enforce. It is read only when the deployment declares that a
     proxy in front of the app overwrites it.
+
+    The declaration has to be made here, because the alternative is silently stronger than
+    this setting: uvicorn rewrites the connection's own address with the header for any peer
+    listed in ``forwarded_allow_ips`` (loopback by default), and by the time the request
+    reaches this function the forged address *is* the peer address. The shipped commands
+    therefore pass ``--no-proxy-headers``; see ``tests/test_rate_limit_trust_boundary.py``
+    for the measurement that made that necessary.
     """
     if settings.trust_proxy_headers:
         forwarded = client.headers.get("x-forwarded-for", "")

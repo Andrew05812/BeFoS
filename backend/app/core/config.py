@@ -69,7 +69,10 @@ class Settings(BaseSettings):
     max_upload_size_mb: int = Field(default=5, alias="MAX_UPLOAD_SIZE_MB")
 
     rate_limit_per_minute: int = Field(default=120, alias="RATE_LIMIT_PER_MINUTE")
-    # Only enable when a reverse proxy in front of the app sets X-Forwarded-For.
+    # Only enable when a reverse proxy in front of the app sets X-Forwarded-For. This is the
+    # app's half of the boundary; the server has to keep its own address out of the picture, so
+    # the shipped commands start uvicorn with --no-proxy-headers (its defaults rewrite the peer
+    # address for loopback connections before this setting is ever read).
     trust_proxy_headers: bool = Field(default=False, alias="TRUST_PROXY_HEADERS")
 
     demo_enabled: bool = Field(default=True, alias="DEMO_ENABLED")

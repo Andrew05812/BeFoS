@@ -44,4 +44,9 @@ USER befos
 
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# The same trust boundary the compose command states, stated here too: anyone running this
+# image directly (`docker run`) gets the limiter's rule as `app/core/rate_limit.py` writes it,
+# not uvicorn's default of replacing the peer address with X-Forwarded-For for loopback peers.
+# Measured on the stand: 300 requests rotating 30 header identities from the container's own
+# loopback answered all 300 against a 120/minute ceiling.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-proxy-headers"]
