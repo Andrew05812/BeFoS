@@ -356,6 +356,42 @@ async def _seed_activity(asyncpg, database: str, acted: int, matches: int, messa
         await conn.close()
 
 
+async def _drain_deck(session, ctx) -> None:
+    """Put the viewer in the state where the deck holds nothing ready and nobody waits outside it.
+
+    This is stand setup, not the screen's work: the queue gets a row for every account on the
+    stand, marked seen. Writing it directly is what makes the last page reachable without sending
+    a few thousand pages to get there — and keeping it out of the measured call is what makes the
+    number of that page describe the page: at 50 000 this statement alone ran to 11 327.9 ms,
+    which is the median the pre-fix harness published for the page (11 426.8 ms).
+    """
+    from sqlalchemy import text
+
+    if ctx.get("deck_drained"):
+        return
+    ctx["deck_drained"] = True
+    await session.execute(
+        text(
+            "INSERT INTO discovery_queue "
+            "    (viewer_id, candidate_id, rank, score, status, queued_at, seen_at) "
+            "SELECT :viewer, p.user_id, "
+            "       (SELECT COALESCE(MAX(q.rank), -1) FROM discovery_queue q "
+            "         WHERE q.viewer_id = :viewer) + row_number() OVER (ORDER BY p.user_id), "
+            "       0, 'seen', now(), now() "
+            "FROM profiles p JOIN users u ON u.id = p.user_id "
+            "WHERE p.user_id <> :viewer AND p.onboarding_completed_at IS NOT NULL "
+            "ON CONFLICT DO NOTHING"
+        ),
+        {"viewer": ctx["viewer_id"]},
+    )
+    await session.execute(
+        text("UPDATE discovery_queue SET status = 'seen', seen_at = now() "
+             "WHERE viewer_id = :viewer AND status = 'ready'"),
+        {"viewer": ctx["viewer_id"]},
+    )
+    await session.commit()
+
+
 def _build_paths():
     """One wrapper per screen: each calls the same service object the API route calls."""
     from app.services.auth_service import AuthService
@@ -438,37 +474,8 @@ def _build_paths():
         await MatchService(session).like(ctx["viewer_id"], target)
 
     async def deck_exhausted(session, ctx):
-        from sqlalchemy import text
-
         from app.services.discovery_service import DiscoveryService
 
-        if not ctx.get("deck_drained"):
-            ctx["deck_drained"] = True
-            # Stand setup, not a measured statement: the queue gets a row for every account on
-            # the stand and every row is marked seen. That is the state a real viewer reaches
-            # after swiping through everyone the preferences allow — the deck holds nothing
-            # ready, and nobody waits outside it. Writing it directly is what makes the last
-            # page reachable without sending a few thousand pages to get there.
-            await session.execute(
-                text(
-                    "INSERT INTO discovery_queue "
-                    "    (viewer_id, candidate_id, rank, score, status, queued_at, seen_at) "
-                    "SELECT :viewer, p.user_id, "
-                    "       (SELECT COALESCE(MAX(q.rank), -1) FROM discovery_queue q "
-                    "         WHERE q.viewer_id = :viewer) + row_number() OVER (ORDER BY p.user_id), "
-                    "       0, 'seen', now(), now() "
-                    "FROM profiles p JOIN users u ON u.id = p.user_id "
-                    "WHERE p.user_id <> :viewer AND p.onboarding_completed_at IS NOT NULL "
-                    "ON CONFLICT DO NOTHING"
-                ),
-                {"viewer": ctx["viewer_id"]},
-            )
-            await session.execute(
-                text("UPDATE discovery_queue SET status = 'seen', seen_at = now() "
-                     "WHERE viewer_id = :viewer AND status = 'ready'"),
-                {"viewer": ctx["viewer_id"]},
-            )
-            await session.commit()
         await DiscoveryService(session).feed(ctx["viewer_id"], limit=DECK_SIZE)
 
     return {
@@ -486,6 +493,16 @@ def _build_paths():
         "like": like,
         "deck_exhausted": deck_exhausted,
     }
+
+
+def _build_setups():
+    """The state a path needs the stand in before it is timed, keyed by path name.
+
+    Kept beside the paths and called by `_measure_size` outside the measured window: the queue of
+    every account on the stand is not part of what an empty page costs, and on 50 000 it is worth
+    more than everything the page itself does.
+    """
+    return {"deck_exhausted": _drain_deck}
 
 
 async def _seed_catalog(engine) -> None:
@@ -719,7 +736,7 @@ async def _measure_size(asyncpg, database: str, size: int, acted: int, runs: int
             captured.setdefault(active["path"], []).append((statement, tuple(parameters)))
 
     event.listen(engine.sync_engine, "before_cursor_execute", before)
-    paths = _build_paths()
+    paths, setups = _build_paths(), _build_setups()
     ctx = await _context(engine)
     rows = []
     try:
@@ -727,6 +744,19 @@ async def _measure_size(asyncpg, database: str, size: int, acted: int, runs: int
             if name == "discovery_page" and not ctx.get("cursor"):
                 rows.append({"path": name, "error": "no cursor after rebuild"})
                 continue
+            setup = setups.get(name)
+            if setup is not None:
+                # Outside the measured window and outside the capture: putting the queue of a
+                # thousand or fifty thousand rows together is stand setup, not the screen's work,
+                # and timing it made the page that has nothing to show look like the price of the
+                # rows the setup had just written.
+                async with AsyncSession(bind=engine, expire_on_commit=False) as session:
+                    try:
+                        await setup(session, ctx)
+                    except Exception as error:
+                        await session.rollback()
+                        rows.append({"path": name, "error": f"setup: {type(error).__name__}: {str(error)[:200]}"})
+                        continue
             timings = []
             failure = None
             for _ in range(runs):
