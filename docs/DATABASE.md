@@ -229,8 +229,12 @@ users ─1:1─ profiles ─M:N─ interests   (через user_interests)
 ## Пул и что он не покрывает
 
 `app/core/database.py`: `pool_size=10`, `max_overflow=20` (до 30 соединений на процесс),
-`pool_pre_ping=True`, `pool_recycle=1800`. При `max_connections=100` это практически три
-реплики backend; при четвёртой refused connection появится под нагрузкой, а не при старте.
+`pool_timeout=30`, `pool_pre_ping=True`, `pool_recycle=1800`. Потолок и ожидание измерены на
+этом стенде 2026-10-09, как и потолок сервера в 100 клиентских бэкэндов: 45 одновременных
+заёмов дали 30 соединений и 15 отказов `TimeoutError` через 30.00 с, а при заполненном сервере
+обычный маршрут ответил не «refused connection'ом», а `503 database_unavailable` с
+`Retry-After: 5` — разбор и способ замера в `docs/OPERATIONS.md`, раздел 7, механизмы закреплены
+`backend/tests/test_pool_capacity.py`.
 
 Остаток, который pre-ping не ловит, измерен после `pg_terminate_backend`: если сервер
 закрыл соединение в тот момент, когда пул уже его отдаёт, asyncpg поднимает
