@@ -58,10 +58,22 @@ services:
       start_period: 60s
     volumes:
       - befos_uploads:/app/uploads
+    # uvicorn closes an idle keep-alive socket after five seconds unless told otherwise, and
+    # five seconds is shorter than a pause between two actions in the app. Measured on the
+    # emulator over one socket: a second request answered after 1 s and after 4 s of idle and
+    # got nothing after 8 s, 20 s and 40 s; watched from the host, the peer's FIN landed
+    # 5000 ms after the first response. Rebuilding the connection is not free either — a fresh
+    # socket answered its first response line 560-583 ms after the client started across the
+    # probe's repeats, while the second request of one live socket, written 2 s in, was
+    # answered ~110 ms later. The client's pool keeps an idle connection for minutes (OkHttp
+    # ships that default, it is not measured here), so 75 s is the compromise: it outlives a
+    # reader dwelling on a card without holding a socket per abandoned client for minutes. If
+    # a proxy with a shorter idle timeout is ever put in front of this, the value has to
+    # become smaller than that proxy's own.
     command: >
       sh -c "alembic upgrade head &&
              python -m app.seed --if-empty &&
-             uvicorn app.main:app --host 0.0.0.0 --port 8000"
+             uvicorn app.main:app --host 0.0.0.0 --port 8000 --timeout-keep-alive 75"
 
 volumes:
   befos_pgdata:
