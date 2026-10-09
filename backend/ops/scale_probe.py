@@ -3,7 +3,9 @@
 The numbers in `docs/SCALE_PLAN.md` come from this script. It creates a throwaway database
 (`befos_scale`), brings it to the current schema with Alembic, fills it with a generated
 population, and then drives the *real* service objects — the same classes the API calls — while
-timing each call. Every SELECT the path sent is then replayed under
+timing each call. The first call of a path is published as its own number and stays out of the
+median and the maximum: it pays a warming that no repeat of the same path pays again. Every SELECT
+the path sent is then replayed under
 `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)`, so a latency number arrives with the plan behind it.
 
 Run from `backend/`, with the Docker Postgres of `docker-compose.yml` reachable:
@@ -696,6 +698,45 @@ async def _plans(asyncpg, dsn: str, captured: dict[str, list[tuple[str, tuple]]]
     return out
 
 
+def _row(name: str, timings: list[float], statements: int, runs: int) -> dict:
+    """Turn the timed calls of one path into a row, keeping the first call out of the page.
+
+    The calls of a path are not one sample. Measured 2026-10-09 on the same stand the same path was
+    read on, the first call of `public_profile` at 1 001 profiles cost 124.0 ms and the four that
+    followed 25.5…30.4 ms; at 50 000 the first call of `deck_exhausted` cost 55 472.8 ms and the
+    next four 255.7…290.3 ms. Averaging or maxing over that first call publishes a number no reader
+    can attribute to the screen — stage 42's «максимум 55 118.0 мс» was exactly this call, and the
+    warming of a connection's plans and of pages the stand had not been read from yet is not a page
+    that got slower. So the first call gets its own column and the median and the maximum are taken
+    over the repeats that came after it.
+    """
+    if len(timings) < 2:
+        raise ValueError(
+            f"путь {name} замерен одним вызовом: медиана берётся по прогретому повтору, "
+            "нужен --runs не меньше двух"
+        )
+    cold, *warm = timings
+    return {
+        "path": name,
+        "first_ms": round(cold, 1),
+        "median_ms": round(statistics.median(warm), 1),
+        "max_ms": round(max(warm), 1),
+        # captured accumulates across the runs of this path; the reader wants one pass.
+        "statements_per_call": round(statements / runs, 1),
+        # The row stays readable against the run it came from, so a published number can be
+        # re-derived by whoever repeats the command.
+        "timings": [round(value, 1) for value in timings],
+    }
+
+
+def _format_row(row: dict) -> str:
+    return (
+        f"  {row['path']:<20} первый {row['first_ms']:>9.1f} мс"
+        f"   медиана {row['median_ms']:>8.1f} мс   max {row['max_ms']:>8.1f} мс"
+        f"   запросов за вызов {row['statements_per_call']}"
+    )
+
+
 async def _measure_size(asyncpg, database: str, size: int, acted: int, runs: int,
                         path_names: list[str], verbose: bool) -> dict:
     from sqlalchemy import event
@@ -774,15 +815,7 @@ async def _measure_size(asyncpg, database: str, size: int, acted: int, runs: int
             if failure:
                 rows.append({"path": name, "error": failure})
                 continue
-            rows.append(
-                {
-                    "path": name,
-                    "median_ms": round(statistics.median(timings), 1),
-                    "max_ms": round(max(timings), 1),
-                    # captured accumulates across the runs of this path; the reader wants one pass.
-                    "statements_per_call": round(len(captured.get(name, [])) / runs, 1),
-                }
-            )
+            rows.append(_row(name, timings, len(captured.get(name, [])), runs))
     finally:
         event.remove(engine.sync_engine, "before_cursor_execute", before)
 
@@ -808,11 +841,7 @@ async def _measure_size(asyncpg, database: str, size: int, acted: int, runs: int
         if "error" in row:
             print(f"  {row['path']:<20} ОШИБКА {row['error']}", flush=True)
         else:
-            print(
-                f"  {row['path']:<20} медиана {row['median_ms']:>8.1f} мс   max {row['max_ms']:>8.1f} мс"
-                f"   запросов за вызов {row['statements_per_call']}",
-                flush=True,
-            )
+            print(_format_row(row), flush=True)
     if verbose:
         for name, plan in plans.items():
             scan = plan.get("scan") or {}
@@ -838,7 +867,7 @@ async def main() -> None:
     parser.add_argument("--sizes", default="1000,10000")
     parser.add_argument("--database", default="befos_scale")
     parser.add_argument("--acted", type=int, default=0, help="пропуски зрителя (0 = 40%% от размера)")
-    parser.add_argument("--runs", type=int, default=3)
+    parser.add_argument("--runs", type=int, default=5)
     parser.add_argument("--paths", default="")
     parser.add_argument("--json", default="")
     parser.add_argument("--quiet", action="store_true")
@@ -850,6 +879,11 @@ async def main() -> None:
         raise SystemExit(
             "нужен DATABASE_URL, например "
             "postgresql+asyncpg://befos:befos_password@127.0.0.1:5432/befos"
+        )
+    if args.runs < 2:
+        raise SystemExit(
+            f"--runs {args.runs}: медиана и максимум берутся по повторам после первого вызова, "
+            "поэтому повторов нужно минимум два"
         )
 
     known = list(_build_paths())

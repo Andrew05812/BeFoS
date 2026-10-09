@@ -1,7 +1,8 @@
 """The scale stand must not time the setup that prepares it.
 
-`backend/ops/scale_probe.py` reports the median of three calls of each path. The exhausted-deck
-path built its own stand inside the first of those calls: an `INSERT … SELECT` writing a queue row
+`backend/ops/scale_probe.py` times each path several times and reports the median of the repeats
+that came after the first call. The exhausted-deck path built its own stand inside the first of
+those calls: an `INSERT … SELECT` writing a queue row
 for every account on the stand and marking it seen. Measured on 2026-10-09 at 50 000 profiles that
 path reported `медиана 11426.8 мс, max 54852.6 мс`, while the `INSERT` alone measured 11 327.9 ms
 and the same call, taken once the stand was quiet again, cost 95.5…99.1 ms over seven statements.
