@@ -394,6 +394,26 @@ async def _drain_deck(session, ctx) -> None:
     await session.commit()
 
 
+async def _answer_payload(session, ctx) -> None:
+    """Put the answer map a client already holds into the context, outside the measured window.
+
+    The submission path needs a body naming every question, and the app takes that map from the
+    questions screen — `GET /api/v1/tests` — one tap before it posts the answers. Reading the
+    catalogue inside the timed call instead sends `SELECT test_questions …` and
+    `SELECT test_options … IN ($1, …, $21)` twice in one call: once as the harness's own read and
+    once as the request's, which is what made the path publish 13 запросов за вызов for a route
+    that pays 11 (measured 2026-10-09 with a capture grouped by statement and parameters).
+    """
+    from app.repositories.test_repo import TestRepository
+
+    if ctx.get("answer_rows") is not None:
+        return
+    questions = await TestRepository(session).list_active_questions()
+    ctx["answer_rows"] = [
+        {"question_id": q.id, "option_id": q.options[0].id} for q in questions
+    ]
+
+
 def _build_paths():
     """One wrapper per screen: each calls the same service object the API route calls."""
     from app.services.auth_service import AuthService
@@ -445,16 +465,13 @@ def _build_paths():
         )
 
     async def answers_submit(session, ctx):
-        from app.repositories.test_repo import TestRepository
         from app.services.test_service import TestService
 
         # The whole map in one call, because that is the shape the client sends it in: the
-        # app posts every answer when the last question is tapped.
-        questions = await TestRepository(session).list_active_questions()
-        rows = [
-            {"question_id": q.id, "option_id": q.options[0].id} for q in questions
-        ]
-        await TestService(session).save_answers(ctx["viewer_id"], rows)
+        # app posts every answer when the last question is tapped. The map itself is filled by
+        # `_answer_payload` before the window opens, because the client read it on the previous
+        # screen and a second read of the catalogue here is the harness's work, not the route's.
+        await TestService(session).save_answers(ctx["viewer_id"], ctx["answer_rows"])
 
     async def test_complete(session, ctx):
         from app.services.test_service import TestService
@@ -502,9 +519,11 @@ def _build_setups():
 
     Kept beside the paths and called by `_measure_size` outside the measured window: the queue of
     every account on the stand is not part of what an empty page costs, and on 50 000 it is worth
-    more than everything the page itself does.
+    more than everything the page itself does. The same holds for a read that only assembles a
+    request body — the client took that map off the previous screen, so the screen under
+    measurement never sends it.
     """
-    return {"deck_exhausted": _drain_deck}
+    return {"deck_exhausted": _drain_deck, "answers_submit": _answer_payload}
 
 
 async def _seed_catalog(engine) -> None:
