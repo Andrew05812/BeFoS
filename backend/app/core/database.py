@@ -25,6 +25,13 @@ engine = create_async_engine(
     pool_recycle=1800,
     pool_size=10,
     max_overflow=20,
+    # How long the 31st concurrent request of this process waits before it is refused. It is
+    # SQLAlchemy's own default, and the number §7 of OPERATIONS.md tells an operator to plan
+    # around, so it is written down rather than inherited: measured on the stand, 15 borrowers
+    # past the ceiling were refused after 30.002 / 30.004 / 30.007 s. Shortening it would turn
+    # served requests into refusals — at 45 concurrent borrowers holding 3 s each the last wave
+    # waited up to 6.15 s and was still served — so the value stays and only its source changes.
+    pool_timeout=30,
 )
 
 # What asyncpg raises for a socket the server closed between two statements. It is not a
