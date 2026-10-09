@@ -45,6 +45,12 @@ services:
       DEMO_EMAIL: ${DEMO_EMAIL:-demo@befos.app}
       DEMO_PASSWORD: ${DEMO_PASSWORD:-Demo12345}
       UPLOAD_DIR: /app/uploads
+      # Whose window the limiter counts: the address of the connection, or the address a proxy
+      # wrote down. --no-proxy-headers below removes uvicorn's address rewrite, so this switch
+      # becomes the only place where that trust is declared. Set it to true only when a proxy in
+      # front of this container really overwrites X-Forwarded-For: with a false claim of trust,
+      # the caller picks its own window.
+      TRUST_PROXY_HEADERS: ${TRUST_PROXY_HEADERS:-false}
     ports:
       - "8000:8000"
     healthcheck:
@@ -70,10 +76,24 @@ services:
     # reader dwelling on a card without holding a socket per abandoned client for minutes. If
     # a proxy with a shorter idle timeout is ever put in front of this, the value has to
     # become smaller than that proxy's own.
+    # --no-proxy-headers removes the second default this stand inherited. uvicorn replaces the
+    # peer address of a connection with X-Forwarded-For whenever that peer is listed in
+    # forwarded_allow_ips, and both halves of that rule are defaults nobody wrote down here
+    # (proxy_headers=True, forwarded_allow_ips="127.0.0.1"). Measured against this container with
+    # GET /users/me, RATE_LIMIT_PER_MINUTE at its 120 default, the container restarted between
+    # sweeps because the window lives in process memory: 130 requests with no forwarded header
+    # answered 120 and refused from #121; 300 requests rotating 30 identities through the
+    # published port behaved the same way (120 answered, 180 refused), because the peer there is
+    # the Docker bridge, not a trusted proxy; the same rotation issued from the container's own
+    # loopback answered all 300 and refused none — the bucket had moved into a header the caller
+    # writes. That last path is any process of the same host, a neighbour sharing the network
+    # namespace, an SSRF against 127.0.0.1, and the bare-metal run README documents. With the
+    # flag, the connection's address stays the limiter's key and the only way to trust the
+    # header is TRUST_PROXY_HEADERS above.
     command: >
       sh -c "alembic upgrade head &&
              python -m app.seed --if-empty &&
-             uvicorn app.main:app --host 0.0.0.0 --port 8000 --timeout-keep-alive 75"
+             uvicorn app.main:app --host 0.0.0.0 --port 8000 --timeout-keep-alive 75 --no-proxy-headers"
 
 volumes:
   befos_pgdata:
