@@ -7,13 +7,16 @@ from datetime import datetime, timezone
 from sqlalchemy import select, func, and_, bindparam, exists, or_, text, DateTime
 from sqlalchemy.dialects.postgresql import UUID as pg_uuid, insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.models import Match, Message, MessageRead
 
 # What the pair list answers with per conversation: the newest body, its time, and how many of the
 # partner's lines the reader has not receipted. A row of the narrow `chat_summaries` read.
 PairLine = namedtuple("PairLine", "body created_at unread")
+
+# A line of the chat page with the one thing about it that does not live in the `messages` row:
+# whether anybody other than its author has read it. A row of the `list_messages` read.
+HistoryLine = namedtuple("HistoryLine", "message is_read")
 
 
 class ChatRepository:
@@ -111,10 +114,33 @@ class ChatRepository:
 
     async def list_messages(
         self, match_id: uuid.UUID, *, limit: int = 50, before_id: uuid.UUID | None = None
-    ) -> list[Message]:
+    ) -> list[HistoryLine]:
+        """One page of the conversation, each line carrying its own receipt flag.
+
+        `is_read` answers «has anyone but the author seen this line», and the page is the only
+        consumer of that answer. It used to arrive as a second round trip — `selectinload` of
+        `Message.reads` — which on the stage-50 stand (a 500-line thread, a 50-line page, 40 500
+        receipts in the table) brought 76 rows and as many ORM objects back to be reduced to fifty
+        booleans in Python. The correlated EXISTS asks the same question inside the read that
+        already picks the page, so one trip carries both. The base does not work less: the two old
+        plans sum to 1.22 ms, the new one to 1.19 ms — what goes away is the conversation and the
+        objects.
+
+        The condition stays `reader_id <> sender_id`, and that is the whole answer: every sent line
+        carries its author's own receipt (`_note_read_by_sender`), so a flag built on
+        `message_id = messages.id` alone would tell the author their line was read before the
+        partner had opened the chat.
+        """
+        read_by_someone_else = exists(
+            select(MessageRead.id)
+            .where(
+                MessageRead.message_id == Message.id,
+                MessageRead.reader_id != Message.sender_id,
+            )
+            .correlate(Message)
+        ).label("is_read")
         stmt = (
-            select(Message)
-            .options(selectinload(Message.reads))
+            select(Message, read_by_someone_else)
             .where(Message.match_id == match_id, Message.is_deleted.is_(False))
         )
         if before_id is not None:
@@ -122,9 +148,9 @@ class ChatRepository:
             if anchor is not None:
                 stmt = stmt.where(Message.created_at < anchor.created_at)
         stmt = stmt.order_by(Message.created_at.desc(), Message.id.desc()).limit(limit)
-        rows = list((await self.session.execute(stmt)).scalars().all())
+        rows = list((await self.session.execute(stmt)).all())
         rows.reverse()  # return ascending order
-        return rows
+        return [HistoryLine(message=message, is_read=bool(flag)) for message, flag in rows]
 
     async def mark_read(self, match_id: uuid.UUID, reader_id: uuid.UUID) -> int:
         """Mark every message of the match the reader did not send as read. Returns the count.

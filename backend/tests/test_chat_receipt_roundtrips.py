@@ -14,6 +14,10 @@ actually inserted — the constraint is what settles two devices marking the sam
 
 What must not move is the answer: the same number of messages marked, no duplicate receipt row for
 one reader, and the peer's bubbles still shown as read once the reader's other device reloads.
+
+The ceilings below were lowered by stage 50, which folded the receipt flag into the page read: an
+open that has something to mark went from seven listener statements to six, because the collection
+the page used to raise for its own `is_read` no longer travels as a query of its own.
 """
 
 from __future__ import annotations
@@ -108,7 +112,9 @@ async def test_opening_a_chat_with_a_backlog_writes_the_receipt_in_one_statement
         f"the receipt took {len(receipt)} statements: the unread ids were named and then re-sent"
     )
     assert "insert into message_reads" in receipt[0], receipt[0]
-    assert len(seen) <= 7, f"{len(seen)} trips to open a chat and mark its backlog"
+    # Six, not the seven this file used to allow: stage 50 folded the receipt flag into the text of
+    # the page read, so opening a chat no longer sends a query of its own to `message_reads`.
+    assert len(seen) <= 6, f"{len(seen)} trips to open a chat and mark its backlog"
 
     # Same answer as the two-statement shape: every message the reader did not write is now read.
     unread = (

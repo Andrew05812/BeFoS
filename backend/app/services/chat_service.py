@@ -66,21 +66,22 @@ class ChatService:
         await self.session.commit()
         if created:
             tracker.track(Event.MESSAGE_SENT, str(sender_id), match=str(match_id))
-        # The only read row on a brand-new message is the sender's implicit one, and
-        # `msg.reads` is not loaded here — state the known value instead of querying it.
+        # A line written a moment ago has been seen by nobody except the one who wrote it, and
+        # the receipts it already carries are its author's own.
         return self._to_dto(msg, sender_id, is_read=False), created
 
     async def history(
         self, match_id: uuid.UUID, user_id: uuid.UUID, *, limit: int = 50, before_id: uuid.UUID | None = None
     ) -> dict:
         await self._require_membership_for_write(match_id, user_id)
-        messages = await self.repo.list_messages(match_id, limit=limit + 1, before_id=before_id)
-        has_more = len(messages) > limit
-        messages = messages[:limit]
+        lines = await self.repo.list_messages(match_id, limit=limit + 1, before_id=before_id)
+        has_more = len(lines) > limit
+        lines = lines[:limit]
         marked = await self.repo.mark_read(match_id, user_id)
         await self.session.commit()
+        page = [self._to_dto(line.message, user_id, is_read=line.is_read) for line in lines]
         return {
-            "messages": [self._to_dto(m, user_id) for m in messages],
+            "messages": page,
             "has_more": has_more,
             # The count is reported so the caller can broadcast the receipt: opening a chat
             # is how a reader consumes a backlog, and if the mark happens here in silence the
@@ -94,10 +95,7 @@ class ChatService:
         await self.session.commit()
         return count
 
-    def _to_dto(self, msg, viewer_id: uuid.UUID, *, is_read: bool | None = None) -> dict:
-        is_own = msg.sender_id == viewer_id
-        if is_read is None:
-            is_read = any(r.reader_id != msg.sender_id for r in msg.reads)
+    def _to_dto(self, msg, viewer_id: uuid.UUID, *, is_read: bool) -> dict:
         return {
             "id": str(msg.id),
             "match_id": str(msg.match_id),
@@ -105,6 +103,6 @@ class ChatService:
             "body": msg.body,
             "created_at": msg.created_at,
             "is_read": is_read,
-            "is_own": is_own,
+            "is_own": msg.sender_id == viewer_id,
             "client_msg_id": msg.client_msg_id,
         }
