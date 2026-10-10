@@ -31,6 +31,7 @@ import app.befos.data.model.TestResultDto
 import app.befos.data.model.TokenPairDto
 import app.befos.data.model.VisibilityRequest
 import io.ktor.client.HttpClient
+import io.ktor.client.plugins.timeout
 import io.ktor.client.request.forms.MultiPartFormDataContent
 import io.ktor.client.request.forms.formData
 import io.ktor.client.request.parameter
@@ -129,6 +130,15 @@ class ApiService(private val client: HttpClient) {
             method = HttpMethod.Post
             url(endpoint("users/me/photo"))
             setBody(multipart)
+            // The client's own bounds are sized for a JSON answer, and this call is sized by the
+            // uplink: measured on a link that drained 2.4 MB in 37 s, the inherited ten-second
+            // write default ended the upload while bytes were still moving, and the declared
+            // whole-call ceiling would have ended it at 35 s. A stalled upload still ends — the
+            // sixty seconds here is silence, not progress — but a slow one gets through.
+            timeout {
+                socketTimeoutMillis = 60_000
+                requestTimeoutMillis = 600_000
+            }
         }
     }
 
