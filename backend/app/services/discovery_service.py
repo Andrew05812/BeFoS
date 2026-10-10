@@ -205,7 +205,6 @@ class DiscoveryService:
                 continue
             profile = candidate.profile
             result = candidate.result
-            photo = photos.get(candidate_id)
             shared_slugs = viewer_input.interests & candidate.candidate_input.interests
             cards.append(
                 {
@@ -215,7 +214,7 @@ class DiscoveryService:
                     "city": profile.city,
                     "about": profile.about,
                     "dating_goal": profile.dating_goal,
-                    "photo_url": photo.url if photo else None,
+                    "photo_url": photos.get(candidate_id),
                     "interests": [i.name for i in profile.interests][:8],
                     "compatibility": result.overall_percent,
                     "shared_interests_count": len(shared_slugs),

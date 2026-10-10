@@ -23,7 +23,7 @@
 
 - **`app/api/v1/`** — HTTP-маршруты. Контроллеры валидируют вход (Pydantic), вызывают сервис и формируют ответ. Маршруты сгруппированы по тегам: `auth`, `users`, `tests`, `discover`, `matches`, `chat`, `safety`, `health`. Все подключаются под префиксом `settings.api_v1_prefix` (`/api/v1`).
 - **`app/services/`** — бизнес-логика: `auth_service`, `profile_service`, `test_service`, `compatibility_service`, `discovery_service`, `match_service`, `matches_service`, `chat_service`, `recommendation_service`, `photo_service`, `safety_service`. Сервисы не знают про HTTP.
-- **`app/repositories/`** — доступ к данным через SQLAlchemy 2.0 (async). Инкапсулируют запросы, возвращают модели/примитивы.
+- **`app/repositories/`** — доступ к данным через SQLAlchemy 2.0 (async). Инкапсулируют запросы, возвращают модели/примитивы. Где экрану хватает нескольких колонок, метод возвращает проекцию (`select(Profile.user_id, Profile.name, …)`), а не сущность: список пар читал 38 колонок сущностей на карточку, чтобы ответить одиннадцатью полями (стадия 49).
 - **`app/models/`** — декларативные SQLAlchemy-модели (21 таблица), см. [`DATABASE.md`](DATABASE.md).
 - **`app/schemas/`** — Pydantic-схемы запросов/ответов (DTO-граница).
 - **`app/core/`** — `config` (pydantic-settings, `.env`), `database` (async engine, `get_session`), `security` (bcrypt, JWT), `rate_limit` (скользящее окно), `exceptions` (единый конверт ошибок).
