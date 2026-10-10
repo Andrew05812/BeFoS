@@ -12,8 +12,8 @@ from app.core.security import (
     create_token,
     decode_token,
     generate_token_hash,
-    hash_password,
-    verify_password,
+    hash_password_async,
+    verify_password_async,
 )
 from app.models import Profile, User
 from app.repositories.token_repo import TokenRepository
@@ -37,7 +37,11 @@ class AuthService:
         # read above cannot be the only gate: the unique index decides, and the loser hears
         # the same answer it would have heard from a serial retry.
         try:
-            user = User(email=email.lower(), password_hash=hash_password(password), is_active=True)
+            user = User(
+                email=email.lower(),
+                password_hash=await hash_password_async(password),
+                is_active=True,
+            )
             await self.users.create(user)
         except IntegrityError:
             await self.session.rollback()
@@ -64,7 +68,7 @@ class AuthService:
     async def authenticate(self, email: str, password: str) -> User:
         user = await self.users.get_by_email(email)
         # Constant-ish behaviour: do not reveal whether the email exists.
-        if user is None or not verify_password(password, user.password_hash):
+        if user is None or not await verify_password_async(password, user.password_hash):
             raise UnauthorizedError("Invalid email or password.")
         if user.is_deleted:
             raise UnauthorizedError("Account is deactivated.")
@@ -119,11 +123,11 @@ class AuthService:
         await self.session.commit()
 
     async def change_password(self, user: User, old_password: str, new_password: str) -> None:
-        if not verify_password(old_password, user.password_hash):
+        if not await verify_password_async(old_password, user.password_hash):
             raise UnauthorizedError("Current password is incorrect.")
         if len(new_password) < 8:
             raise ValidationError("Password must be at least 8 characters.")
-        user.password_hash = hash_password(new_password)
+        user.password_hash = await hash_password_async(new_password)
         await self.tokens.revoke_all_for_user(user.id)
         await self.session.commit()
 

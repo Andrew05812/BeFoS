@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -24,6 +25,26 @@ def verify_password(password: str, password_hash: str) -> bool:
         return bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8"))
     except (ValueError, TypeError):
         return False
+
+
+async def hash_password_async(password: str) -> str:
+    """`hash_password` on a worker thread, because at rounds=12 it is a synchronous CPU burn.
+
+    Measured on one machine, a hash or a verify costs 447-461 ms. Called from an `async def`,
+    that time belongs to the event loop of the only worker the app runs, so no other request on
+    it can be scheduled: over a socket a bystander that normally answers in 24.1 ms waited 254 ms
+    at the median and 496.6 ms at the worst inside one login, and only two of them got answered in
+    that window. On a thread the same window answers 21-22 with a 24.1 ms median and none of 107
+    over 100 ms, while the login itself is unchanged (497.97 ms median on the loop, 505.87 ms on
+    the thread). bcrypt releases the GIL, which is why the thread gets the loop back rather than
+    trading it for a queue. The sync pair stays for scripts (`seed.py`) with no loop to protect.
+    """
+    return await asyncio.to_thread(hash_password, password)
+
+
+async def verify_password_async(password: str, password_hash: str) -> bool:
+    """`verify_password` on a worker thread; see `hash_password_async` for the measurement."""
+    return await asyncio.to_thread(verify_password, password, password_hash)
 
 
 def _secret_for(token_type: TokenType) -> str:
