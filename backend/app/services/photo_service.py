@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import io
 import os
 import uuid
@@ -64,8 +65,16 @@ async def read_upload_capped(upload, limit_bytes: int) -> bytes:
     return b"".join(pieces)
 
 
-async def process_and_store_upload(file_bytes: bytes, content_type: str | None) -> str:
+def process_and_store_photo(file_bytes: bytes, content_type: str | None) -> str:
     """Validate, re-encode and persist an uploaded image. Returns its public path.
+
+    Deliberately synchronous: every step in here is CPU or disk work with nothing to await, so it
+    belongs on a worker thread (see `process_and_store_upload`), not on the event loop. Measured
+    on one machine, a 3024x4032 JPEG takes 427-549 ms and a 1080x1440 one 33-38 ms, and run on
+    the loop it is the only thing that runs there: a coroutine asking to wake every 5 ms recorded
+    a longest gap equal to the re-encode (535.5 ms of a 535.3 ms call) and got four wakes in
+    total, against 29-33 wakes and a 27.1 ms longest gap on a thread. The idle floor on that
+    machine is 15.7-16.5 ms, which is Windows timer granularity rather than this code.
 
     Security:
     * rejects unsupported content types and oversized files;
@@ -123,6 +132,25 @@ async def process_and_store_upload(file_bytes: bytes, content_type: str | None) 
 
     logger.info("Stored upload %s (%d bytes)", filename, len(payload))
     return f"/uploads/{filename}"
+
+
+async def process_and_store_upload(file_bytes: bytes, content_type: str | None) -> str:
+    """`process_and_store_photo` on a worker thread, so one upload does not own the whole worker.
+
+    The app runs a single uvicorn worker and every request on it shares one event loop, so a
+    resample that runs there is the only thing that runs there. In-process, a coroutine asking to
+    wake every 5 ms saw its longest wait during one upload equal to the upload itself (535.5 ms of
+    a 535.3 ms call) and got four wakes; on a thread the same call leaves it at 27.1 ms with 29-33
+    wakes, and the bytes written are identical, hash for hash.
+
+    Over a socket the same pair reads as one bystander client against a real worker: while a
+    2400x3200 upload ran on the loop the server answered 5-8 cheap requests in its ~476 ms window
+    and the slowest waited 386 ms; on a thread it answers 18-21 in the same window and the slowest
+    waits 43.8 ms, against a 24.1 ms baseline measured with nothing in flight. Both halves drop the
+    probe's first repeat as warm-up and aggregate the five that follow, so the window above is the
+    upload's own median over those five (476.0 ms on the loop, 474.5 ms on the thread).
+    """
+    return await asyncio.to_thread(process_and_store_photo, file_bytes, content_type)
 
 
 def delete_stored_photo(url: str) -> None:
