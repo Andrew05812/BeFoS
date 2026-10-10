@@ -4,7 +4,7 @@ import uuid
 from collections import namedtuple
 from datetime import datetime, timezone
 
-from sqlalchemy import select, func, and_, bindparam, exists, or_, text, DateTime
+from sqlalchemy import select, func, and_, bindparam, exists, or_, text, tuple_, DateTime
 from sqlalchemy.dialects.postgresql import UUID as pg_uuid, insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -145,8 +145,8 @@ class ChatRepository:
         )
         if before_id is not None:
             anchor = await self.session.get(Message, before_id)
-            if anchor is not None:
-                stmt = stmt.where(Message.created_at < anchor.created_at)
+            if anchor is not None:  # the page ranks by (created_at, id), so the cut ranks by both
+                stmt = stmt.where(tuple_(Message.created_at, Message.id) < (anchor.created_at, anchor.id))
         stmt = stmt.order_by(Message.created_at.desc(), Message.id.desc()).limit(limit)
         rows = list((await self.session.execute(stmt)).all())
         rows.reverse()  # return ascending order
@@ -235,9 +235,11 @@ class ChatRepository:
                 ),
             )
             .where(Message.match_id.in_(match_ids), Message.is_deleted.is_(False))
-            # PostgreSQL DISTINCT ON picks the newest row per match in one pass.
+            # PostgreSQL DISTINCT ON picks the newest row per match in one pass. The id breaks a
+            # same-microsecond tie the same way the chat page does, so the card and the screen
+            # name the same line; `created_at` alone leaves that choice to the scan order.
             .distinct(Message.match_id)
-            .order_by(Message.match_id, Message.created_at.desc())
+            .order_by(Message.match_id, Message.created_at.desc(), Message.id.desc())
         )
         rows = (await self.session.execute(stmt)).all()
         return {row.match_id: PairLine(row.body, row.created_at, int(row.unread)) for row in rows}
