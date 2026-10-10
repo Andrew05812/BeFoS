@@ -76,7 +76,7 @@ class ChatService:
         await self._require_membership_for_write(match_id, user_id)
         lines = await self.repo.list_messages(match_id, limit=limit + 1, before_id=before_id)
         has_more = len(lines) > limit
-        lines = lines[:limit]
+        lines = lines[-limit:]  # ascending window: the extra probe row sits at the front
         marked = await self.repo.mark_read(match_id, user_id)
         await self.session.commit()
         page = [self._to_dto(line.message, user_id, is_read=line.is_read) for line in lines]
