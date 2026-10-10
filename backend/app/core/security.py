@@ -27,6 +27,18 @@ def verify_password(password: str, password_hash: str) -> bool:
         return False
 
 
+# A refusal to sign in should not say whether the email exists. Skipping the password check when no
+# account was found made the two refusals differ by an order of magnitude in wall time (measured
+# over a socket against one worker: 24.7 ms for an unknown address, 476.1 ms for a wrong password
+# on a known one), so the clock alone enumerated accounts. This hash is what an unknown address is
+# checked against instead: same algorithm, same cost factor, so the check costs what a stored hash
+# costs. Its plaintext is published next to it because it guards no account —
+# `AuthService.authenticate` refuses a missing user whatever this check returns, so knowing the
+# preimage buys nothing.
+TIMING_FILLER_PASSWORD = "befos-timing-filler"
+TIMING_FILLER_HASH = "$2b$12$7YckIb7gRVarLlFGn0Ue.u89ES/TUakO/CJbNtZmuxfTaLk.r/owm"
+
+
 async def hash_password_async(password: str) -> str:
     """`hash_password` on a worker thread, because at rounds=12 it is a synchronous CPU burn.
 
