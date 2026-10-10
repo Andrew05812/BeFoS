@@ -5,9 +5,12 @@ Revises: e6b28c4a13d0
 Create Date: 2026-10-10 18:52:41.000000
 
 ``DiscoveryRepository.new_candidate_ids`` asks for ``ORDER BY profiles.created_at DESC,
-profiles.user_id LIMIT 150``. Nothing in the schema offered that order, so the plan was
-``Limit -> Nested Loop -> Seq Scan on profiles rows=25000 loops=2``: every visible profile read,
-the viewer's anti-joins applied to all of them, the result sorted, and 150 rows kept out of it.
+profiles.user_id LIMIT 150``. Nothing in the schema offered that order, so the plan read the whole
+visible population and sorted it before anything was kept: ``Limit -> Nested Loop -> ... -> Gather
+Merge -> Sort (Sort Key: profiles.created_at DESC, profiles.user_id, quicksort) -> Parallel Seq
+Scan on profiles rows=25000 loops=2``. The two workers open all 50 000 profiles between them and
+sort them; the anti-joins then see the head of that sorted stream — 248 rows reach them, 150 leave
+it.
 Measured on the 50 000-profile stand against the application's own statement (docs/SCALE_PLAN.md,
 «Парные прогоны стадии 55»), the read costs 5.1 ms with this index instead of 43.5 ms, and the
 whole refill call — selecting a batch for a viewer with 20 000 passes behind it — 195.3/196.1 ms
@@ -38,10 +41,16 @@ the only write shift the paired run showed larger than the spread within a confi
 
 ``DESC`` binds to ``created_at`` alone. The tiebreaker is the deck's own ascending ``user_id``, and
 Postgres stores ``(created_at DESC, user_id)`` and ``(created_at DESC, user_id ASC)`` as the same
-index: both spellings read back the identical ``indexdef`` and the same 2 039 808 bytes, and the
-deck's ORDER BY then runs as ``Limit -> Index Only Scan`` with no Sort node under it. The
-distinction matters because the alternative reading — that a bare column inherits the leading
-``DESC`` — would have shipped an index the planner cannot stop early on.
+index: both spellings read back the identical ``indexdef`` and the same 2 039 808 bytes, and with
+either of them the deck's read runs as ``Index Scan using ix_profiles_deck_order on profiles
+rows=248 loops=1`` with no ``Gather Merge`` and no ``Sort`` node above it (re-measured inside one
+rolled-back transaction on the stand, ``docs/SCALE_PLAN.md`` «Приложение: Замер индекса порядка
+колоды»: 44.484 ms without the key, 5.104 and 4.962 ms with it). The same key serves a bare
+``ORDER BY ... LIMIT`` as ``Limit -> Index Only Scan`` (``Heap Fetches: 0``, 0.243 and 0.176 ms),
+but the repository's own read is not index-only — its filters name ``birth_date`` and ``gender``,
+which the key does not carry, so its scan goes to the heap. The distinction matters because the
+alternative reading — that a bare column inherits the leading ``DESC`` — would have shipped an
+index the planner cannot stop early on.
 """
 from typing import Sequence, Union
 

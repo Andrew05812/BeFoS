@@ -1,10 +1,11 @@
 """The deck's newest-first page ordered a result the schema could not supply in order.
 
 ``docs/SCALE_PLAN.md`` («Парные прогоны стадии 55») has the measurement on the 50 000-profile stand.
-The refill read the whole visible population — ``Seq Scan on profiles rows=25000 loops=2`` — sorted
-it and then took 150, because nothing in the schema offered ``created_at DESC, user_id`` as a key to
-walk: 43.5 ms for a viewer whose preferences match everybody, 5.1 ms once that index exists, and the
-plan becomes ``Limit -> Index Only Scan`` with no Sort node under it.
+The refill read the whole visible population — ``Gather Merge -> Sort -> Parallel Seq Scan on
+profiles rows=25000 loops=2`` — sorted it and then took 150, because nothing in the schema offered
+``created_at DESC, user_id`` as a key to walk: 43.5 ms for a viewer whose preferences match
+everybody, 5.1 ms once that index exists, and the plan's ``Sort`` node is gone — the read runs as
+``Index Scan using ix_profiles_deck_order on profiles rows=248``, stopping when the batch is full.
 
 What this test checks is the *pairing*, not the plan. At the size of the test database the planner
 seq-scans whatever indexes the schema carries, so an assertion about a plan would be red for the
