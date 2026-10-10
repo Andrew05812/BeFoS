@@ -13,6 +13,14 @@ columns of another key on the same table. A btree over (from_user_id, to_user_id
 `WHERE from_user_id = ?` exactly as a btree over (from_user_id) does, so the second one is never
 needed for a read and is updated on every insert anyway.
 
+The candidate-fetch sentence above needs a pointer rather than a correction. It holds: none of the
+keys dropped here is what that read walks, and a left prefix would not have changed the plan either
+way. But the sequential read itself stayed real until ``f3a07c2d5b18`` gave it a key in the order
+the deck asks for — 43.5 ms -> 5.1 ms on the 50 000-profile stand, measured in
+``docs/SCALE_PLAN.md`` («Парные прогоны стадии 55»). So the plan this revision could not improve is
+not a plan no index could improve, and a reader who is choosing between the two should read that
+stage before concluding anything about the deck.
+
 Measured on the throwaway scale database with the SQL recorded in `docs/SCALE_PLAN.md`: inserting
 100 000 rows into a copy of `passes` with the extra index took 4 047 ms, the same rows into the
 same table without it took 3 514 ms; for `messages` it was 4 234 ms against 3 518 ms, and the

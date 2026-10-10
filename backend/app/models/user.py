@@ -110,6 +110,33 @@ class Profile(TimestampMixin, Base):
         # and at 264 profiles the planner seq-scans. See docs/DATABASE.md before quoting it as
         # a win.
         Index("ix_profiles_city_lower_birth", text("lower(city)"), "birth_date"),
+        # The deck pages the visible population newest-first, and with no key in that order the
+        # planner reads every visible row, sorts it, and keeps 150 of them. Measured on the 50 000
+        # stand against this repository's own statement: the candidate read costs 5.1 ms instead of
+        # 43.5 ms where preferences match everybody, and in a paired ABBA run of the whole refill
+        # call — a viewer with 20 000 passes behind it — 15.0/15.1 ms against 381.2/381.7 ms, the
+        # call itself 195.3/196.1 ms against 578.1/562.3 ms, with the chat read of the same run
+        # standing at 2.5-2.7 ms in all four positions (docs/SCALE_PLAN.md, «Парные прогоны стадии
+        # 55»). `DESC` binds to `created_at` alone — the catalog stores this key and
+        # `(created_at DESC, user_id ASC)` as one and the same index, which is what lets the read
+        # be a walk the Limit stops rather than a sort it waits for.
+        #
+        # The predicate is the half of the deck's visibility rule an index over `profiles` can name
+        # — a partial index cannot reach into `users`, so `is_deleted` and `is_active` stay in the
+        # join — and it is there for the reason `onboarding_completed_at` exists at all: a
+        # registration shell and a hidden profile can never be shown, so entering them is a write
+        # that answers no read. Measured on the same stand: 1 000 registrations leave a finished
+        # index at 2 039 808 bytes, completing their onboarding adds 49 152 of them, and hiding
+        # them again adds nothing — entries go dead rather than away (docs/SCALE_PLAN.md,
+        # «Индекс порядка колоды: что он берёт с записи»).
+        Index(
+            "ix_profiles_deck_order",
+            text("created_at DESC"),
+            "user_id",
+            postgresql_where=text(
+                "is_hidden IS FALSE AND onboarding_completed_at IS NOT NULL"
+            ),
+        ),
     )
 
     @property
