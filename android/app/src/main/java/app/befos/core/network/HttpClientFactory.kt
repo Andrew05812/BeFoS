@@ -92,18 +92,36 @@ fun createHttpClient(
 ): HttpClient = HttpClient(engine) {
     expectSuccess = false
 
-    // Fail fast when the backend is unreachable; the socket defaults hang for ~10s each,
-    // which turns a cold start without network into a minute of blank splash.
+    // Every phase this client can wait in is named here, because only the connect used to be.
+    // Measured on this stack (JVM, Ktor 3.0.1 + OkHttp): a server that accepts the connection and
+    // stays silent was cut at 10 063 ms by an inherited engine default — the failure itself said
+    // `socket_timeout=unknown` — while a response that trickles under that default was not cut at
+    // all (still reading at 80 034 ms). The socket line declares the ten seconds that were already
+    // in force, so nothing here changes how long the app waits; it changes what the wait is called,
+    // and the ceiling is the app's first bound on a whole call. It sits above the backend's
+    // measured queue hold (30.002 / 30.004 / 30.007 s, docs/OPERATIONS.md §7) and does not buy the
+    // patience to wait that out: a queued request sends no bytes, so the ten-second silence line
+    // ends it first — derived from the two measured numbers above, not run against an exhausted
+    // pool. Widening that line to 30 s would trade a failure the user can retry at once for a
+    // half-minute spinner, and this stage leaves the choice where the default had put it. A body
+    // this client is not meant to deliver in seconds raises both numbers per request — see
+    // ApiService.uploadPhoto.
     install(HttpTimeout) {
         connectTimeoutMillis = 5_000
+        socketTimeoutMillis = 10_000
+        requestTimeoutMillis = 35_000
     }
 
     install(ContentNegotiation) {
         json(befosJson)
     }
 
-    // Keepalive pings surface half-open sockets (abrupt server loss) as failures,
-    // so the chat reconnect loop can actually restart instead of hanging on read.
+    // Installed because a chat connection needs a heartbeat, but what it delivers here is not
+    // measured: against a peer that accepts the handshake and then says nothing, a pending read of
+    // 60 s produced eight bytes on the wire — a masked Close(1000), sent when the session was
+    // cancelled — and no PING at all. So `ChatSocket` reconnects on real read failures (close
+    // frame, transport error, failed handshake), not on a ping timeout, and a black-holed socket is
+    // not known to surface on its own.
     install(WebSockets) {
         pingIntervalMillis = 10_000
     }
