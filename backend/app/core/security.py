@@ -30,14 +30,16 @@ def verify_password(password: str, password_hash: str) -> bool:
 async def hash_password_async(password: str) -> str:
     """`hash_password` on a worker thread, because at rounds=12 it is a synchronous CPU burn.
 
-    Measured on one machine, a hash or a verify costs 447-461 ms. Called from an `async def`,
+    Measured on one machine, a hash or a verify costs 451-468 ms. Called from an `async def`,
     that time belongs to the event loop of the only worker the app runs, so no other request on
-    it can be scheduled: over a socket a bystander that normally answers in 24.1 ms waited 254 ms
-    at the median and 496.6 ms at the worst inside one login, and only two of them got answered in
-    that window. On a thread the same window answers 21-22 with a 24.1 ms median and none of 107
-    over 100 ms, while the login itself is unchanged (497.97 ms median on the loop, 505.87 ms on
-    the thread). bcrypt releases the GIL, which is why the thread gets the loop back rather than
-    trading it for a queue. The sync pair stays for scripts (`seed.py`) with no loop to protect.
+    it can be scheduled: over a socket a bystander that normally answers in 24.1 ms waited 253.8 ms
+    at one login's median and 496.6 ms at the worst in that window, and only two of them got
+    answered there. On a thread the same window answers 21-22 with a 24.1 ms median and none of 107
+    over 100 ms, while the login itself is unchanged (492.5 ms median on the loop, 505.1 ms on the
+    thread). Both halves of that pair drop the probe's first repeat as warm-up and aggregate the
+    five that follow, which is the same rule the bystander tallies above use. bcrypt releases the
+    GIL, which is why the thread gets the loop back rather than trading it for a queue. The sync
+    pair stays for scripts (`seed.py`) with no loop to protect.
     """
     return await asyncio.to_thread(hash_password, password)
 

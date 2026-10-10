@@ -2,7 +2,7 @@
 
 The app serves from one uvicorn worker, so one loop carries every request on it. Two paths used
 to spend synchronous CPU work there directly: bcrypt at `rounds=12`, and the Pillow re-encode of
-an uploaded photo. Measured on one machine, a hash or a verify held the loop for 447-461 ms and a
+an uploaded photo. Measured on one machine, a hash or a verify held the loop for 451-462 ms and a
 3024x4032 JPEG for 427-549 ms, and a bystander coroutine that asked to wake every 5 ms recorded
 its longest wait as the whole duration of the request it lived through — the loop ran nothing else
 meanwhile. Both paths now hand the work to a worker thread, and the same bystander comes back at
@@ -16,13 +16,15 @@ picture, and every auth test signs in through these same routes.
 
 The same defect measured over a real socket against a real single-worker uvicorn, where the
 bystander is an ordinary second client rather than a coroutine, put the numbers on the client side
-of the wire: against a 24.1 ms baseline (`again` at 24.2 ms, so the harness itself did not drift),
-one login on the loop answered 2 cheap requests in its ~490 ms window with the slowest waiting
-496.6 ms, while the same login on a thread answered 21-22 with nothing over 100 ms in 107 samples.
-The cost to the subject was none (login median 497.97 ms on the loop, 505.87 ms on the thread);
-what changed was everybody else. Under four concurrent logins the loop version took 1898 ms of wall
-and left a bystander 1889.9 ms behind it, the thread version 534 ms with a 36.9 ms worst bystander,
-because bcrypt on the loop is not only slow, it is strictly serial.
+of the wire. Both sides of that pair drop the probe's first repeat as warm-up and aggregate the
+five that follow, and its baseline is the idle window that opens the run and the same window that
+closes it: 24.0 ms and 24.0 ms on the pre-fix tree, 24.4 ms and 24.1 ms on the fixed one, so the
+harness itself did not drift. In one login's ~492 ms window the loop answered 2 cheap requests
+with the slowest waiting 496.6 ms, while the same login on a thread answered 21-22 with nothing
+over 100 ms in 107 samples; the cost to the subject was none (492.5 ms on the loop, 505.1 ms on
+the thread), what changed was everybody else. Under four concurrent logins the loop version took
+1897 ms of wall and left a bystander 1889.9 ms behind it, the thread version 532 ms with a
+36.9 ms worst bystander, because bcrypt on the loop is not only slow, it is strictly serial.
 """
 from __future__ import annotations
 
