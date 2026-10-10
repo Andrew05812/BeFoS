@@ -9,6 +9,7 @@ from app.core.config import settings
 from app.core.exceptions import ConflictError, UnauthorizedError, ValidationError
 from app.core.logging import get_logger
 from app.core.security import (
+    TIMING_FILLER_HASH,
     create_token,
     decode_token,
     generate_token_hash,
@@ -67,8 +68,13 @@ class AuthService:
 
     async def authenticate(self, email: str, password: str) -> User:
         user = await self.users.get_by_email(email)
-        # Constant-ish behaviour: do not reveal whether the email exists.
-        if user is None or not await verify_password_async(password, user.password_hash):
+        # Constant-ish behaviour: do not reveal whether the email exists. The check below used to be
+        # skipped for an address that has no account, which answered the two refusals 451 ms apart;
+        # now both of them pay for one bcrypt, the unknown one against a filler hash that guards no
+        # account. See `TIMING_FILLER_HASH`.
+        password_hash = user.password_hash if user is not None else TIMING_FILLER_HASH
+        password_ok = await verify_password_async(password, password_hash)
+        if user is None or not password_ok:
             raise UnauthorizedError("Invalid email or password.")
         if user.is_deleted:
             raise UnauthorizedError("Account is deactivated.")
