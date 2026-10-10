@@ -756,8 +756,24 @@ def _format_row(row: dict) -> str:
     )
 
 
+def _viewer_matches(size: int, override: int = 0) -> int:
+    """How many pairs the viewer of one stand holds.
+
+    The route this feeds puts no ceiling on its read (`MatchesService.list_matches` has no
+    `.limit()`), so the list the screen returns grows with the account while the default here was
+    flat: 20 пар at 1 000, 60 at 10 000 and at 50 000. That is the shape the published rows were
+    measured at (стадия 33 gives 29.8 / 37.2 / 34.3 мс), and it is why the waste stage 49 removed
+    from this read was invisible for the thirty stages before it — the same reason a cap hides an
+    overflow: the axis was never sampled. On the stand of 2026-10-10 the same code at 1 000 пар
+    стоит 276.7 мс. `--viewer-matches` makes that axis a command instead of an edit.
+    """
+    if override > 0:
+        return override
+    return min(60, max(5, size // 50))
+
+
 async def _measure_size(asyncpg, database: str, size: int, acted: int, runs: int,
-                        path_names: list[str], verbose: bool) -> dict:
+                        path_names: list[str], verbose: bool, viewer_matches: int = 0) -> dict:
     from sqlalchemy import event
     from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
@@ -767,7 +783,7 @@ async def _measure_size(asyncpg, database: str, size: int, acted: int, runs: int
     _upgrade_schema(database)
     seed = await _seed(asyncpg, database, size, hash_password(PASSWORD))
     activity = await _seed_activity(
-        asyncpg, database, acted, matches=min(60, max(5, size // 50)), messages=120,
+        asyncpg, database, acted, matches=_viewer_matches(size, viewer_matches), messages=120,
         crowd_matches=size // 10, crowd_messages=8,
     )
 
@@ -888,6 +904,12 @@ async def main() -> None:
     parser.add_argument("--acted", type=int, default=0, help="пропуски зрителя (0 = 40%% от размера)")
     parser.add_argument("--runs", type=int, default=5)
     parser.add_argument("--paths", default="")
+    parser.add_argument(
+        "--viewer-matches",
+        type=int,
+        default=0,
+        help="пар у зрителя (0 = прежняя формула min(60, max(5, размер / 50)))",
+    )
     parser.add_argument("--json", default="")
     parser.add_argument("--quiet", action="store_true")
     args = parser.parse_args()
@@ -919,7 +941,10 @@ async def main() -> None:
         size = int(size_text)
         acted = args.acted or int(size * 0.4)
         report["scales"].append(
-            await _measure_size(asyncpg, args.database, size, acted, args.runs, wanted, not args.quiet)
+            await _measure_size(
+                asyncpg, args.database, size, acted, args.runs, wanted, not args.quiet,
+                args.viewer_matches,
+            )
         )
     if args.json:
         Path(args.json).write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
