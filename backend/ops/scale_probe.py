@@ -772,10 +772,43 @@ def _viewer_matches(size: int, override: int = 0) -> int:
     return min(60, max(5, size // 50))
 
 
+def _stand_engine(database: str):
+    """An engine for the stand that plans the way the product's connections plan.
+
+    Every latency row this harness publishes is read as what one call costs the app, so the
+    connection it is measured on has to make the same plan decision the app's connections make.
+    Until stage 58 it did not: the engine was built here, bare, and Postgres therefore switched
+    the deck's selection rule to one generic plan after the fifth execution of the pooled
+    connection — the decision `app.core.database` now refuses to let the server make. The
+    published table was measured on the configuration that produced the penalty, so it described
+    neither the app of the day nor the app after the fix.
+
+    The switch is reachable here precisely because the harness borrows one connection at a time:
+    the pool's ceiling of five is never filled — one backend pid serves a whole run of thirteen
+    paths — so the deck's rule, which `discovery_rebuild` and `discovery_page` call before the
+    exhausted page is timed, passes its fifth execution inside the same run. Measured on the 50 000
+    stand, holding the harness's own path order and reading `pg_prepared_statements` after every
+    path: the rule stands at 1 generic plan against 5 custom already when `discovery_page` ends, and
+    at 4 against 8 by the time `deck_exhausted` is timed, while the same sequence on this engine
+    leaves it at 0 against 12 and the page at 101 ms against 238.
+
+    Only the plan decision is shared. The pool stays the harness's own, without the product's
+    pre-ping and recycling, because the stand measures a single call rather than a queue of
+    concurrent ones.
+    """
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    from app.core.database import PLAN_MODE_CONNECT_ARGS
+
+    return create_async_engine(
+        _sqlalchemy_url(database), pool_size=5, connect_args=PLAN_MODE_CONNECT_ARGS
+    )
+
+
 async def _measure_size(asyncpg, database: str, size: int, acted: int, runs: int,
                         path_names: list[str], verbose: bool, viewer_matches: int = 0) -> dict:
     from sqlalchemy import event
-    from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+    from sqlalchemy.ext.asyncio import AsyncSession
 
     from app.core.security import hash_password
 
@@ -802,7 +835,7 @@ async def _measure_size(asyncpg, database: str, size: int, acted: int, runs: int
     )
     await admin.close()
 
-    engine = create_async_engine(_sqlalchemy_url(database), pool_size=5)
+    engine = _stand_engine(database)
     await _seed_catalog(engine)
     captured: dict[str, list[tuple[str, tuple]]] = {}
     active = {"path": None}
