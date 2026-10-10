@@ -32,6 +32,20 @@ engine = create_async_engine(
     # served requests into refusals — at 45 concurrent borrowers holding 3 s each the last wave
     # waited up to 6.15 s and was still served — so the value stays and only its source changes.
     pool_timeout=30,
+    # What a connection does with a statement it has already seen five times. Postgres plans a
+    # named prepared statement from the bound values for its first five executions and then may
+    # keep one generic plan for the rest of the connection's life, and the dialect names every
+    # statement, so the switch belongs to this engine rather than to whoever writes the SQL.
+    # Measured on the 50 000 stand (stage 57), for the deck's selection rule on a spent deck:
+    # 192.52 ms of execution time once the connection has switched, 65.84 ms while it plans from
+    # the values, with `pg_prepared_statements` reading 35 generic against 5 custom after 40
+    # calls — the generic shape is `Index Only Scan on the queue pair key, loops = candidates`,
+    # so the product of the candidate set and the deck is what the page pays. The price of
+    # forcing custom plans is the planning the switch had made once per connection: +0.05…+1.9 ms
+    # across the seven hot reads measured, none of them a tenth of the deck page's 124 ms. The
+    # alternative that also keeps the values — `prepared_statement_cache_size=0` — measured worse
+    # on every one of those paths (+4.1…+24.7 ms), because it pays a Parse round trip per call.
+    connect_args={"server_settings": {"plan_cache_mode": "force_custom_plan"}},
 )
 
 # What asyncpg raises for a socket the server closed between two statements. It is not a
