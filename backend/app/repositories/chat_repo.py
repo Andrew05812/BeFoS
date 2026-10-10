@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from collections import namedtuple
 from datetime import datetime, timezone
 
 from sqlalchemy import select, func, and_, bindparam, exists, or_, text, DateTime
@@ -9,6 +10,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models import Match, Message, MessageRead
+
+# What the pair list answers with per conversation: the newest body, its time, and how many of the
+# partner's lines the reader has not receipted. A row of the narrow `chat_summaries` read.
+PairLine = namedtuple("PairLine", "body created_at unread")
 
 
 class ChatRepository:
@@ -163,13 +168,18 @@ class ChatRepository:
 
     async def chat_summaries(
         self, match_ids: list[uuid.UUID], reader_id: uuid.UUID
-    ) -> dict[uuid.UUID, tuple[Message | None, int]]:
+    ) -> dict[uuid.UUID, PairLine]:
         """The newest line and the unread counter of every pair, in one pass over ``messages``.
 
         Two statements used to walk the same rows of the same table for the same list of match ids:
         ``DISTINCT ON`` picked the newest message of each pair, a second ``count(…) GROUP BY``
         counted the waiting ones. A window aggregate over the pair's partition puts that counter on
         the row ``DISTINCT ON`` keeps, so one read carries both columns of the card.
+
+        The projection stops there. A ``Message`` entity carries eight columns of the row while this
+        read answers with three — the pair, the line, its time — and the card asks for no author, no
+        client id, no deletion flag and no updated stamp of the newest message (stage 49,
+        `docs/SCALE_PLAN.md`).
 
         The receipt is joined on the reader, so a row written by the partner — and every sent
         message carries its author's own receipt — leaves this counter alone. The join cannot fan a
@@ -183,7 +193,9 @@ class ChatRepository:
         waiting = and_(Message.sender_id != reader_id, MessageRead.id.is_(None))
         stmt = (
             select(
-                Message,
+                Message.match_id,
+                Message.body,
+                Message.created_at,
                 func.count()
                 .filter(waiting)
                 .over(partition_by=Message.match_id)
@@ -202,4 +214,4 @@ class ChatRepository:
             .order_by(Message.match_id, Message.created_at.desc())
         )
         rows = (await self.session.execute(stmt)).all()
-        return {message.match_id: (message, int(unread)) for message, unread in rows}
+        return {row.match_id: PairLine(row.body, row.created_at, int(row.unread)) for row in rows}

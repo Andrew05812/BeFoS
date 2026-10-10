@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 from sqlalchemy import and_, or_, select, func
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -51,7 +52,8 @@ class UserRepository:
         ``Profile.interests`` loads by default with every profile, so the default has to be
         turned off rather than left out, and it is turned off with ``raiseload`` rather than
         ``noload``: a caller that starts asking for the set gets an error instead of an empty
-        answer, which is the same rule ``get_profiles_without_interests`` states for the batch.
+        answer. The batch a card is built from does not need that guard for the same reason it
+        no longer loads the row — see ``get_profile_cards``.
         """
         stmt = (
             select(Profile)
@@ -211,39 +213,46 @@ class UserRepository:
         )
         return list((await self.session.execute(stmt)).scalars().all())
 
-    async def get_profiles_without_interests(self, user_ids: list[uuid.UUID]) -> list[Profile]:
-        """The same batch for a page that shows who people are, not what they like.
+    async def get_profile_cards(self, user_ids: list[uuid.UUID]) -> list[Any]:
+        """The batch a card is built from: an id, a name, a birth date, a city — and nobody deleted.
 
         ``Profile.interests`` loads with every profile by default, and that loader is the widest
         read in the match list on volume — one `Seq Scan user_interests` over 30 004 строки at
-        10 000 анкет (`docs/SCALE_PLAN.md` §2). The list answers with a name, a city, a photo and
-        a stored percent, so it was paying for its most expensive query and throwing the rows away.
+        10 000 анкет (`docs/SCALE_PLAN.md` §2). Stage 33 turned that loader off, and stage 49
+        stopped asking for the rest of the row too: the card answers with a name, an age and a
+        city, so the free text, the jsonb lifestyle and both preference arrays are columns this
+        page reads and throws away — an object of seventeen columns built per card to show three.
 
-        Reading `.interests` off one of these objects raises instead of returning an empty list:
-        a page that starts showing interests has to come and ask for the loader here, rather than
-        silently serve nobody's.
+        The age is not a column. Callers compute it with ``age_years(birth_date, utc_today())``,
+        the same calendar the row's own ``age`` property uses (stage 18).
         """
         if not user_ids:
             return []
         stmt = (
-            select(Profile)
+            select(Profile.user_id, Profile.name, Profile.birth_date, Profile.city)
             .join(User, User.id == Profile.user_id)
-            .options(raiseload(Profile.interests))
             .where(Profile.user_id.in_(user_ids), User.is_deleted.is_(False))
         )
-        return list((await self.session.execute(stmt)).scalars().all())
+        return list((await self.session.execute(stmt)).all())
 
-    async def get_primary_photos(self, user_ids: list[uuid.UUID]) -> dict[uuid.UUID, Photo]:
+    async def get_primary_photos(self, user_ids: list[uuid.UUID]) -> dict[uuid.UUID, str]:
+        """The url of each user's leading photo, in the one order a photo list is ever read in.
+
+        Both callers of this batch paint the avatar and nothing else, so the projection is the owner
+        and the url; the four columns that decide which photo leads stay in ORDER BY, where the card
+        never sees them. ``Photo`` entities carried seven columns per row of a batch the screen
+        answers with one url from (stage 49, `docs/SCALE_PLAN.md`).
+        """
         if not user_ids:
             return {}
         stmt = (
-            select(Photo)
+            select(Photo.user_id, Photo.url)
             .where(Photo.user_id.in_(user_ids))
             .order_by(Photo.user_id, *PHOTO_DISPLAY_ORDER)
         )
-        first: dict[uuid.UUID, Photo] = {}
-        for photo in (await self.session.execute(stmt)).scalars():
-            first.setdefault(photo.user_id, photo)
+        first: dict[uuid.UUID, str] = {}
+        for row in (await self.session.execute(stmt)).all():
+            first.setdefault(row.user_id, row.url)
         return first
 
     async def upsert_profile(self, profile: Profile) -> Profile:
