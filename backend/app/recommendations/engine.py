@@ -19,11 +19,31 @@ from dataclasses import dataclass, field
 
 from app.compatibility.traits import TRAIT_CATEGORIES_BY_KEY, goal_compatibility
 
-W_INTEREST = 0.40
-W_LEISURE = 0.20
-W_LIFESTYLE = 0.15
-W_LOCATION = 0.15
-W_GOAL = 0.10
+# The five numbers the score adds up, keyed by the components the docstring lists, in the order
+# `score_activity` multiplies them. Written in one place only: a weight edited where the score does
+# not read it is the silent failure the check below exists to catch.
+WEIGHTS: dict[str, float] = {
+    "interest": 0.40,
+    "leisure": 0.20,
+    "lifestyle": 0.15,
+    "location": 0.15,
+    "goal": 0.10,
+}
+
+
+def validate_weights(weights: dict[str, float] = WEIGHTS) -> float:
+    """Raise unless the weights sum to 1.0, the way `WeightConfig.validate` guards compatibility."""
+    total = round(sum(weights.values()), 6)
+    if abs(total - 1.0) > 1e-6:
+        raise ValueError(f"Recommendation weights must sum to 1.0, got {total}")
+    return total
+
+
+# A weight edited away from the sum is a broken import, not a page that quietly returns a different
+# ceiling: below 1.0 the best pair the product can offer is shown as less than the 100 the scale
+# promises, and above 1.0 the defect is invisible through scores at all, because `_clamp01`
+# saturates it.
+validate_weights()
 
 
 @dataclass(frozen=True)
@@ -139,11 +159,11 @@ def score_activity(act: ActivitySignal, a: UserSignal, b: UserSignal) -> ScoredA
     goal, r5 = _goal_match(a, b)
 
     total = _clamp01(
-        interest * W_INTEREST
-        + leisure * W_LEISURE
-        + lifestyle * W_LIFESTYLE
-        + location * W_LOCATION
-        + goal * W_GOAL
+        interest * WEIGHTS["interest"]
+        + leisure * WEIGHTS["leisure"]
+        + lifestyle * WEIGHTS["lifestyle"]
+        + location * WEIGHTS["location"]
+        + goal * WEIGHTS["goal"]
     )
     reasons = [r for r in (r1 + r2 + r3 + r4 + r5) if r]
     return ScoredActivity(activity_id=act.activity_id, score=total, reasons=reasons)
