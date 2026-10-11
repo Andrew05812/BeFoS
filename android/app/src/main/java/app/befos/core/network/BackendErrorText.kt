@@ -40,6 +40,7 @@ private val translated: Map<String, String> = mapOf(
     "birth_date must be in yyyy-mm-dd format." to "Укажите корректную дату рождения.",
     "age_min cannot be greater than age_max." to "Максимальный возраст должен быть не меньше минимального.",
     "complete your profile before discovering people." to "Заполните анкету, чтобы увидеть людей.",
+    "an interest name cannot be empty." to "Пустой интерес выбрать нельзя.",
 
     // photos
     "unsupported image type. use jpeg, png or webp." to "Поддерживаются JPEG, PNG и WEBP.",
@@ -96,6 +97,9 @@ private val translatedPrefixes: List<Pair<String, String>> = listOf(
     "Test is not finished yet" to "Пройдите тест до конца, чтобы увидеть результат.",
     "client_msg_id" to "Сообщение не отправлено. Попробуйте ещё раз.",
     "Unknown message type" to "Сообщение не отправлено. Попробуйте ещё раз.",
+    // Both interest refusals name data the backend counted, so neither is a fixed sentence.
+    "A profile can hold at most " to "Интересов можно выбрать не больше 30.",
+    "Interests the catalogue does not know" to "Таких интересов в списке нет. Обновите экран и выберите заново.",
 )
 
 /** Second layer: the envelope's machine code covers messages this file has never seen. */

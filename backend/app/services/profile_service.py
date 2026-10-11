@@ -16,6 +16,10 @@ from app.services.compatibility_service import CompatibilityService
 VALID_GENDERS = {"male", "female", "nonbinary", "other"}
 VALID_GOALS = {"relationship", "marriage", "friendship", "casual", "networking"}
 
+# How many interests one profile carries. The number already decided what got stored; it is now
+# the number a request is refused against, so it lives where both readings can reach it.
+MAX_INTERESTS = 30
+
 # Editing any of these changes who the viewer should be shown, so the deck built under the
 # old values cannot be paged through any more.
 _DECK_FIELDS = {"age_min", "age_max", "gender_preference", "interests", "dating_goal"}
@@ -210,14 +214,33 @@ class ProfileService:
         return profile
 
     async def _set_interests(self, profile: Profile, slugs: list[str]) -> list[Interest]:
-        """Store the answered set and hand back the rows it stores, in the order the answer shows.
+        """Store the answered set, refusing an answer the store cannot hold.
 
         The catalogue read is what turns slugs into interests, so the rows the answer needs are in
         hand before the link rows are written — returning them is what lets the response skip both
         the profile row and the set.
+
+        Both checks below run before anything reaches that write, and the write is a DELETE of the
+        old set plus one INSERT of the new. A name the catalogue does not carry used to be dropped
+        between them, so an answer of one real name and two invented ones erased the thirty rows the
+        profile held and stored one, at HTTP 200 with a shorter list and no word about it. The
+        ceiling is checked first because it needs no query, and because it bounds the list the
+        unknown-name refusal echoes: a body of two hundred invented slugs gets the ceiling sentence,
+        not two hundred names back.
         """
-        cleaned = list(dict.fromkeys(s.strip().lower() for s in slugs if s and s.strip()))[:30]
+        if any(not s.strip() for s in slugs):
+            raise ValidationError("An interest name cannot be empty.")
+        cleaned = list(dict.fromkeys(s.strip().lower() for s in slugs))
+        if len(cleaned) > MAX_INTERESTS:
+            raise ValidationError(
+                f"A profile can hold at most {MAX_INTERESTS} interests; "
+                f"this answer names {len(cleaned)}."
+            )
         interests = await self.users.list_interests_by_slugs(cleaned)
+        known = {interest.slug for interest in interests}
+        missing = [slug for slug in cleaned if slug not in known]
+        if missing:
+            raise ValidationError(f"Interests the catalogue does not know: {', '.join(missing)}.")
         await self.users.set_profile_interests(profile.id, interests)
         return interests
 
