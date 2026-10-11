@@ -679,6 +679,41 @@ def _scan_summary(plan: dict) -> dict:
     return summary
 
 
+async def _settle_statistics(asyncpg, database: str) -> None:
+    """Make the planner's row estimates describe the rows the stand holds right now.
+
+    A path's latency is the price of the plan the server chose, and the plan is chosen from
+    ``pg_class.reltuples`` and ``pg_statistic`` — not from the rows. The harness writes those rows
+    in two places the estimates do not follow automatically: the catalogue seed after the readout,
+    and a path's own setup, which for the exhausted deck is a queue of one row per account on the
+    stand. Until this function was called per path, the only ``ANALYZE`` of the run sat before both
+    of them, so the measured page was planned against a queue the statistics still called empty.
+
+    Measured on ``befos_s67fresh`` (50 000 accounts, viewer with 20 000 passes, deck drained by the
+    setup): ``reltuples = 0`` and ``relpages = 0`` with 50 000 rows in the table, ``last_analyze``
+    16:33:55 while the drain wrote at 16:34:0x and the server's own autoanalyze only reached the
+    table at 16:34:54 — after every number of the run had been taken. The published row was
+    323.4 ms median with a plan of 317.5 ms, 223 169 shared-buffer hits and an index-only scan of
+    the queue run 30 000 times; the same statement text and the same parameters, replayed once the
+    queue was counted, cost 68.1…76.5 ms with 1 760 hits and a hash anti join, and the whole call
+    102.2 ms (``s67_capture_feed.py``, ``s67_probe_flip.py``). One row moved in ``_measure_size``
+    between those two states: when the statistics were refreshed. Re-run end to end with this step in
+    the loop, the same stand published ``deck_exhausted`` first 159.7 / median 107.2 / max 108.3 ms
+    and ``discovery_rebuild`` 118.2 / 108.7 / 109.2 ms, with worst reads of 81.73 and 74.32 ms over
+    1 766 and 1 760 hits and a ``Seq Scan`` of the 50 000 profiles in a single loop.
+
+    ``ANALYZE`` costs about 2.2 s on a 50 000 stand (measured twice: 2 321 ms and 2 189 ms), which
+    is why it runs once per path rather than being hoisted into the seed: a path that grows the
+    queue as it is timed — every deck page appends — has to be planned against the queue the
+    previous paths left, not the one the crowd was seeded with.
+    """
+    conn = await asyncpg.connect(dsn=_asyncpg_dsn(database))
+    try:
+        await conn.execute("ANALYZE")
+    finally:
+        await conn.close()
+
+
 async def _plans(asyncpg, dsn: str, captured: dict[str, list[tuple[str, tuple]]]) -> dict:
     """Replay the reads each path sent, so a latency number arrives with the plan behind it.
 
@@ -821,7 +856,10 @@ async def _measure_size(asyncpg, database: str, size: int, acted: int, runs: int
     )
 
     admin = await asyncpg.connect(dsn=_asyncpg_dsn(database))
-    await admin.execute("ANALYZE")
+    # No ANALYZE here: the numbers below read the live counters and the on-disk sizes, both of
+    # which describe the crowd as it was seeded, while the estimates a path is planned under have
+    # to describe the queue and the catalogue this harness is about to write on top of that crowd.
+    # `_settle_statistics` is called per path for that reason.
     tables = await admin.fetch(
         "SELECT relname, n_live_tup FROM pg_stat_user_tables WHERE n_live_tup > 0 "
         "ORDER BY n_live_tup DESC LIMIT 8"
@@ -866,6 +904,11 @@ async def _measure_size(asyncpg, database: str, size: int, acted: int, runs: int
                         await session.rollback()
                         rows.append({"path": name, "error": f"setup: {type(error).__name__}: {str(error)[:200]}"})
                         continue
+            # Outside the measured window, and before every path rather than once per stand: the
+            # rows a path is planned against include the ones the setup above wrote and the ones
+            # the earlier paths left in the deck. Without this the exhausted page is timed on a
+            # queue the statistics call empty — see `_settle_statistics`.
+            await _settle_statistics(asyncpg, database)
             timings = []
             failure = None
             for _ in range(runs):
