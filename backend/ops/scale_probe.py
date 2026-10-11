@@ -55,8 +55,13 @@ INTEREST_ROWS = [
     ("reading", "Книги", "culture"),
 ]
 
-# The vector shape is what the engine reads; the trait keys come from
-# app/compatibility/traits.py and values stay inside 0..1 like a real questionnaire leaves them.
+# The vector shape is what the engine reads, and the values stay inside 0..1 like a real
+# questionnaire leaves them, but these ten keys are the instrument's own: seven of them (closeness,
+# space, homebody, outdoors, health, routine, and stability hanging off personality) are not
+# declared by app/compatibility/traits.py. `_trait_similarity` divides over whatever keys the two
+# vectors share, so a stand pair is scored on those seven, and `_trait_label` has no Russian word
+# for them — it hands back the slug. The answer-path guard of stage 69 reaches none of this: these
+# rows are written by seeding, not by `POST /tests/answers`.
 _VECTOR = """
     jsonb_build_object(
       'values', jsonb_build_object('family', 0.1 + (p.n % 9) / 10.0, 'career', 0.1 + ((p.n + 3) % 9) / 10.0),

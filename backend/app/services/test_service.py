@@ -48,6 +48,9 @@ class TestService:
         questions = await self.repo.get_active_questions(
             {item["question_id"] for item in answers}
         )
+        # The catalogue is checked before the batch it belongs to is written, so an answer to a
+        # drifted question cannot reach `test_answers` at all.
+        self._require_declared_axes(questions)
         catalog = {q.id: {option.id for option in q.options} for q in questions}
         rows: dict[int, int] = {}
         for item in answers:
@@ -131,13 +134,34 @@ class TestService:
             "engine_version": ENGINE_VERSION,
         }
 
-    async def validate_categories(self) -> None:
-        """Ensure every active question maps to a known trait category."""
-        questions = await self.repo.list_active_questions()
-        for q in questions:
-            if q.category in TRAIT_CATEGORIES_BY_KEY:
-                trait_keys = {t.key for t in TRAIT_CATEGORIES_BY_KEY[q.category].traits}
-                if q.trait not in trait_keys:
-                    raise ValidationError(
-                        f"Question {q.id} has unknown trait '{q.trait}' for category '{q.category}'."
-                    )
+    @staticmethod
+    def _require_declared_axes(questions: list) -> None:
+        """Refuse a batch that answers a question naming an axis the taxonomy does not declare.
+
+        The vector is keyed by the question row's own `category` and `trait`, while the engine reads
+        it back through `TRAIT_CATEGORIES_BY_KEY`, so a pair that agrees today is an invariant
+        nothing except this method states. Measured on the live stand before this stage, with one
+        `test_questions` row inserted at `category='leisure', trait='gaming_taste'`: the batch of 22
+        answers returned 200, the name was stored in `compatibility_profiles.vector`, the pair's
+        percent moved 92 -> 91 because `_trait_similarity` counts every key of the intersection,
+        `_trait_label` handed back the raw slug, and the match screen's line came out as
+        "Разное отношение: gaming_taste — gaming_taste vs gaming_taste". A declared axis differs by
+        a Russian word on the same screen.
+
+        Rows are sorted by id so a batch answering two drifted questions refuses with the same name
+        every time, and the unknown category is refused too: it folds into the vector the same way
+        and the engine simply never reads it back, which is the other half of the same silence.
+        """
+        for q in sorted(questions, key=lambda row: row.id):
+            category = TRAIT_CATEGORIES_BY_KEY.get(q.category)
+            if category is None:
+                raise ValidationError(
+                    f"Question {q.id} names category '{q.category}', which the trait taxonomy "
+                    "does not declare."
+                )
+            declared = {trait.key for trait in category.traits}
+            if q.trait not in declared:
+                raise ValidationError(
+                    f"Question {q.id} names trait '{q.trait}', which category '{q.category}' "
+                    f"does not declare; its axes are {', '.join(sorted(declared))}."
+                )
