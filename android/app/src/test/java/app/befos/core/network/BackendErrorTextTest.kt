@@ -22,6 +22,7 @@ class BackendErrorTextTest {
             "Unsupported image type. Use JPEG, PNG or WEBP." to "Поддерживаются JPEG, PNG и WEBP.",
             "You cannot act on your own profile." to "Это ваша анкета.",
             "Complete your profile before discovering people." to "Заполните анкету, чтобы увидеть людей.",
+            "An interest name cannot be empty." to "Пустой интерес выбрать нельзя.",
         )
         cases.forEach { (backend, expected) ->
             assertEquals(expected, localizeBackendError(backend, "validation_error", 422))
@@ -41,6 +42,29 @@ class BackendErrorTextTest {
                 )
             )
         )
+        // Both interest refusals count names in the sentence, so their keys can only be prefixes.
+        assertEquals(
+            "Интересов можно выбрать не больше 30.",
+            localizeBackendError(
+                "A profile can hold at most 30 interests; this answer names 31.",
+                "validation_error",
+                422,
+            ),
+        )
+        assertEquals(
+            "Таких интересов в списке нет. Обновите экран и выберите заново.",
+            localizeBackendError(
+                "Interests the catalogue does not know: jazz_fusion, beatboxing.",
+                "validation_error",
+                422,
+            ),
+        )
+        assertTrue("an interest refusal must not read as a retry",
+            !localizeBackendError(
+                "Interests the catalogue does not know: jazz_fusion.",
+                "validation_error",
+                422,
+            ).contains("ещё раз"))
     }
 
     @Test

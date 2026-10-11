@@ -27,9 +27,12 @@ the same four routes again — 12 became 10 for onboarding, 6 became 5 for a one
 it is the one route that is allowed to read it, and it reads it once.
 
 What the batch must still do is checked next to the counts: the set that gets stored is the set
-that was answered, a replace really drops the old rows, the cap still cuts at thirty, and a pair
-the statement meets twice is skipped instead of aborting the whole write, which is the reason the
-conflict guard was there in the first place.
+that was answered, a replace really drops the old rows, thirty names still land in one statement,
+and a pair the statement meets twice is skipped instead of aborting the whole write, which is the
+reason the conflict guard was there in the first place. What the ceiling does with the
+thirty-first name changed in stage 65: it used to be cut off silently, and is refused by name now,
+so the past-thirty body this file used to send lives in
+``test_an_interest_the_catalogue_does_not_know_is_refused.py`` instead.
 """
 
 from __future__ import annotations
@@ -48,8 +51,8 @@ from .conftest import auth_headers, register_and_auth
 
 _INTEREST_INSERT = "insert into user_interests"
 
-# Slugs the seeded catalog actually carries; an unknown slug is dropped on the way in, and a
-# test that answered with one would be checking nothing.
+# Slugs the seeded catalog actually carries. An unknown one is refused since stage 65, so a count
+# measured with a name the catalog does not hold would be measuring a rejected request.
 _REAL_INTERESTS = ["hiking", "cinema", "cooking", "travel", "music_live", "running"]
 
 
@@ -259,20 +262,26 @@ async def test_the_stored_set_is_the_answered_set(client: AsyncClient, session) 
     assert await _stored(creds) == sorted(second), "the old set survived the replace"
 
 
-async def test_the_cap_still_cuts_the_answer(client: AsyncClient, session) -> None:
-    """An answer past thirty interests stores thirty of them, still in one statement."""
+async def test_the_cap_still_holds_at_thirty(client: AsyncClient, session) -> None:
+    """An answer of exactly thirty interests still stores thirty of them, in one statement.
+
+    Stage 65 turned the ceiling from a silent cut into a refusal, so the past-thirty body this test
+    used to send no longer reaches the table at all — it is refused by name in
+    ``test_an_interest_the_catalogue_does_not_know_is_refused.py``. What stays here is the shape of
+    the write when the answer does reach it: thirty rows, one INSERT.
+    """
     creds = await register_and_auth(client, "s23_cap@befos.app")
     slugs = await _catalog(client, creds["token"])
     assert len(slugs) > 30, f"catalog too small to test the cap: {len(slugs)}"
 
-    answered = list(reversed(slugs))
+    answered = list(reversed(slugs))[:30]
     creds, _, seen = await _onboard(client, "s23_over@befos.app", answered)
     await session.rollback()
     profile = await UserRepository(session).get_profile(uuid.UUID(creds["user_id"]))
     stored = {interest.slug for interest in profile.interests}
 
     assert len(stored) == 30
-    assert stored == set(answered[:30])
+    assert stored == set(answered)
     assert _count_of(seen, _INTEREST_INSERT) == 1
 
 
