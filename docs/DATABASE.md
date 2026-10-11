@@ -164,6 +164,13 @@ onboarding_completed_at IS NOT NULL` добавлен миграцией `f3a07c
 ### `test_questions`
 `id` (Int PK), `category`, `trait`, `text`, `position`, `is_active`. Чтение категорий идёт индексом `ix_question_category_position (category, position)`; одиночный индекс по `category` удалён `e6b28c4a13d0` — он был префиксом этого же ключа.
 
+`category` и `trait` — свободные строки, поэтому на уровне схемы ряд может назвать ось, которой нет
+в таксономии трейонов, и ничто этому не противится. Граница держит это выше, на записи ответа:
+`TestService._require_declared_axes` отказывает пачке `POST /tests/answers` до `INSERT` в
+`test_answers` (стадия 69). Ряд, внесённый в таблицу мимо маршрута, живёт в ней, пока на него не
+ответят, — и тогда откажет, а не исчезнет: у проверки нет ретроспективной силы ни над строками
+каталога, ни над уже сохранёнными векторами.
+
 ### `test_options`
 `id` (Int PK), `question_id` (FK, cascade, index), `text`, `value` (Float — вклад варианта в признак), `position`.
 
