@@ -23,6 +23,7 @@ class BackendErrorTextTest {
             "You cannot act on your own profile." to "Это ваша анкета.",
             "Complete your profile before discovering people." to "Заполните анкету, чтобы увидеть людей.",
             "An interest name cannot be empty." to "Пустой интерес выбрать нельзя.",
+            "A gender preference cannot be empty." to "Пустое предпочтение по полу выбрать нельзя.",
         )
         cases.forEach { (backend, expected) ->
             assertEquals(expected, localizeBackendError(backend, "validation_error", 422))
@@ -62,6 +63,30 @@ class BackendErrorTextTest {
         assertTrue("an interest refusal must not read as a retry",
             !localizeBackendError(
                 "Interests the catalogue does not know: jazz_fusion.",
+                "validation_error",
+                422,
+            ).contains("ещё раз"))
+        // The gender refusals count and name the same way; the picker's own limit is stated as
+        // a number the screen already offers, so the sentence never carries the server's count.
+        assertEquals(
+            "Предпочтений по полу можно выбрать не больше четырёх.",
+            localizeBackendError(
+                "A profile can prefer at most 4 genders; this answer names 5.",
+                "validation_error",
+                422,
+            ),
+        )
+        assertEquals(
+            "Таких вариантов пола в списке нет. Обновите экран и выберите заново.",
+            localizeBackendError(
+                "Genders the server does not know: third_gender, genderqueer.",
+                "validation_error",
+                422,
+            ),
+        )
+        assertTrue("a gender refusal must not read as a retry",
+            !localizeBackendError(
+                "Genders the server does not know: third_gender.",
                 "validation_error",
                 422,
             ).contains("ещё раз"))

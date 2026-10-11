@@ -41,6 +41,7 @@ private val translated: Map<String, String> = mapOf(
     "age_min cannot be greater than age_max." to "Максимальный возраст должен быть не меньше минимального.",
     "complete your profile before discovering people." to "Заполните анкету, чтобы увидеть людей.",
     "an interest name cannot be empty." to "Пустой интерес выбрать нельзя.",
+    "a gender preference cannot be empty." to "Пустое предпочтение по полу выбрать нельзя.",
 
     // photos
     "unsupported image type. use jpeg, png or webp." to "Поддерживаются JPEG, PNG и WEBP.",
@@ -100,6 +101,10 @@ private val translatedPrefixes: List<Pair<String, String>> = listOf(
     // Both interest refusals name data the backend counted, so neither is a fixed sentence.
     "A profile can hold at most " to "Интересов можно выбрать не больше 30.",
     "Interests the catalogue does not know" to "Таких интересов в списке нет. Обновите экран и выберите заново.",
+    // The gender pair is the same shape: one names the ceiling the server counted, the other
+    // names the values it refused. Both are stated as the screen's own limit, not the server's.
+    "A profile can prefer at most " to "Предпочтений по полу можно выбрать не больше четырёх.",
+    "Genders the server does not know" to "Таких вариантов пола в списке нет. Обновите экран и выберите заново.",
 )
 
 /** Second layer: the envelope's machine code covers messages this file has never seen. */

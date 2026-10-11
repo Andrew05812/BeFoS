@@ -20,6 +20,11 @@ VALID_GOALS = {"relationship", "marriage", "friendship", "casual", "networking"}
 # the number a request is refused against, so it lives where both readings can reach it.
 MAX_INTERESTS = 30
 
+# How many gender preferences one profile can name. Derived rather than written down: a list
+# longer than the set the names are checked against cannot be anything but a mistake, and
+# refusing it first bounds what the unknown-name refusal echoes back.
+MAX_GENDER_PREFERENCES = len(VALID_GENDERS)
+
 # Editing any of these changes who the viewer should be shown, so the deck built under the
 # old values cannot be paged through any more.
 _DECK_FIELDS = {"age_min", "age_max", "gender_preference", "interests", "dating_goal"}
@@ -121,7 +126,7 @@ class ProfileService:
         profile.age_max = int(data.get("age_max", 60))
         if profile.age_min > profile.age_max:
             profile.age_min, profile.age_max = profile.age_max, profile.age_min
-        profile.gender_preference = self._clean_genders(data.get("gender_preference") or [])
+        profile.gender_preference = self._checked_genders(data.get("gender_preference") or [])
         # The stamp is what makes this profile showable to anybody else. A re-submitted
         # onboarding keeps the first answer's timestamp: the second one does not change
         # the fact that the person finished, and it must not look like they only just did.
@@ -181,7 +186,7 @@ class ProfileService:
         if profile.age_min > profile.age_max:
             raise ValidationError("age_min cannot be greater than age_max.")
         if "gender_preference" in data and data["gender_preference"] is not None:
-            profile.gender_preference = self._clean_genders(data["gender_preference"])
+            profile.gender_preference = self._checked_genders(data["gender_preference"])
         if "is_hidden" in data and data["is_hidden"] is not None:
             profile.is_hidden = bool(data["is_hidden"])
         written_interests: list[Interest] | None = None
@@ -244,9 +249,33 @@ class ProfileService:
         await self.users.set_profile_interests(profile.id, interests)
         return interests
 
-    def _clean_genders(self, genders: list[str]) -> list[str]:
-        cleaned = [g for g in genders if g in VALID_GENDERS]
-        return list(dict.fromkeys(cleaned))
+    def _checked_genders(self, genders: list[str]) -> list[str]:
+        """Return the answered set, refusing an answer the preference filter cannot use.
+
+        Cleaning runs before comparing, the same rule the interest set already follows, so a name
+        that differs only by case or spaces is the name the set carries rather than a fault.
+
+        Both silences this closes were measured on the live stand: a body naming one gender the
+        server has never heard of alongside a real one stored the real one alone and answered
+        ``200``, and a body naming only ``"Male"`` stored the empty list. The second is not a
+        shorter preference but a vanished filter — ``social_repo._preference_conditions`` hangs
+        ``Profile.gender.in_(...)`` on a non-empty list only — so the deck the person is shown
+        widens to every gender while the profile reads back nothing about what was asked. Storing
+        the unknown name instead would be the mirror mistake: the same condition would then match
+        no profile at all and the deck would be empty forever.
+        """
+        if any(not gender.strip() for gender in genders):
+            raise ValidationError("A gender preference cannot be empty.")
+        cleaned = list(dict.fromkeys(gender.strip().lower() for gender in genders))
+        if len(cleaned) > MAX_GENDER_PREFERENCES:
+            raise ValidationError(
+                f"A profile can prefer at most {MAX_GENDER_PREFERENCES} genders; "
+                f"this answer names {len(cleaned)}."
+            )
+        missing = [gender for gender in cleaned if gender not in VALID_GENDERS]
+        if missing:
+            raise ValidationError(f"Genders the server does not know: {', '.join(missing)}.")
+        return cleaned
 
     async def add_photo(self, user_id: uuid.UUID, url: str, make_primary: bool = False) -> Photo:
         if make_primary:
