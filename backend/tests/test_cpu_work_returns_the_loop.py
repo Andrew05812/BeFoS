@@ -11,8 +11,8 @@ meanwhile. Both paths now hand the work to a worker thread, and the same bystand
 What these checks assert is the shape of the wait, not its size: off the loop the bystander's
 longest gap is a fraction of the call it waited through, on the loop it is the call. The ceiling is
 deliberately generous, so a slower CI runner moves the duration of the subject and not the verdict.
-That leaves the answer itself unproven here: the last check in this file looks at the stored
-picture, and every auth test signs in through these same routes.
+That leaves the answer itself unproven here: the check that follows the three above looks at the
+stored picture, and every auth test signs in through these same routes.
 
 The same defect measured over a real socket against a real single-worker uvicorn, where the
 bystander is an ordinary second client rather than a coroutine, put the numbers on the client side
@@ -25,6 +25,18 @@ over 100 ms in 107 samples; the cost to the subject was none (492.5 ms on the lo
 the thread), what changed was everybody else. Under four concurrent logins the loop version took
 1897 ms of wall and left a bystander 1889.9 ms behind it, the thread version 532 ms with a
 36.9 ms worst bystander, because bcrypt on the loop is not only slow, it is strictly serial.
+
+What the floor is for, and why it is no longer a duration. It guarded the ratio test: a call short
+enough to hold the loop for less than a few beats says nothing about who owned the loop, and the
+number was taken from one machine, where the upload ran 427-549 ms. The CI runner re-encodes the
+same canvas in 99.5 ms (job 114368434403, 2026-10-11, `1 failed, 440 passed` — the tree that was
+green on its own PR run minutes earlier), so the check red-lit on its own premise while containing
+about twenty beats of observation: enough to judge, wrong proxy. Measured here on one machine,
+seven watched uploads run 280.8/321.6/332.4 ms (min/median/max) with worst bystander gaps of
+20.1-28.2 ms, which is the thread handover, and 18-21 beats. The precondition is now the thing the
+floor was standing in for — beats of a 5 ms bystander inside the call — and the ratio test itself
+is unchanged. A control placed under the helpers holds the loop on purpose and requires the harness
+to report it as held, so a future change to these numbers cannot quietly cost the check its power.
 """
 from __future__ import annotations
 
@@ -34,6 +46,7 @@ import os
 import time
 import uuid
 
+import pytest
 from httpx import AsyncClient
 from PIL import Image
 
@@ -42,8 +55,10 @@ from app.services.photo_service import process_and_store_upload
 from .conftest import register_and_auth
 
 PERIOD_S = 0.005
-# Below this a call is too short to say anything about who owned the loop while it ran.
-MIN_DURATION_MS = 100.0
+# Fewer beats than this and there is no observation inside the call to compare against it: the
+# bystander never had a chance to show whether the loop was free. A duration floor cannot say
+# that, because the duration of the subject belongs to the machine — see the module docstring.
+MIN_BEATS = 8
 # One scheduling round trip to the thread handover is allowed for: on Windows that costs the
 # 15.6 ms timer granularity, and the same shape reappeared at 28 ms under load. Half of the call
 # separates "waited through the request" from "waited for a handover".
@@ -71,21 +86,43 @@ async def _watch(coro_factory) -> tuple[float, float, int, object]:
     duration_ms = (time.perf_counter() - started) * 1000.0
     stop.set()
     await task
-    return duration_ms, max(gaps), len(gaps), result
+    # No beat at all is not a missing measurement: it is the loop having been held for the
+    # whole call, which is the shape this harness is built to catch.
+    max_gap_ms = max(gaps) if gaps else duration_ms
+    return duration_ms, max_gap_ms, len(gaps), result
 
 
 def _assert_loop_came_back(
     subject: str, duration_ms: float, max_gap_ms: float, ticks: int
 ) -> None:
-    assert duration_ms >= MIN_DURATION_MS, (
-        f"{subject} took {duration_ms:.1f} ms, below the {MIN_DURATION_MS} ms floor this"
-        " check needs to tell a held loop from a free one"
+    assert ticks >= MIN_BEATS, (
+        f"{subject} let the loop wake {ticks} time(s) in {duration_ms:.1f} ms, below the "
+        f"{MIN_BEATS} beats this check needs to tell a held loop from a free one"
     )
     assert max_gap_ms < duration_ms * CEILING_RATIO, (
         f"{subject} held the event loop: the bystander waited {max_gap_ms:.1f} ms of a "
         f"{duration_ms:.1f} ms call, which is the call itself rather than a thread handover"
     )
-    assert ticks >= 3, f"{subject} let the loop wake {ticks} time(s) in {duration_ms:.1f} ms"
+
+
+async def test_a_held_loop_is_still_reported_as_held() -> None:
+    """The precondition above is worth having only while the verdict underneath still works.
+
+    200 ms of free loop gives the bystander its beats, then `time.sleep` inside the awaited
+    coroutine is exactly the shape these three checks exist to catch — CPU work the loop had to
+    run itself. The call is long enough to be judged, so the reason it must be refused is the
+    ratio, not the beat count: this is the control that keeps a future change to `MIN_BEATS` or
+    `CEILING_RATIO` from quietly turning the other three checks green on a held loop.
+    """
+
+    async def hold() -> None:
+        await asyncio.sleep(0.2)
+        time.sleep(0.3)
+
+    duration, max_gap, ticks, _ = await _watch(hold)
+    assert ticks >= MIN_BEATS, f"the free window gave the bystander only {ticks} beats"
+    with pytest.raises(AssertionError, match="held the event loop"):
+        _assert_loop_came_back("a deliberate hold", duration, max_gap, ticks)
 
 
 async def test_signing_in_returns_the_event_loop(client: AsyncClient) -> None:
