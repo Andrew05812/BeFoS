@@ -85,16 +85,19 @@ def _trait_similarity(a: dict[str, float], b: dict[str, float]) -> tuple[float, 
 
 
 def _interest_similarity(a: set[str], b: set[str]) -> tuple[float, bool]:
-    """Jaccard similarity of interest sets."""
-    if not a and not b:
-        return NEUTRAL_SCORE, False
+    """Jaccard similarity of the interests both people actually named.
+
+    An empty set is not an answer, it is the absence of one, so a side that named nothing leaves
+    the category with nothing to compare and reads like every other absent answer: neutral, and
+    ``has_data=False``. It used to read ``0.0`` with data, which took half of the category's band
+    — seven points out of a hundred, interests weighing 0.15 — off the person who did answer, for
+    what their partner had skipped, and then explained the pair page with «Мало общих интересов»
+    about a subject only one of them had spoken about. Two named sets with nothing in common are a
+    different thing — that is information, and it still costs.
+    """
     if not a or not b:
-        return 0.0, True
-    intersection = len(a & b)
-    union = len(a | b)
-    if union == 0:
-        return 0.0, True
-    return _clamp01(intersection / union), True
+        return NEUTRAL_SCORE, False
+    return _clamp01(len(a & b) / len(a | b)), True
 
 
 def compute_category(key: str, a: CompatibilityInput, b: CompatibilityInput) -> CategoryScore:

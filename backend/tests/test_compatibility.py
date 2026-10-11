@@ -65,7 +65,13 @@ def test_missing_interests_one_side():
     result = compute_compatibility(a, b)
     interests = result.category("interests")
     assert interests is not None
-    assert interests.percent == 0
+    # This assertion used to read `percent == 0`, and the name of the check outlived the rule it
+    # pinned: an unanswered step was scored as a disagreement, so the person who did answer lost
+    # points on their partner's silence. Stage 60 made the category neutral; both halves of the
+    # new rule — silence costs nothing, two disjoint answers still do — are held by
+    # test_a_silent_interest_answer_is_not_a_difference.py.
+    assert interests.percent == 50
+    assert not interests.has_data
     assert 0 <= result.overall_percent <= 100
 
 
