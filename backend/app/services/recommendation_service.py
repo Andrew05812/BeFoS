@@ -61,7 +61,7 @@ class RecommendationService:
         existing = await self.activities.list_recommendations(match_id)
         if existing and not force:
             tracker.track(Event.RECOMMENDATION_VIEWED, str(user_id), match=str(match_id))
-            return await self._hydrate(existing)
+            return await self._hydrate(existing, user_id, match_id)
 
         a, b = await self._signals([match.user_a_id, match.user_b_id])
 
@@ -108,6 +108,9 @@ class RecommendationService:
         await self.activities.replace_recommendations(match_id, recs)
         await self.session.commit()
         tracker.track(Event.RECOMMENDATION_VIEWED, str(user_id), match=str(match_id), count=len(recs))
+        chosen = await self.activities.chosen_activity_ids(
+            user_id, match_id, [item["activity_id"] for item in recs]
+        )
         # The page was just written by this session, with `position` equal to the enumerate order
         # below, and the catalogue rows behind it are the ones `list_for_cities` returned. Asking
         # the database for the page and for those rows again asked for two result sets this
@@ -120,9 +123,10 @@ class RecommendationService:
                 for position, item in enumerate(recs)
             ],
             {act.id: act for act in catalogue},
+            chosen,
         )
 
-    def _render(self, rows: list, by_id: dict) -> list[dict]:
+    def _render(self, rows: list, by_id: dict, chosen: set[int]) -> list[dict]:
         out: list[dict] = []
         for activity_id, score, position, explanation in rows:
             act = by_id.get(activity_id)
@@ -144,27 +148,43 @@ class RecommendationService:
                     "score": int(round(score * 100)),
                     "position": position,
                     "reasons": reasons,
+                    "selected": activity_id in chosen,
                 }
             )
         out.sort(key=lambda r: r["position"])
         return out
 
-    async def _hydrate(self, stored: list) -> list[dict]:
+    async def _hydrate(self, stored: list, user_id: uuid.UUID, match_id: uuid.UUID) -> list[dict]:
         # The catalogue rows are read once for the whole page: one round trip per card
         # made opening the tab cost eight queries to fetch eight rows of the same table.
         by_id = await self.activities.get_by_ids([rec.activity_id for rec in stored])
+        chosen = await self.activities.chosen_activity_ids(
+            user_id, match_id, [rec.activity_id for rec in stored]
+        )
         return self._render(
-            [(rec.activity_id, rec.score, rec.position, rec.explanation) for rec in stored], by_id
+            [(rec.activity_id, rec.score, rec.position, rec.explanation) for rec in stored],
+            by_id,
+            chosen,
         )
 
     async def mark_selected(self, match_id: uuid.UUID, user_id: uuid.UUID, activity_id: int) -> None:
-        await self._require_match(match_id, user_id)
+        match = await self._require_match(match_id, user_id)
         # The id arrives from the request url, so it is a claim about the catalogue rather
         # than a fact from it. Left unchecked it reached a foreign key and the database
         # answered with an integrity error, which the client saw as a 500.
         known = await self.activities.get_by_ids([activity_id])
         if activity_id not in known:
             raise NotFoundError("Activity not found.")
-        await self.activities.set_preference(user_id, activity_id, 1.0)
+        # `activity_preferences.match_id` is a child of the match row, so this write is in the
+        # same genre the chat, purge and recommendation-page writes were: `block` (stage 9) and
+        # `delete_account` (stage 13) delete the parent under the pair advisory lock, and a tap
+        # that lands after their commit references an absent `matches.id`. The page's own rebuild
+        # takes this lock (stage 14); the tap used to skip it, so the two writers of this pair
+        # were not serialised against the dissolver.
+        await self.social.lock_pair(match.user_a_id, match.user_b_id)
+        if not await self.social.match_still_present(match_id):
+            raise NotFoundError("Match not found.")
+        await self.activities.set_preference(user_id, activity_id, 1.0, match_id)
         await self.session.commit()
         tracker.track(Event.RECOMMENDATION_SELECTED, str(user_id), match=str(match_id), activity=activity_id)
+

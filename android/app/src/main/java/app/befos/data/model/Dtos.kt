@@ -323,6 +323,8 @@ data class RecommendationDto(
     val score: Int = 0,
     val position: Int = 0,
     val reasons: List<String> = emptyList(),
+    // Whether this person already proposed this card to this pair, as the page reports it.
+    val selected: Boolean = false,
 )
 
 @Serializable

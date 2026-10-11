@@ -330,6 +330,12 @@ def main() -> int:
     check(len(top["reasons"]) > 0, "top rec has explanation", str(top["reasons"][:2]))
     sel = c.post(f"{BASE}/matches/{match_id}/recommendations/{top['activity']['id']}/select", headers=ha)
     check(sel.status_code in (200, 204), "select recommendation", str(sel.status_code))
+    # The write above has a reader now: reopening the tab has to show the card as already
+    # proposed, which is what stops the app from sending the same idea into this chat twice.
+    reopened = c.get(f"{BASE}/matches/{match_id}/recommendations", headers=ha).json()["recommendations"]
+    tapped = [r for r in reopened if r["activity"]["id"] == top["activity"]["id"]]
+    check(len(tapped) == 1 and tapped[0]["selected"] is True,
+          "the reopened page reads A's tap back", str([r.get("selected") for r in tapped]))
 
     # 12b. A re-takes the test with the other half of the answers. A pair's percent is a
     # stored number that two screens read, so this is where the stored copy could be caught

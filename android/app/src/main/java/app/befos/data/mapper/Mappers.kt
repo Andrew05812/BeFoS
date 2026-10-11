@@ -139,6 +139,7 @@ fun RecommendationDto.toDomain() = Recommendation(
     score = score,
     position = position,
     reasons = reasons,
+    selected = selected,
 )
 
 fun OnboardingData.toRequest() = OnboardingRequest(

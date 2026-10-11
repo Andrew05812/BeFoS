@@ -40,8 +40,15 @@ class RecommendationsViewModel(
         _uiState.update { it.copy(loading = true, error = null) }
         viewModelScope.launch {
             when (val result = matchRepository.recommendations(matchId)) {
-                is ApiResult.Success -> _uiState.update {
-                    it.copy(loading = false, items = result.data.sortedBy { r -> r.position })
+                is ApiResult.Success -> _uiState.update { state ->
+                    val cards = result.data.sortedBy { r -> r.position }
+                    state.copy(
+                        loading = false,
+                        items = cards,
+                        // The page says which cards this person already proposed. Local marks are
+                        // kept because a tap in flight is not on the server yet.
+                        selected = state.selected + cards.filter { it.selected }.map { it.activity.id },
+                    )
                 }
                 is ApiResult.Error -> _uiState.update { it.copy(loading = false, error = result.message) }
             }
@@ -57,13 +64,13 @@ class RecommendationsViewModel(
         val clientMsgId = pendingProposalIds.getOrPut(key) { UUID.randomUUID().toString() }
         _uiState.update { it.copy(selected = it.selected + activityId, selectError = null) }
         viewModelScope.launch {
-            // The proposal only exists once the pair can read it; the recorded choice
-            // is a side effect for the next recommendation pass.
             // Titles are noun phrases ("Вечер настольных игр"), so the frame must not add a verb.
             val body = "Идея для нас: $title. Что скажете?"
             when (val result = chatRepository.send(matchId, body, clientMsgId)) {
                 is ApiResult.Success -> {
                     pendingProposalIds.remove(key)
+                    // The record the next page reads back is written here; the local mark above
+                    // is what the same visit to the tab shows before that answer arrives.
                     matchRepository.selectRecommendation(matchId, activityId)
                 }
                 is ApiResult.Error -> _uiState.update {

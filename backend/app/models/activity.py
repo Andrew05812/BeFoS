@@ -32,7 +32,7 @@ class Activity(TimestampMixin, Base):
 
 
 class ActivityPreference(TimestampMixin, Base):
-    """Explicit user affinity toward an activity (saved / liked)."""
+    """A card of a pair's page this person chose, kept for the pair that offered it."""
 
     __tablename__ = "activity_preferences"
 
@@ -44,9 +44,17 @@ class ActivityPreference(TimestampMixin, Base):
     activity_id: Mapped[int] = mapped_column(
         ForeignKey("activities.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    # Nullable because the tap was recorded without its pair until stage 63; those rows name no
+    # pair and are never read — the only question the page can answer from this table is whether
+    # THIS person proposed THIS idea to THIS pair, and a row without a pair cannot answer it.
+    match_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("matches.id", ondelete="CASCADE"), nullable=True, index=True
+    )
     score: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
 
-    __table_args__ = (UniqueConstraint("user_id", "activity_id", name="uq_activity_pref"),)
+    __table_args__ = (
+        UniqueConstraint("user_id", "activity_id", "match_id", name="uq_activity_pref"),
+    )
 
 
 class Recommendation(TimestampMixin, Base):

@@ -35,14 +35,39 @@ class ActivityRepository:
         lowered = {c.lower() for c in cities}
         return [a for a in rows if not a.cities or any(c.lower() in lowered for c in a.cities)]
 
-    async def set_preference(self, user_id: uuid.UUID, activity_id: int, score: float) -> None:
+    async def set_preference(
+        self, user_id: uuid.UUID, activity_id: int, score: float, match_id: uuid.UUID
+    ) -> None:
         # Constraint-decided write: tapping the same activity twice reaches the server
         # before the first insert commits.
         await self.session.execute(
             pg_insert(ActivityPreference)
-            .values(user_id=user_id, activity_id=activity_id, score=score)
+            .values(
+                user_id=user_id, activity_id=activity_id, score=score, match_id=match_id
+            )
             .on_conflict_do_update(constraint="uq_activity_pref", set_={"score": score})
         )
+
+    async def chosen_activity_ids(
+        self, user_id: uuid.UUID, match_id: uuid.UUID, activity_ids: list[int]
+    ) -> set[int]:
+        """Which of these cards this person already chose for this pair.
+
+        One read for the page, keyed on the three columns the tap is written under. It answers per
+        viewer rather than per pair: the stored `recommendations` rows are shared by both halves, and
+        a card one half proposed is not a card the other half has used.
+        """
+        if not activity_ids:
+            return set()
+        stmt = (
+            select(ActivityPreference.activity_id)
+            .where(
+                ActivityPreference.user_id == user_id,
+                ActivityPreference.match_id == match_id,
+                ActivityPreference.activity_id.in_(activity_ids),
+            )
+        )
+        return {row[0] for row in (await self.session.execute(stmt)).all()}
 
     async def replace_recommendations(
         self, match_id: uuid.UUID, recs: list[dict]

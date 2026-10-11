@@ -25,7 +25,9 @@ class RecommendationsViewModelTest {
     val mainRule = MainDispatcherRule()
 
     private val cinema = Activity(id = 7, slug = "cinema", title = "Поход в кино", description = null, category = "culture")
-    private val rec = Recommendation(activity = cinema, score = 63, position = 1, reasons = emptyList())
+    private val rec = Recommendation(
+        activity = cinema, score = 63, position = 1, reasons = emptyList(), selected = false,
+    )
 
     private val proposal = Message(
         id = "p1", matchId = "m1", senderId = "me", body = "Идея для нас: Поход в кино. Что скажете?",
@@ -110,5 +112,23 @@ class RecommendationsViewModelTest {
         assertEquals(2, names.size)
         assertEquals(1, names.distinct().size)
         assertTrue(names.first() != null)
+    }
+
+    @Test
+    fun `a card the page reports as proposed opens proposed and sends nothing on a tap`() = runTest {
+        // The state a second visit to the tab starts from: the choice this person recorded for
+        // this pair comes back on the page, so the tab has to be opened before the mark exists.
+        val match = mockk<MatchRepository> {
+            coEvery { recommendations("m1") } returns ApiResult.Success(listOf(rec.copy(selected = true)))
+        }
+        val chat = chatRepo()
+        val vm = viewModel(match, chat)
+
+        assertTrue(vm.uiState.value.selected.contains(7))
+
+        vm.select(7, cinema.title)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        coVerify(exactly = 0) { chat.send(any(), any(), any()) }
     }
 }
