@@ -4,6 +4,11 @@ Points the app at a dedicated ``befos_test`` database (created on the fly), buil
 seeds the reference catalogues once per session, and wipes user-domain rows between tests so
 each test starts from a clean state. Runs only as the single session on that database: a second
 concurrent session is refused rather than allowed to corrupt results.
+
+Refuses to start on a schema older than the models, too. ``create_all`` never alters an existing
+table, so a reused ``befos_test`` keeps yesterday's columns and the run would report the stand as a
+product regression; the check after ``create_all`` compares the models against the reflected schema
+and exits, naming each difference by table and column.
 """
 
 from __future__ import annotations
@@ -33,7 +38,7 @@ import asyncpg
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import delete
+from sqlalchemy import MetaData, UniqueConstraint, delete
 
 _MAINT_DSN = f"postgresql://{_PG_USER}:{_PG_PASSWORD}@{_PG_HOST}:{_PG_PORT}/postgres"
 _TEST_DSN = f"postgresql://{_PG_USER}:{_PG_PASSWORD}@{_PG_HOST}:{_PG_PORT}/{_TEST_DB}"
@@ -187,9 +192,96 @@ def _single_session_on_this_database():
         lease.release()
 
 
+def _unique_keys(table) -> dict[str, frozenset[str]]:
+    """Map each named unique constraint of this table to the columns it covers."""
+    return {
+        constraint.name: frozenset(col.name for col in constraint.columns)
+        for constraint in table.constraints
+        if isinstance(constraint, UniqueConstraint) and constraint.name
+    }
+
+
+def _index_names(table) -> set[str]:
+    """Names of the indexes the table asks for.
+
+    Only the names are compared, never their columns: `ix_profiles_deck_order` is built on the
+    expression `created_at DESC`, which the model side reports as no column at all and the
+    database side reports as `created_at`, so a column comparison there is a false accusation.
+    """
+    return {index.name for index in table.indexes if index.name}
+
+
+def _drift_between(models, live) -> list[str]:
+    """Compare the models with a reflected schema and name every difference, table by table.
+
+    Pure on purpose: the session can be proved honest against a real database, and the shape of
+    a refusal can be proved without wrecking a database to draw it.
+    """
+    problems: list[str] = []
+    for name in sorted(models.tables):
+        model, seen = models.tables[name], live.tables.get(name)
+        if seen is None:
+            problems.append(f"{name}: the table is not there at all")
+            continue
+        for column in sorted({c.name for c in model.columns} - {c.name for c in seen.columns}):
+            problems.append(f"{name}.{column}: the column is missing")
+        for column in sorted({c.name for c in seen.columns} - {c.name for c in model.columns}):
+            problems.append(
+                f"{name}.{column}: the stand holds a column no model declares"
+            )
+        want, have = _unique_keys(model), _unique_keys(seen)
+        for key in sorted(set(want) - set(have)):
+            problems.append(f"{name}: unique key {key} over {sorted(want[key])} is missing")
+        for key in sorted(set(have) - set(want)):
+            problems.append(f"{name}: unique key {key} exists that no model declares")
+        for key in sorted(set(want) & set(have)):
+            if want[key] != have[key]:
+                problems.append(
+                    f"{name}: unique key {key} covers {sorted(have[key])}, the models ask for "
+                    f"{sorted(want[key])}"
+                )
+        for index in sorted(_index_names(model) - _index_names(seen) - set(have)):
+            problems.append(f"{name}: index {index} is missing")
+    for name in sorted(set(live.tables) - set(models.tables)):
+        if name != "alembic_version":
+            problems.append(f"{name}: a table the models no longer declare")
+    return problems
+
+
+def _schema_drift(sync_conn) -> list[str]:
+    """Reflect the stand's schema and return what it lacks compared with the models."""
+    live = MetaData()
+    live.reflect(bind=sync_conn)
+    return _drift_between(Base.metadata, live)
+
+
+def _refuse_a_stale_schema(problems: list[str]) -> bool:
+    """End the run on a stand whose schema predates the models. Returns whether it may go on.
+
+    ``create_all`` only adds tables that are absent; it never alters one that exists. So a
+    database left by an earlier stage keeps its old shape, and every test that touches what a
+    later stage added fails on the endpoint instead — which reads as a product regression.
+    Measured on 2026-10-11 on a stand from before stage 63: 11 failed and 4 errors across an
+    11-minute run, all of them in the recommendation family, the first of them
+    ``UndefinedColumnError: column activity_preferences.match_id does not exist``, while the
+    same seven files on a freshly built stand passed 59 in 134 s.
+    """
+    if not problems:
+        return True
+    listed = "\n  ".join(problems)
+    pytest.exit(
+        f"{_TEST_DB} holds a schema older than the models, and create_all never alters an "
+        "existing table, so this run would report the stand as a product regression. "
+        f"Build the stand again — drop the database, or run against a name of your own: "
+        f"BEFOS_TEST_DB=befos_test_2. What disagrees:\n  {listed}",
+        returncode=1,
+    )
+    return False  # not reached: pytest.exit raises
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _prepare_database(_single_session_on_this_database):
-    """Create the schema and seed reference catalogues once, in a throwaway loop.
+    """Create the schema, refuse it if it was already there in an older shape, seed catalogues.
 
     The engine is disposed at the end so no connection is bound to this loop;
     each test then opens fresh connections on its own function-scoped loop.
@@ -198,6 +290,8 @@ def _prepare_database(_single_session_on_this_database):
     async def _setup() -> None:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+            problems = await conn.run_sync(_schema_drift)
+        _refuse_a_stale_schema(problems)
         async with AsyncSessionLocal() as db:
             await _seed_catalogs(db)
             await db.commit()
