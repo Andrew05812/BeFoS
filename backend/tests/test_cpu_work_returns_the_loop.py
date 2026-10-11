@@ -30,13 +30,17 @@ What the floor is for, and why it is no longer a duration. It guarded the ratio 
 enough to hold the loop for less than a few beats says nothing about who owned the loop, and the
 number was taken from one machine, where the upload ran 427-549 ms. The CI runner re-encodes the
 same canvas in 99.5 ms (job 114368434403, 2026-10-11, `1 failed, 440 passed` — the tree that was
-green on its own PR run minutes earlier), so the check red-lit on its own premise while containing
-about twenty beats of observation: enough to judge, wrong proxy. Measured here on one machine,
-seven watched uploads run 280.8/321.6/332.4 ms (min/median/max) with worst bystander gaps of
-20.1-28.2 ms, which is the thread handover, and 18-21 beats. The precondition is now the thing the
-floor was standing in for — beats of a 5 ms bystander inside the call — and the ratio test itself
-is unchanged. A control placed under the helpers holds the loop on purpose and requires the harness
-to report it as held, so a future change to these numbers cannot quietly cost the check its power.
+green on its own PR run minutes earlier), so the check red-lit on its own premise while carrying
+about twenty beats inside it — 99.5 ms over a 5 ms bystander, arithmetic of the failed window
+rather than a second measurement — which is enough to judge by and the wrong thing to gate on.
+Measured here on one machine, seven watched uploads run 280.8/321.6/332.4 ms (min/median/max) with
+worst bystander gaps of 20.1-28.2 ms, which is the thread handover, and 18-21 beats; the beat count
+there is below duration/5 ms because this machine's timer wakes the bystander every ~15.6 ms, which
+is also why the floor counts beats and not milliseconds either way. The precondition is now the
+thing the floor was standing in for — beats of a 5 ms bystander inside the call — and the ratio test
+itself is unchanged. A control placed under the helpers holds the loop on purpose and requires the
+harness to report it as held, so a future change to these numbers cannot quietly cost the check its
+power.
 """
 from __future__ import annotations
 
