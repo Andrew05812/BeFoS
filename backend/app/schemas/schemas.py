@@ -302,6 +302,9 @@ class RecommendationOut(BaseModel):
     score: int = Field(ge=0, le=100)
     position: int
     reasons: list[str]
+    # Whether the person reading this page already chose this card for this pair. Per viewer:
+    # the pair shares one stored page, and a card one half used is not a card the other used.
+    selected: bool
 
 
 class RecommendationListResponse(BaseModel):

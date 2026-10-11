@@ -144,6 +144,7 @@ data class Recommendation(
     val score: Int,
     val position: Int,
     val reasons: List<String>,
+    val selected: Boolean,
 )
 
 data class LikeOutcome(

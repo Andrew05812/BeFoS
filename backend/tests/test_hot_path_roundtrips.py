@@ -301,13 +301,20 @@ async def test_a_cold_recommendation_page_is_written_once(client: AsyncClient) -
     assert all(0 <= r["score"] <= 100 for r in recs)
 
     # A write that lost a row would show up as the cached page differing from the cold one.
-    cached = await client.get(
-        f"/api/v1/matches/{match_id}/recommendations", headers=auth_headers(viewer["token"])
+    cached, cached_seen = await _counted(
+        client,
+        client.get(
+            f"/api/v1/matches/{match_id}/recommendations", headers=auth_headers(viewer["token"])
+        ),
     )
     assert cached.status_code == 200, cached.text
     assert [r["activity"]["id"] for r in cached.json()["recommendations"]] == [
         r["activity"]["id"] for r in recs
     ]
+    # The four of stage 24 — account, pair, page, catalogue — plus the one read that answers
+    # which cards this person has already chosen. A second read per card would fail here.
+    assert len(cached_seen) == 5, f"{len(cached_seen)} trips to the database to read a stored page"
+    assert _statements(cached_seen, "select activity_preferences.") == 1
 
 
 async def test_a_recomputed_page_asks_for_each_half_of_the_pair_once(client: AsyncClient) -> None:
@@ -363,7 +370,13 @@ async def test_a_recomputed_page_answers_from_the_rows_it_just_wrote(
     assert _statements(seen, "select activities.") == 1, (
         "the catalogue was read twice for one page"
     )
-    assert len(seen) <= 11, f"{len(seen)} trips to the database to rebuild a pair's page"
+    # One more than the eleven of stage 24: the page now answers which of its cards this person
+    # already chose, and that is one read of `activity_preferences` for the whole page — not one
+    # per card, which is what a per-card question would have cost.
+    assert _statements(seen, "select activity_preferences.") == 1, (
+        "the chosen-cards read ran per card instead of once for the page"
+    )
+    assert len(seen) <= 12, f"{len(seen)} trips to the database to rebuild a pair's page"
 
     await session.rollback()
     stored = list(

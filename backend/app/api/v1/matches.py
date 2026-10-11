@@ -107,7 +107,11 @@ async def match_recommendations(
         match_id=str(match_id),
         recommendations=[
             RecommendationOut(
-                activity=r["activity"], score=r["score"], position=r["position"], reasons=r["reasons"]
+                activity=r["activity"],
+                score=r["score"],
+                position=r["position"],
+                reasons=r["reasons"],
+                selected=r["selected"],
             )
             for r in recs
         ],
