@@ -73,6 +73,10 @@ async def complete_tests(
             label=CATEGORY_BY_KEY.get(key).label if key in CATEGORY_BY_KEY else key,
             score=int(round(value * 100)),
             weight=0.0,
+            # A band this response lists is a band the person answered: ``build_vector`` leaves a
+            # category out of ``categories`` entirely when none of its traits carry an answer, so
+            # there is no filler half to name here.
+            has_data=True,
         )
         for key, value in sorted(result["categories"].items())
     ]

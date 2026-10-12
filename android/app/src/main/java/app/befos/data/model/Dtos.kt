@@ -165,6 +165,10 @@ data class CategoryScoreDto(
     val label: String,
     val score: Int,
     val weight: Double = 0.0,
+    // False means the engine had nothing to compare this band on and fell back to its neutral
+    // half. Defaulted to true so a response from before the field stays readable; a missing flag
+    // then reads as measured, which is what the older wire actually promised.
+    @SerialName("has_data") val hasData: Boolean = true,
 )
 
 @Serializable

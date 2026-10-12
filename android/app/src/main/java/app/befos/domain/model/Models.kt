@@ -51,6 +51,7 @@ data class CategoryScore(
     val label: String,
     val score: Int,
     val weight: Double,
+    val hasData: Boolean = true,
 )
 
 data class Explanation(

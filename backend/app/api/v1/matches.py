@@ -85,7 +85,13 @@ async def match_compatibility(
         overall=result.overall_percent,
         engine_version=result.version,
         categories=[
-            CategoryScoreOut(category=c.key, label=c.label, score=c.percent, weight=c.weight)
+            CategoryScoreOut(
+                category=c.key,
+                label=c.label,
+                score=c.percent,
+                weight=c.weight,
+                has_data=c.has_data,
+            )
             for c in result.categories
         ],
         strengths=[ExplanationItemOut(**vars(i)) for i in explanation.strengths],
