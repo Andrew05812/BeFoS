@@ -83,14 +83,115 @@ async def _table_empty(session: AsyncSession) -> bool:
     return count == 0
 
 
+_INTEREST_FIELDS = ("name", "category")
+# The columns the engine reads off an activity row, in the order ACTIVITIES lists them.
+_ACTIVITY_FIELDS = ("title", "description", "category", "interests", "cities", "energy", "social", "cost")
+
+
+def _row_drift(kind: str, row, spec: tuple, fields: tuple[str, ...]) -> list[str]:
+    """Name every column where a stored reference row is not what the shipped catalogue says."""
+    lines = []
+    for index, field in enumerate(fields):
+        stored = getattr(row, field)
+        shipped = spec[1 + index]
+        if stored != shipped:
+            lines.append(
+                f"{kind} {spec[0]} (id={row.id}) holds {field}={stored!r}, the catalogue ships {field}={shipped!r}"
+            )
+    return lines
+
+
+def _extra_row(kind: str, row, shipped_slugs: set[str]) -> list[str]:
+    """Name a row this database has and the catalogue no longer ships."""
+    if row.slug in shipped_slugs:
+        return []
+    return [
+        f"{kind} {row.slug} (id={row.id}): this database holds the row, the catalogue does not ship the slug. "
+        "It is kept: dropping it would cascade into rows people already chose."
+    ]
+
+
+def _questionnaire_drift(
+    by_position: dict[int, TestQuestion], options_by_question: dict[int, list[TestOption]]
+) -> list[str]:
+    """Compare the stored questionnaire to the catalogue, question by question.
+
+    Nothing here rewrites: ``test_answers.option_id`` points at the option a person actually chose,
+    so replacing its text or value would re-read years of answers as answers to a different
+    question. That is why a questionnaire edit is reported instead of applied.
+    """
+    lines = []
+    if len(by_position) != len(QUESTIONS):
+        lines.append(
+            f"questionnaire: this database holds {len(by_position)} questions, the catalogue ships {len(QUESTIONS)}"
+        )
+    for position, (category, trait, text, options) in enumerate(QUESTIONS):
+        row = by_position.get(position)
+        if row is None:
+            lines.append(
+                f"questionnaire position {position}: the catalogue ships {text!r}, this database has no question there"
+            )
+            continue
+        if (row.category, row.trait, row.text) != (category, trait, text):
+            lines.append(
+                f"question (id={row.id}, position={position}) holds "
+                f"category={row.category!r} trait={row.trait!r} text={row.text!r}, the catalogue ships "
+                f"category={category!r} trait={trait!r} text={text!r}"
+            )
+        stored_options = [(o.text, o.value, o.position) for o in options_by_question.get(row.id, [])]
+        shipped_options = [(otext, ovalue, opos) for opos, (otext, ovalue) in enumerate(options)]
+        if stored_options != shipped_options:
+            lines.append(
+                f"options of question (id={row.id}, text={row.text!r}) holds {stored_options}, "
+                f"the catalogue ships {shipped_options}"
+            )
+    for position in sorted(set(by_position) - set(range(len(QUESTIONS)))):
+        row = by_position[position]
+        lines.append(
+            f"question (id={row.id}, position={position}, text={row.text!r}): "
+            "this database holds it, the catalogue ships no question at that position"
+        )
+    return lines
+
+
+def _report_drift(lines: list[str]) -> None:
+    """Tell the operator what this database's reference rows are not, and why the run leaves them.
+
+    The seed adds rows a database is missing and never rewrites one it already has: a retagged
+    activity or a renamed interest may be that deployment's own editorial choice, which is the
+    protection revision ``7c4f2a91be36`` keyed its UPDATEs on the shipped array for. So a catalogue
+    edit reaches an existing database through a data migration, and a run that finds rows the
+    catalogue no longer says simply says so — the container boots either way.
+    """
+    if not lines:
+        return
+    logger.warning(
+        "Catalogue drift: %d reference row(s) in this database are not what the code ships. This "
+        "run adds rows the database is missing and leaves rows it already has alone — a retagged "
+        "activity or a renamed interest may be that deployment's own editorial choice, the same "
+        "protection revision 7c4f2a91be36 keyed its UPDATEs on the shipped array for. Carrying a "
+        "catalogue edit into an existing database is a data migration's job. What disagrees:\n  %s",
+        len(lines),
+        "\n  ".join(lines),
+    )
+
+
 async def _seed_catalogs(session: AsyncSession) -> dict:
-    # Interests
+    """Put the three reference catalogues on the stand and name what this database already holds
+    differently."""
+    shipped_interests = {slug for slug, _name, _category in INTERESTS}
     existing = {i.slug: i for i in (await session.execute(select(Interest))).scalars().all()}
+    drift: list[str] = []
     for slug, name, category in INTERESTS:
-        if slug not in existing:
+        row = existing.get(slug)
+        if row is None:
             interest = Interest(slug=slug, name=name, category=category)
             session.add(interest)
             existing[slug] = interest
+        else:
+            drift += _row_drift("interest", row, (slug, name, category), _INTEREST_FIELDS)
+    for row in existing.values():
+        drift += _extra_row("interest", row, shipped_interests)
     await session.flush()
 
     # Questions + options
@@ -109,20 +210,33 @@ async def _seed_catalogs(session: AsyncSession) -> dict:
         questions = list(
             (await session.execute(select(TestQuestion).order_by(TestQuestion.position))).scalars().all()
         )
+        options_by_question: dict[int, list[TestOption]] = {}
+        for option in (await session.execute(select(TestOption).order_by(TestOption.position))).scalars().all():
+            options_by_question.setdefault(option.question_id, []).append(option)
+        drift += _questionnaire_drift({q.position: q for q in questions}, options_by_question)
 
-    # Activities
-    a_count = (await session.execute(select(func.count(Activity.id)))).scalar_one()
-    if a_count == 0:
-        for slug, title, desc, category, interests, cities, energy, social, cost in ACTIVITIES:
-            session.add(
-                Activity(
-                    slug=slug, title=title, description=desc, category=category,
-                    interests=interests, cities=cities, energy=energy, social=social, cost=cost,
-                )
+    # Activities. A card the database does not have yet is added — an empty slot costs the pair a
+    # card the page could have offered, and adding a row takes nothing from anybody. A card it does
+    # have is only ever named: see `_report_drift`.
+    shipped_activities = {spec[0] for spec in ACTIVITIES}
+    stored_activities = {a.slug: a for a in (await session.execute(select(Activity))).scalars().all()}
+    for spec in ACTIVITIES:
+        slug, title, desc, category, interests, cities, energy, social, cost = spec
+        row = stored_activities.get(slug)
+        if row is None:
+            stored_activities[slug] = Activity(
+                slug=slug, title=title, description=desc, category=category,
+                interests=interests, cities=cities, energy=energy, social=social, cost=cost,
             )
-        await session.flush()
+            session.add(stored_activities[slug])
+        else:
+            drift += _row_drift("activity", row, spec, _ACTIVITY_FIELDS)
+    for row in stored_activities.values():
+        drift += _extra_row("activity", row, shipped_activities)
+    await session.flush()
 
-    return {"interests": existing, "questions": questions}
+    _report_drift(drift)
+    return {"interests": existing, "questions": questions, "drift": drift}
 
 
 def _latent_traits(rng: random.Random) -> dict[tuple[str, str], float]:
