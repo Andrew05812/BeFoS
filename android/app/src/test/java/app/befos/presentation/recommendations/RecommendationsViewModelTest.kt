@@ -13,6 +13,7 @@ import io.mockk.mockk
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -27,6 +28,12 @@ class RecommendationsViewModelTest {
     private val cinema = Activity(id = 7, slug = "cinema", title = "Поход в кино", description = null, category = "culture")
     private val rec = Recommendation(
         activity = cinema, score = 63, position = 1, reasons = emptyList(), selected = false,
+    )
+    private val boardGames = Activity(
+        id = 8, slug = "board_games", title = "Вечер настольных игр", description = null, category = "leisure",
+    )
+    private val recBoard = Recommendation(
+        activity = boardGames, score = 58, position = 2, reasons = emptyList(), selected = false,
     )
 
     private val proposal = Message(
@@ -77,7 +84,8 @@ class RecommendationsViewModelTest {
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
 
         assertTrue(vm.uiState.value.selected.isEmpty())
-        assertEquals("Нет соединения", vm.uiState.value.selectError)
+        assertEquals("Не удалось отправить предложение. Нет соединения", vm.uiState.value.selectError)
+        assertTrue(vm.uiState.value.unsavedChoices.isEmpty())
         coVerify(exactly = 0) { match.selectRecommendation(any(), any()) }
     }
 
@@ -130,5 +138,129 @@ class RecommendationsViewModelTest {
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
 
         coVerify(exactly = 0) { chat.send(any(), any(), any()) }
+    }
+
+    @Test
+    fun `a choice the server refused to record is named instead of silenced`() = runTest {
+        val match = mockk<MatchRepository> {
+            coEvery { recommendations("m1") } returns ApiResult.Success(listOf(rec))
+            coEvery { selectRecommendation("m1", 7) } returns ApiResult.Error(0, "Нет соединения")
+        }
+        val vm = viewModel(match, chatRepo())
+
+        vm.select(7, cinema.title)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        // The idea is readable in chat, so the card keeps its mark; what the person has to be
+        // told is that the pair's own record of it did not survive the request.
+        assertNotNull(vm.uiState.value.selectError)
+        assertTrue(vm.uiState.value.selectError!!.contains("чат"))
+        assertTrue(vm.uiState.value.selected.contains(7))
+        assertEquals(setOf(7), vm.uiState.value.unsavedChoices)
+    }
+
+    @Test
+    fun `a refused record is retried as a record and never as a second message`() = runTest {
+        val match = mockk<MatchRepository> {
+            coEvery { recommendations("m1") } returns ApiResult.Success(listOf(rec))
+            coEvery { selectRecommendation("m1", 7) } returns ApiResult.Error(0, "Нет соединения") andThen
+                ApiResult.Success(Unit)
+        }
+        val chat = chatRepo()
+        val vm = viewModel(match, chat)
+
+        vm.select(7, cinema.title)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        assertNotNull(vm.uiState.value.selectError)
+
+        vm.retryRecords()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        assertNull(vm.uiState.value.selectError)
+        assertTrue(vm.uiState.value.unsavedChoices.isEmpty())
+        coVerify(exactly = 1) { chat.send(any(), any(), any()) }
+        coVerify(exactly = 2) { match.selectRecommendation("m1", 7) }
+    }
+
+    @Test
+    fun `a record the server refuses twice stays named after the second refusal`() = runTest {
+        val match = mockk<MatchRepository> {
+            coEvery { recommendations("m1") } returns ApiResult.Success(listOf(rec))
+            coEvery { selectRecommendation("m1", 7) } returns ApiResult.Error(0, "Нет соединения")
+        }
+        val vm = viewModel(match, chatRepo())
+
+        vm.select(7, cinema.title)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        vm.retryRecords()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(setOf(7), vm.uiState.value.unsavedChoices)
+        assertEquals("Идея отправлена в чат, но отметить её в паре не удалось. Нет соединения", vm.uiState.value.selectError)
+    }
+
+    @Test
+    fun `a page that reports the mark retires the notice`() = runTest {
+        // The record can reach the pair even though its answer was lost, so the next page is
+        // the fact that ends the doubt: the mark came back, nothing has to be retried.
+        val match = mockk<MatchRepository> {
+            coEvery { recommendations("m1") } returnsMany listOf(
+                ApiResult.Success(listOf(rec)),
+                ApiResult.Success(listOf(rec.copy(selected = true))),
+            )
+            coEvery { selectRecommendation("m1", 7) } returns ApiResult.Error(0, "Нет соединения")
+        }
+        val vm = viewModel(match, chatRepo())
+
+        vm.select(7, cinema.title)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        assertNotNull(vm.uiState.value.selectError)
+
+        vm.load()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        assertTrue(vm.uiState.value.unsavedChoices.isEmpty())
+        assertNull(vm.uiState.value.selectError)
+        assertTrue(vm.uiState.value.selected.contains(7))
+    }
+
+    @Test
+    fun `a send failure never claims a missing record`() = runTest {
+        val match = mockk<MatchRepository> {
+            coEvery { recommendations("m1") } returns ApiResult.Success(listOf(rec))
+            coEvery { selectRecommendation(any(), any()) } returns ApiResult.Success(Unit)
+        }
+        val vm = viewModel(match, chatRepo(ApiResult.Error(0, "Сервер недоступен")))
+
+        vm.select(7, cinema.title)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        vm.retryRecords()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        // Nothing was recorded and nothing needs recording: the retry has no target here, so
+        // the notice must stay about the message and must not offer to re-send a mark.
+        assertEquals("Не удалось отправить предложение. Сервер недоступен", vm.uiState.value.selectError)
+        coVerify(exactly = 0) { match.selectRecommendation(any(), any()) }
+    }
+
+    @Test
+    fun `a second tap does not bury the notice of the idea still missing its mark`() = runTest {
+        // The tap clears the notice of its own attempt, and a successful record of the second
+        // idea says nothing about the first one: its mark is still missing and still has to show.
+        val match = mockk<MatchRepository> {
+            coEvery { recommendations("m1") } returns ApiResult.Success(listOf(rec, recBoard))
+            coEvery { selectRecommendation("m1", 7) } returns ApiResult.Error(0, "Нет соединения")
+            coEvery { selectRecommendation("m1", 8) } returns ApiResult.Success(Unit)
+        }
+        val vm = viewModel(match, chatRepo())
+
+        vm.select(7, cinema.title)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        vm.select(8, boardGames.title)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(setOf(7), vm.uiState.value.unsavedChoices)
+        assertTrue(vm.uiState.value.selectError!!.startsWith("Идея отправлена в чат"))
+        assertTrue(vm.uiState.value.selected.containsAll(setOf(7, 8)))
     }
 }

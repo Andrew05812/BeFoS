@@ -87,7 +87,14 @@ fun RecommendationsScreen(matchId: String, onBack: () -> Unit) {
             ) {
                 if (state.selectError != null) {
                     item {
-                        InlineNotice("Не удалось отправить предложение. ${state.selectError}")
+                        // The card stays marked while the notice is about its record: the idea is
+                        // readable in chat either way, and only the mark is missing.
+                        val canRetry = state.unsavedChoices.isNotEmpty()
+                        InlineNotice(
+                            text = state.selectError.orEmpty(),
+                            actionLabel = "Повторить".takeIf { canRetry },
+                            onAction = if (canRetry) vm::retryRecords else null,
+                        )
                     }
                 }
                 item {
