@@ -8,6 +8,7 @@ import app.befos.domain.repository.ChatEvent
 import app.befos.domain.repository.ChatRepository
 import app.befos.domain.repository.MatchRepository
 import java.util.UUID
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -165,7 +166,30 @@ class ChatViewModel(
         pendingAttempt = pendingAttempt?.takeIf { it.body == v.trim() }
         _uiState.update { it.copy(draft = v) }
         // One frame per blank/non-blank transition instead of one per keystroke.
-        if (wasTyping != v.isNotBlank()) viewModelScope.launch { chatRepository.sendTyping(matchId, v.isNotBlank()) }
+        if (wasTyping != v.isNotBlank()) viewModelScope.launch { sendTypingHint(v.isNotBlank()) }
+    }
+
+    /**
+     * A typing frame is a hint about the composer, not the message: the partner's indicator, not
+     * their inbox. The socket that carries it can be closing right now — Ktor's write channel
+     * answers a send after its session ended with `ClosedSendChannelException` — and neither call
+     * site is on the path a message travels, which goes over HTTP. Letting that exception out of
+     * `send` threw between `sending = true` and the request, so the typed text was already off the
+     * screen, the send button was already disabled, and the refusal the person needed to see never
+     * arrived; letting it out of the keystroke frame escaped the coroutine as an unhandled
+     * exception over an indicator. The `finally` that drops that session also drops `_connected`,
+     * so the link is still reported by the status line — a hint is all this swallows.
+     */
+    private suspend fun sendTypingHint(typing: Boolean) {
+        try {
+            chatRepository.sendTyping(matchId, typing)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // `ChatRepository.sendTyping` has these two call sites and nothing else, and the
+            // product has no retry for an indicator — the message it travels beside is the part
+            // that owes the person an answer.
+        }
     }
 
     fun send() {
@@ -176,7 +200,7 @@ class ChatViewModel(
         pendingAttempt = attempt
         _uiState.update { it.copy(sending = true, draft = "", sendError = null) }
         viewModelScope.launch {
-            chatRepository.sendTyping(matchId, false)
+            sendTypingHint(false)
             when (val result = chatRepository.send(matchId, attempt.body, attempt.clientMsgId)) {
                 is ApiResult.Success -> {
                     pendingAttempt = null
