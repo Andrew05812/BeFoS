@@ -34,6 +34,9 @@ import app.befos.core.designsystem.scoreTextColor
 import app.befos.core.designsystem.tabularDigits
 import app.befos.domain.model.CategoryScore
 
+internal fun categoryReadout(hasData: Boolean, score: Int): String =
+    if (hasData) "$score%" else "нет данных"
+
 /**
  * Compatibility category breakdown: animated gradient bars that fill on
  * appear — the signature visualization of the engine output.
@@ -42,8 +45,10 @@ import app.befos.domain.model.CategoryScore
 fun CategoryScoreRow(score: CategoryScore, modifier: Modifier = Modifier, delayMs: Int = 0) {
     var visible by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { visible = true }
+    // A band nobody answered holds the engine's neutral half, and a bar filling to that half
+    // reads as a middling measurement. It gets an empty track and its own word instead.
     val fraction by animateFloatAsState(
-        targetValue = if (visible) score.score / 100f else 0f,
+        targetValue = if (visible && score.hasData) score.score / 100f else 0f,
         animationSpec = tween(durationMillis = Motion.Slow, delayMillis = delayMs, easing = androidx.compose.animation.core.FastOutSlowInEasing),
         label = "categoryBar",
     )
@@ -72,13 +77,19 @@ fun CategoryScoreRow(score: CategoryScore, modifier: Modifier = Modifier, delayM
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
-                text = "${score.score}%",
+                text = categoryReadout(score.hasData, score.score),
                 style = MaterialTheme.typography.titleMedium.tabularDigits(),
                 fontWeight = FontWeight.Bold,
                 // 16sp bold is not "large text" to WCAG, and the raw score hue is a fill
                 // color: ScoreLow reads 2.33:1 on a card, so a low category — the one a
                 // user most needs to read — was the least legible number on the screen.
-                color = scoreTextColor(score.score, cardPaintedSurface()),
+                // A band with no measurement has no score hue to lose, so it takes the
+                // ordinary body colour and its colour carries no claim.
+                color = if (score.hasData) {
+                    scoreTextColor(score.score, cardPaintedSurface())
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
             )
         }
         Box(
@@ -86,7 +97,13 @@ fun CategoryScoreRow(score: CategoryScore, modifier: Modifier = Modifier, delayM
                 .fillMaxWidth()
                 .height(10.dp)
                 .clip(RoundedCornerShape(5.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant),
+                .background(
+                    if (score.hasData) {
+                        MaterialTheme.colorScheme.surfaceVariant
+                    } else {
+                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                    }
+                ),
         ) {
             Box(
                 modifier = Modifier

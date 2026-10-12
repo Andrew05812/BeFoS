@@ -127,7 +127,9 @@ fun CompatibilityScreen(matchId: String, onBack: () -> Unit) {
                             ) {
                                 CategoryScoreList(data.categories)
                                 Text(
-                                    "Итог — среднее по категориям: то, что важнее для знакомства, влияет сильнее.",
+                                    "Итог — сумма категорий, каждая со своим весом: сильнее влияет то, " +
+                                        "что важнее для знакомства. Категория, где сравнивать было нечего, " +
+                                        "помечена «нет данных» и осталась пустой.",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )

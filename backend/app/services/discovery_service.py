@@ -378,6 +378,10 @@ class DiscoveryService:
                     "label": c.label,
                     "score": c.percent,
                     "weight": c.weight,
+                    # The card draws these with the same bars the pair page uses, so a band that
+                    # holds the engine's neutral half has to say so here too — leaving it out
+                    # would let the client default answer "measured" for a subject nobody spoke on.
+                    "has_data": c.has_data,
                 }
                 for c in result.categories
             ],

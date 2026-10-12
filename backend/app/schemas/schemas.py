@@ -184,6 +184,11 @@ class CategoryScoreOut(BaseModel):
     # a user "-3%".
     score: int = Field(ge=0, le=100)
     weight: float
+    # Whether anything produced that percent. The engine keeps this flag for its own explanation
+    # and a band with nothing to compare on still carries its neutral 50, so a screen handed only
+    # the number draws an absent answer exactly like a middling one. Required, with no default: a
+    # route that forgets it fails here instead of silently promising "measured".
+    has_data: bool
 
 
 class TestResultOut(BaseModel):
