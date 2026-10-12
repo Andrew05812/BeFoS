@@ -19,6 +19,7 @@ data class OnboardingUiState(
     val step: Int = 0,
     val interests: List<Interest> = emptyList(),
     val interestsLoading: Boolean = true,
+    val interestsFailed: Boolean = false,
     val name: String = "",
     // Digits only (YYYYMMDD); the field renders them with separators via a visual transformation.
     val birthDate: String = "",
@@ -44,14 +45,16 @@ class OnboardingViewModel(private val profileRepository: ProfileRepository) : Vi
         loadInterests()
     }
 
-    private fun loadInterests() {
+    /** Public because the step that needs the catalogue offers a retry of exactly this read. */
+    fun loadInterests() {
+        _uiState.update { it.copy(interestsLoading = true, interestsFailed = false) }
         viewModelScope.launch {
             when (val result = profileRepository.interests()) {
                 is ApiResult.Success -> _uiState.update {
                     it.copy(interests = result.data, interestsLoading = false)
                 }
                 is ApiResult.Error -> _uiState.update {
-                    it.copy(interestsLoading = false, error = result.message)
+                    it.copy(interestsLoading = false, interestsFailed = true)
                 }
             }
         }
@@ -90,7 +93,17 @@ class OnboardingViewModel(private val profileRepository: ProfileRepository) : Vi
             }
             1 -> _uiState.update { it.copy(step = 2, error = null) }
             2 -> {
-                if (s.selectedInterests.size < 3) return fail("Выберите минимум 3 интереса.")
+                if (s.selectedInterests.size < 3) {
+                    // The same short list means two different things, and only one of them the
+                    // person can fix by looking for more chips.
+                    return fail(
+                        if (s.interestsFailed) {
+                            "Список интересов не загрузился. Повторите попытку."
+                        } else {
+                            "Выберите минимум 3 интереса."
+                        }
+                    )
+                }
                 submit()
             }
         }

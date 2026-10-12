@@ -312,6 +312,15 @@ private fun StepInterests(state: OnboardingUiState, vm: OnboardingViewModel) {
             Box(Modifier.fillMaxWidth().padding(Spacing.huge), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
             }
+        } else if (state.interestsFailed) {
+            // Without this branch the step shows an empty list under «ВЫБЕРИТЕ МИНИМУМ 3»,
+            // which reads as an empty catalogue rather than as a failed request, and the only
+            // way back is to kill the app.
+            InlineNotice(
+                "Список интересов не загрузился.",
+                actionLabel = "Повторить",
+                onAction = vm::loadInterests,
+            )
         } else {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm), verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                 state.interests.forEach { interest ->
