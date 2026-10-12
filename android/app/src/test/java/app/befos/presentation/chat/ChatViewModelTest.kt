@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -551,5 +552,135 @@ class ChatViewModelTest {
         assertEquals(1, names.distinct().size)
         assertTrue(names.first() != null)
         assertEquals(listOf("9"), vm.uiState.value.messages.map { it.id })
+    }
+
+    @Test
+    fun `a gap read that fails after reconnect names itself instead of staying silent`() = runTest {
+        coEvery { repo.history("m1", any()) } returnsMany listOf(
+            ApiResult.Success(listOf(message("1", false, "привет"))),
+            ApiResult.Error(-1, "Сервер недоступен. Проверьте соединение и попробуйте ещё раз."),
+        )
+        coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
+        coEvery { repo.sendTyping(any(), any()) } returns Unit
+
+        val vm = ChatViewModel(repo, matchRepo, "m1")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        events.tryEmit(ChatEvent.Connected)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        events.tryEmit(ChatEvent.Disconnected)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        events.tryEmit(ChatEvent.Connected)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        // The pill says the link is back, so the read that failed behind it has to say so too:
+        // without a named failure the unseen messages are simply a thread that never happened.
+        assertEquals(true, vm.uiState.value.connected)
+        assertEquals(
+            "Сервер недоступен. Проверьте соединение и попробуйте ещё раз.",
+            vm.uiState.value.historyError,
+        )
+    }
+
+    @Test
+    fun `a failed gap read leaves the open thread and the draft alone`() = runTest {
+        coEvery { repo.history("m1", any()) } returnsMany listOf(
+            ApiResult.Success(listOf(message("1", false, "привет"))),
+            ApiResult.Error(-1, "Сервер недоступен."),
+        )
+        coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
+        coEvery { repo.sendTyping(any(), any()) } returns Unit
+
+        val vm = ChatViewModel(repo, matchRepo, "m1")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        events.tryEmit(ChatEvent.Connected)
+        vm.onDraftChange("черновик")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        events.tryEmit(ChatEvent.Disconnected)
+        events.tryEmit(ChatEvent.Connected)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(listOf("1"), vm.uiState.value.messages.map { it.id })
+        assertEquals("черновик", vm.uiState.value.draft)
+    }
+
+    @Test
+    fun `retrying a thread that is already on screen does not blank it`() = runTest {
+        coEvery { repo.history("m1", any()) } returnsMany listOf(
+            ApiResult.Success(listOf(message("1", false, "привет"))),
+            ApiResult.Error(-1, "Сервер недоступен."),
+            ApiResult.Success(listOf(message("1", false, "привет"), message("2", false, "пока"))),
+        )
+        coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
+        coEvery { repo.sendTyping(any(), any()) } returns Unit
+
+        val vm = ChatViewModel(repo, matchRepo, "m1")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        events.tryEmit(ChatEvent.Connected)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        events.tryEmit(ChatEvent.Disconnected)
+        events.tryEmit(ChatEvent.Connected)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        vm.retryHistory()
+
+        // The notice sits over a thread the reader is looking at. Fetching its replacement must
+        // not trade the bubbles for a skeleton on the way.
+        assertFalse(vm.uiState.value.loading)
+        assertEquals(listOf("1"), vm.uiState.value.messages.map { it.id })
+    }
+
+    @Test
+    fun `a gap page that arrives after a failed read closes the notice`() = runTest {
+        coEvery { repo.history("m1", any()) } returnsMany listOf(
+            ApiResult.Success(listOf(message("1", false, "привет"))),
+            ApiResult.Error(-1, "Сервер недоступен."),
+            ApiResult.Success(listOf(message("1", false, "привет"), message("2", false, "пока"))),
+        )
+        coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
+        coEvery { repo.sendTyping(any(), any()) } returns Unit
+
+        val vm = ChatViewModel(repo, matchRepo, "m1")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        events.tryEmit(ChatEvent.Connected)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        events.tryEmit(ChatEvent.Disconnected)
+        events.tryEmit(ChatEvent.Connected)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        assertTrue(vm.uiState.value.historyError != null)
+
+        vm.retryHistory()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        assertNull(vm.uiState.value.historyError)
+        assertEquals(listOf("1", "2"), vm.uiState.value.messages.map { it.id })
+        assertEquals(false, vm.uiState.value.loading)
+    }
+
+    @Test
+    fun `a message that flies in over the socket does not retire an unread gap page`() = runTest {
+        coEvery { repo.history("m1", any()) } returnsMany listOf(
+            ApiResult.Success(listOf(message("1", false, "привет"))),
+            ApiResult.Error(-1, "Сервер недоступен."),
+        )
+        coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
+        coEvery { repo.sendTyping(any(), any()) } returns Unit
+
+        val vm = ChatViewModel(repo, matchRepo, "m1")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        events.tryEmit(ChatEvent.Connected)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        events.tryEmit(ChatEvent.Disconnected)
+        events.tryEmit(ChatEvent.Connected)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        // One bubble arriving live says nothing about the rest of the page that did not
+        // arrive: the notice stays until the read itself answers.
+        events.tryEmit(ChatEvent.IncomingMessage(message("3", false, "там?")))
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(listOf("1", "3"), vm.uiState.value.messages.map { it.id })
+        assertTrue(vm.uiState.value.historyError != null)
     }
 }

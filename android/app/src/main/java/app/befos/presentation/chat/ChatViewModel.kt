@@ -87,7 +87,9 @@ class ChatViewModel(
     }
 
     fun retryHistory() {
-        _uiState.update { it.copy(loading = true, historyError = null) }
+        // A thread that is already on screen keeps showing while its replacement is fetched:
+        // blanking it would trade the bubbles the reader is looking at for a skeleton.
+        _uiState.update { it.copy(loading = it.messages.isEmpty(), historyError = null) }
         loadHistory()
     }
 
@@ -134,16 +136,20 @@ class ChatViewModel(
      */
     private fun fillGap() {
         viewModelScope.launch {
-            val result = chatRepository.history(matchId)
-            if (result !is ApiResult.Success) return@launch
-            _uiState.update { state ->
-                val known = state.messages.mapTo(HashSet()) { it.id }
-                val fresh = result.data.filterNot { it.id in known }
-                if (fresh.isEmpty()) state
-                else state.copy(
-                    messages = (state.messages + fresh).sortedBy { it.createdAt },
-                    otherTyping = false,
-                )
+            when (val result = chatRepository.history(matchId)) {
+                is ApiResult.Success -> _uiState.update { state ->
+                    val known = state.messages.mapTo(HashSet()) { it.id }
+                    val fresh = result.data.filterNot { it.id in known }
+                    if (fresh.isEmpty()) state
+                    else state.copy(
+                        messages = (state.messages + fresh).sortedBy { it.createdAt },
+                        otherTyping = false,
+                    )
+                }
+                // The status pill has just said the link is back, so a page that did not come
+                // through it cannot go unmentioned: the gap stays real until the read answers,
+                // and naming it is what gives the retry something to act on.
+                is ApiResult.Error -> _uiState.update { it.copy(historyError = result.message) }
             }
         }
     }
