@@ -34,7 +34,6 @@ private val translated: Map<String, String> = mapOf(
     "name is required." to "Укажите имя.",
     "name cannot be empty." to "Укажите имя.",
     "invalid gender." to "Выберите пол из списка.",
-    "invalid dating goal." to "Выберите цель знакомства.",
     "invalid birth date." to "Укажите корректную дату рождения.",
     "users must be 18 or older." to "BeFoS доступен с 18 лет.",
     "birth_date must be in yyyy-mm-dd format." to "Укажите корректную дату рождения.",
@@ -105,6 +104,9 @@ private val translatedPrefixes: List<Pair<String, String>> = listOf(
     // names the values it refused. Both are stated as the screen's own limit, not the server's.
     "A profile can prefer at most " to "Предпочтений по полу можно выбрать не больше четырёх.",
     "Genders the server does not know" to "Таких вариантов пола в списке нет. Обновите экран и выберите заново.",
+    // The goal refusal names the value it refused and lists the goals the server actually scores,
+    // so its constant part is only the opening; the screen keeps its own advice-shaped copy.
+    "Invalid dating goal" to "Выберите цель знакомства.",
 )
 
 /** Second layer: the envelope's machine code covers messages this file has never seen. */

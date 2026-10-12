@@ -146,6 +146,15 @@ def _location_match(act: ActivitySignal, a: UserSignal, b: UserSignal) -> tuple[
 
 
 def _goal_match(a: UserSignal, b: UserSignal) -> tuple[float, list[str]]:
+    # An unanswered goal is not an opposite one. The compatibility engine reads this as neutral with
+    # `has_data=False` (`NEUTRAL_SCORE`, and stage 60 applied the same rule to interests), and
+    # `_interest_match` beside this one already returns 0.5 for an empty tag list; `goal_compatibility`
+    # answers 0.0 for any pair it has no row for, including the empty string the signal builder uses
+    # when a profile is missing. Measured before this stage: the card a pair with two named goals was
+    # shown at 82 % came back at 72 % when one side named nothing — the whole `goal` band, charged to
+    # an answer that was never given.
+    if not a.dating_goal or not b.dating_goal:
+        return 0.5, []
     score = goal_compatibility(a.dating_goal, b.dating_goal)
     reasons = ["Цели знакомства совпадают"] if score >= 0.8 else []
     return score, reasons

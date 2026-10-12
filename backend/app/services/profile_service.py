@@ -5,6 +5,7 @@ from datetime import date, datetime, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.compatibility.traits import GOAL_KEYS
 from app.core.exceptions import NotFoundError, ValidationError
 from app.models import Interest, Photo, Profile
 from app.models.base import age_years, utc_today
@@ -14,7 +15,18 @@ from app.repositories.user_repo import UserRepository
 from app.services.compatibility_service import CompatibilityService
 
 VALID_GENDERS = {"male", "female", "nonbinary", "other"}
-VALID_GOALS = {"relationship", "marriage", "friendship", "casual", "networking"}
+# The set a write is refused against is the table itself, not a list beside it: a goal accepted here
+# and missing from `_GOAL_COMPAT` is stored, read back by the route as an answer, and scored 0.0 —
+# the engine cannot tell an unscored goal from an opposite one.
+VALID_GOALS = GOAL_KEYS
+
+
+def _rejected_goal(goal: object) -> ValidationError:
+    """The refusal on both writes, naming the fault and the goals the app does carry."""
+    return ValidationError(
+        f"Invalid dating goal {goal!r}. The app scores: {', '.join(sorted(VALID_GOALS))}."
+    )
+
 
 # How many interests one profile carries. The number already decided what got stored; it is now
 # the number a request is refused against, so it lives where both readings can reach it.
@@ -107,7 +119,7 @@ class ProfileService:
             raise ValidationError("Invalid gender.")
         goal = data.get("dating_goal", "relationship")
         if goal not in VALID_GOALS:
-            raise ValidationError("Invalid dating goal.")
+            raise _rejected_goal(goal)
         # The schema counts characters, so "   " reaches here as a three-character answer to
         # a mandatory question. Stripping is what turns it into nothing, so the check that
         # the answer means something belongs after the strip, not before it.
@@ -175,7 +187,7 @@ class ProfileService:
             profile.gender = data["gender"]
         if "dating_goal" in data and data["dating_goal"] is not None:
             if data["dating_goal"] not in VALID_GOALS:
-                raise ValidationError("Invalid dating goal.")
+                raise _rejected_goal(data["dating_goal"])
             profile.dating_goal = data["dating_goal"]
         if "lifestyle" in data and data["lifestyle"] is not None:
             profile.lifestyle = data["lifestyle"]
