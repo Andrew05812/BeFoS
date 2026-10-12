@@ -27,10 +27,21 @@ data class DiscoveryUiState(
      */
     val feedError: String? = null,
     val match: LikeOutcome? = null,
+    /**
+     * The card whose like or pass the server refused. The fling animation runs ahead of the write
+     * and carries the card off the screen, so the screen needs to know which one to bring back;
+     * without it the deck shows an empty area, a counter that did not move, and a notice that
+     * describes a socket instead of the person still sitting there.
+     */
+    val rejectedCard: String? = null,
 ) {
     val current: DiscoveryCard? get() = cards.getOrNull(index)
     val isEmpty: Boolean get() = !loading && cards.isEmpty()
 }
+
+// The transport line on its own quotes a failure the viewer cannot act on: naming the card that
+// returns is what tells them the answer was not counted.
+private const val ANSWER_NOT_RECORDED = "Ответ не записан — карточка вернулась."
 
 class DiscoveryViewModel(
     private val discoveryRepository: DiscoveryRepository,
@@ -75,7 +86,7 @@ class DiscoveryViewModel(
     }
 
     fun load() {
-        _uiState.update { it.copy(loading = true, error = null, feedError = null) }
+        _uiState.update { it.copy(loading = true, error = null, feedError = null, rejectedCard = null) }
         cursor = null
         moreComing = true
         viewModelScope.launch {
@@ -103,14 +114,20 @@ class DiscoveryViewModel(
             when (val result = discoveryRepository.like(card.userId)) {
                 is ApiResult.Success -> {
                     val outcome = result.data
-                    _uiState.update { it.copy(busy = false) }
+                    _uiState.update { it.copy(busy = false, rejectedCard = null) }
                     if (outcome.matched) {
                         _uiState.update { it.copy(match = outcome) }
                     } else {
                         advance()
                     }
                 }
-                is ApiResult.Error -> _uiState.update { it.copy(busy = false, error = result.message) }
+                is ApiResult.Error -> _uiState.update {
+                    it.copy(
+                        busy = false,
+                        error = "$ANSWER_NOT_RECORDED ${result.message}",
+                        rejectedCard = card.userId,
+                    )
+                }
             }
         }
     }
@@ -122,10 +139,16 @@ class DiscoveryViewModel(
         viewModelScope.launch {
             when (val result = discoveryRepository.pass(card.userId)) {
                 is ApiResult.Success -> {
-                    _uiState.update { it.copy(busy = false) }
+                    _uiState.update { it.copy(busy = false, rejectedCard = null) }
                     advance()
                 }
-                is ApiResult.Error -> _uiState.update { it.copy(busy = false, error = result.message) }
+                is ApiResult.Error -> _uiState.update {
+                    it.copy(
+                        busy = false,
+                        error = "$ANSWER_NOT_RECORDED ${result.message}",
+                        rejectedCard = card.userId,
+                    )
+                }
             }
         }
     }
