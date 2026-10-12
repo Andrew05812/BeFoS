@@ -123,6 +123,68 @@ _GOAL_COMPAT: dict[str, dict[str, float]] = {
 }
 
 
+GOAL_KEYS: frozenset[str] = frozenset(_GOAL_COMPAT)
+
+
+def validate_goal_matrix(matrix: dict[str, dict[str, float]] | None = None) -> int:
+    """Raise unless the goal table is a complete, symmetric, in-band matrix with a 1.0 diagonal.
+
+    The sentence above the table has promised symmetry for as long as the table has existed, and
+    nothing read that promise. Measured before this stage the matrix holds: 25 cells over five goals,
+    0 asymmetric, diagonal 1.0, every value inside 0..1 — and the six copies of the vocabulary (the
+    rows, the columns, ``profile_service.VALID_GOALS``, ``seed.GOALS``, ``models.enums.DatingGoal``
+    and the Kotlin ``DatingGoalLabels``) were one set. So this is not a repair of a wrong number; it
+    is the check that keeps the number the six copies agree on from being the only thing they agree
+    on.
+
+    The directions fail silently. A leaned cell splits one pair into two views, because the engine is
+    fed requester-first — the two partners read different percentages of the same answers. A missing
+    cell is answered by ``table.get(goal_b, 0.0)``, so a goal the table does not name is scored as a
+    maximal disagreement: the probe pair differing only in that answer read 68 % against 72 % with a
+    scored goal and 70 % with no answer at all.
+
+    Returns the cell count, so a caller can assert the table is the square the goals imply.
+    """
+    table = _GOAL_COMPAT if matrix is None else matrix
+    rows = sorted(table)
+    if not rows:
+        raise ValueError("Goal compatibility matrix declares no goals.")
+
+    problems: list[str] = []
+    for goal_a in rows:
+        row = table[goal_a]
+        diagonal = row.get(goal_a)
+        if diagonal != 1.0:
+            problems.append(
+                f"'{goal_a}' against itself reads {diagonal}; the diagonal is the top of the scale"
+            )
+        for goal_b in rows:
+            if goal_b not in row:
+                problems.append(f"'{goal_a}' names no cell for '{goal_b}'")
+                continue
+            value = row[goal_b]
+            if not 0.0 <= value <= 1.0:
+                problems.append(f"'{goal_a}' against '{goal_b}' reads {value}, outside 0..1")
+            back = table[goal_b].get(goal_a)
+            if back != value:
+                problems.append(
+                    f"'{goal_a}' against '{goal_b}' reads {value} but '{goal_b}' against "
+                    f"'{goal_a}' reads {back}"
+                )
+
+    if problems:
+        raise ValueError(
+            f"Goal compatibility matrix is not a complete symmetric table on 0..1: "
+            f"{'; '.join(problems)}"
+        )
+    return len(rows) * len(rows)
+
+
+# An asymmetric or incomplete cell has to be a broken import, not a page: the two engines read this
+# table on every request, and neither of them can tell a missing cell from an opposite answer.
+validate_goal_matrix()
+
+
 def goal_compatibility(goal_a: str, goal_b: str) -> float:
     """Return 0..1 compatibility between two dating goals (deterministic)."""
     table = _GOAL_COMPAT.get(goal_a)

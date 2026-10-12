@@ -90,6 +90,17 @@ class BackendErrorTextTest {
                 "validation_error",
                 422,
             ).contains("ещё раз"))
+        // The goal refusal now names the value it refused and lists the goals the server scores, so
+        // its key can only be the constant opening. The screen keeps its own advice-shaped copy.
+        assertEquals(
+            "Выберите цель знакомства.",
+            localizeBackendError(
+                "Invalid dating goal 'situational'. The app scores: casual, friendship, marriage, " +
+                    "networking, relationship.",
+                "validation_error",
+                422,
+            ),
+        )
     }
 
     @Test
