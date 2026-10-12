@@ -13,6 +13,7 @@ import io.mockk.mockk
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -77,6 +78,134 @@ class DiscoveryViewModelTest {
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
         assertNull(vm.uiState.value.match)
         assertEquals("b", vm.uiState.value.current?.userId)
+    }
+
+    @Test
+    fun `a refused like names the card that comes back instead of quoting the transport`() = runTest {
+        coEvery { repo.feed(any(), any()) } returns pageOf("a", "b")
+        coEvery { repo.like("a") } returns ApiResult.Error(0, "Нет соединения")
+        coEvery { repo.pass(any()) } returns ApiResult.Success(Unit)
+
+        val vm = DiscoveryViewModel(repo, answered)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        vm.like()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        // The fling already carried the card off the screen before the write was asked for, so
+        // a bare transport line leaves the viewer staring at an empty deck area, a counter that
+        // did not move, and no sentence saying which person is still there.
+        assertEquals(
+            "Ответ не записан — карточка вернулась. Нет соединения",
+            vm.uiState.value.error,
+        )
+    }
+
+    @Test
+    fun `the card a refused like left behind is the one the screen has to bring back`() = runTest {
+        coEvery { repo.feed(any(), any()) } returns pageOf("a", "b")
+        coEvery { repo.like("a") } returns ApiResult.Error(0, "Нет соединения")
+
+        val vm = DiscoveryViewModel(repo, answered)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        vm.like()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        // The index never moved, so this is still the current card; the flag is what tells the
+        // screen that the fling has to be undone rather than followed by the next person.
+        assertEquals("a", vm.uiState.value.current?.userId)
+        assertEquals("a", vm.uiState.value.rejectedCard)
+        // A deck still marked busy swallows every further tap, so the refusal must release it.
+        assertFalse(vm.uiState.value.busy)
+    }
+
+    @Test
+    fun `a refused pass says the same about the card it would have thrown away`() = runTest {
+        coEvery { repo.feed(any(), any()) } returns pageOf("a", "b")
+        coEvery { repo.pass("a") } returns ApiResult.Error(-1, "Сервер недоступен")
+
+        val vm = DiscoveryViewModel(repo, answered)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        vm.pass()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(
+            "Ответ не записан — карточка вернулась. Сервер недоступен",
+            vm.uiState.value.error,
+        )
+        assertEquals("a", vm.uiState.value.current?.userId)
+        assertEquals("a", vm.uiState.value.rejectedCard)
+        assertEquals(0, vm.uiState.value.index)
+    }
+
+    @Test
+    fun `a card that came back is answered by the next tap`() = runTest {
+        coEvery { repo.feed(any(), any()) } returns pageOf("a", "b")
+        coEvery { repo.like("a") } returnsMany listOf(
+            ApiResult.Error(0, "Нет соединения"),
+            ApiResult.Success(LikeOutcome(matched = false, matchId = null, compatibility = null)),
+        )
+
+        val vm = DiscoveryViewModel(repo, answered)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        vm.like()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals("a", vm.uiState.value.rejectedCard)
+
+        vm.like()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        // Retrying from the same card is the whole recovery: the notice clears, the flag goes
+        // with the answer that landed, and the deck moves on to the next person.
+        assertEquals("b", vm.uiState.value.current?.userId)
+        assertNull(vm.uiState.value.rejectedCard)
+        assertNull(vm.uiState.value.error)
+    }
+
+    @Test
+    fun `a successful answer does not leave a stale card to bring back`() = runTest {
+        coEvery { repo.feed(any(), any()) } returns pageOf("a", "b", "c")
+        coEvery { repo.pass("a") } returns ApiResult.Error(0, "Нет соединения")
+        coEvery { repo.like("a") } returns ApiResult.Success(LikeOutcome(matched = false, matchId = null, compatibility = null))
+
+        val vm = DiscoveryViewModel(repo, answered)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        vm.pass()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals("a", vm.uiState.value.rejectedCard)
+
+        vm.like()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        // The screen springs back the card whose id is still in the flag; leaving "a" there
+        // after an answer that did land would drag the new card off screen for no reason.
+        assertEquals("b", vm.uiState.value.current?.userId)
+        assertNull(vm.uiState.value.rejectedCard)
+    }
+
+    @Test
+    fun `reloading the deck drops the card that never got an answer`() = runTest {
+        coEvery { repo.feed(any(), any()) } returns pageOf("a", "b")
+        coEvery { repo.like("a") } returns ApiResult.Error(0, "Нет соединения")
+
+        val vm = DiscoveryViewModel(repo, answered)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        vm.like()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals("a", vm.uiState.value.rejectedCard)
+
+        vm.load()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        // A fresh deck starts from the top, so a flag pointing at the previous attempt would
+        // make the screen chase a card it is no longer showing.
+        assertNull(vm.uiState.value.rejectedCard)
+        assertNull(vm.uiState.value.error)
+        assertEquals("a", vm.uiState.value.current?.userId)
     }
 
     @Test

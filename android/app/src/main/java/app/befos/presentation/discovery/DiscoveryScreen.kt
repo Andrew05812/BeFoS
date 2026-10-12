@@ -173,6 +173,13 @@ private fun DiscoveryContent(state: DiscoveryUiState, vm: DiscoveryViewModel, on
         }
     }
 
+    // The fling leaves before the write is awaited, so a refused answer used to keep this card
+    // off screen while the deck index never moved: an empty area, an unchanged counter, and a
+    // notice about a socket. The card the server refused comes back on its own spring.
+    LaunchedEffect(state.rejectedCard, card.userId) {
+        if (state.rejectedCard == card.userId) dragX.animateTo(0f, Motion.enterSpring())
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
