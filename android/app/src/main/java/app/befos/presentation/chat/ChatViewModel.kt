@@ -56,18 +56,30 @@ class ChatViewModel(
 
     private var socketWasDown = false
 
+    private var partnerJob: Job? = null
+
     init {
         loadHistory()
         observeSocket()
         loadPartner()
     }
 
-    /** The header names the conversation; a failure just leaves the generic title. */
+    /**
+     * The header names the conversation, and `init` is the only other thing that asks for the name.
+     * Opening a thread while the network was down therefore left it anonymous for the rest of the
+     * screen's life: the refusal was dropped without a word and nothing ever asked again. A
+     * connection is the moment the network is known to answer, so that is when the missing name is
+     * asked for — once per connection, never while a read of it is already in flight, and not at
+     * all once the name is already on screen.
+     */
     private fun loadPartner() {
-        viewModelScope.launch {
-            val result = matchRepository.partner(matchId)
-            if (result is ApiResult.Success) {
-                _uiState.update { it.copy(partnerName = result.data.name) }
+        if (_uiState.value.partnerName != null || partnerJob?.isActive == true) return
+        partnerJob = viewModelScope.launch {
+            when (val result = matchRepository.partner(matchId)) {
+                is ApiResult.Success -> _uiState.update { it.copy(partnerName = result.data.name) }
+                // Nothing to tell the person: the header keeps its own word for a partner whose
+                // name has not arrived, and the next connection retries it.
+                is ApiResult.Error -> Unit
             }
         }
     }
@@ -109,6 +121,7 @@ class ChatViewModel(
                             socketWasDown = false
                             fillGap()
                         }
+                        loadPartner()
                     }
                     is ChatEvent.Disconnected -> {
                         // The connection lives in a StateFlow, which re-states its current value to

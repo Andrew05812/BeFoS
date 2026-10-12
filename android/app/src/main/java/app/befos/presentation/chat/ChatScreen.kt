@@ -104,7 +104,9 @@ fun ChatScreen(
     Scaffold(
         topBar = {
             AppTopBar(
-                title = state.partnerName ?: "Чат",
+                // The same word the empty state uses for a partner whose name has not arrived:
+                // «Чат» is the name of the screen, not of the person the thread is with.
+                title = state.partnerName ?: "Собеседник",
                 onBack = onBack,
                 actions = {
                     IconButton(onClick = onOpenCompatibility) {

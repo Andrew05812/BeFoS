@@ -3,6 +3,7 @@ package app.befos.presentation.chat
 import app.befos.MainDispatcherRule
 import app.befos.core.network.ApiResult
 import app.befos.domain.model.Message
+import app.befos.domain.model.PublicProfile
 import app.befos.domain.repository.ChatEvent
 import app.befos.domain.repository.ChatRepository
 import app.befos.domain.repository.MatchRepository
@@ -35,10 +36,17 @@ class ChatViewModelTest {
     private val repo: ChatRepository = mockk {
         every { socket(any()) } returns events
     }
-    // The header name is cosmetic here; every case keeps the "Чат" fallback.
+    // The header name comes from `partner`; cases that watch it re-stub it, the rest keep the refusal.
     private val matchRepo: MatchRepository = mockk {
         coEvery { partner(any()) } returns ApiResult.Error(404, "no partner")
     }
+
+    private fun profile(name: String) = PublicProfile(
+        userId = "them", name = name, age = 27, city = "Казань", about = null,
+        datingGoal = "relationship", gender = "female", interests = emptyList(),
+        photoUrls = emptyList(), compatibility = 74, categories = emptyList(),
+        sharedInterests = emptyList(),
+    )
 
     private fun message(id: String, own: Boolean, body: String = "hi") = Message(
         id = id, matchId = "m1", senderId = if (own) "me" else "them",
@@ -682,5 +690,105 @@ class ChatViewModelTest {
 
         assertEquals(listOf("1", "3"), vm.uiState.value.messages.map { it.id })
         assertTrue(vm.uiState.value.historyError != null)
+    }
+
+    @Test
+    fun `a partner name the first read refused is re-read on the next connection`() = runTest {
+        coEvery { repo.history("m1", any()) } returns ApiResult.Success(emptyList())
+        coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
+        coEvery { repo.sendTyping(any(), any()) } returns Unit
+        coEvery { matchRepo.partner("m1") } returnsMany listOf(
+            ApiResult.Error(-1, "Сервер недоступен."),
+            ApiResult.Success(profile("Аня")),
+        )
+
+        val vm = ChatViewModel(repo, matchRepo, "m1")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        assertNull(vm.uiState.value.partnerName)
+
+        events.tryEmit(ChatEvent.Connected)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals("Аня", vm.uiState.value.partnerName)
+    }
+
+    @Test
+    fun `a reconnect that names the header pays for it with one read`() = runTest {
+        coEvery { repo.history("m1", any()) } returns ApiResult.Success(emptyList())
+        coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
+        coEvery { repo.sendTyping(any(), any()) } returns Unit
+        coEvery { matchRepo.partner("m1") } returnsMany listOf(
+            ApiResult.Error(-1, "Сервер недоступен."),
+            ApiResult.Success(profile("Аня")),
+        )
+
+        val vm = ChatViewModel(repo, matchRepo, "m1")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        events.tryEmit(ChatEvent.Disconnected)
+        events.tryEmit(ChatEvent.Connected)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        coVerify(exactly = 2) { matchRepo.partner("m1") }
+        assertEquals("Аня", vm.uiState.value.partnerName)
+    }
+
+    @Test
+    fun `a name the header already knows is not asked for again`() = runTest {
+        coEvery { repo.history("m1", any()) } returns ApiResult.Success(emptyList())
+        coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
+        coEvery { repo.sendTyping(any(), any()) } returns Unit
+        coEvery { matchRepo.partner("m1") } returns ApiResult.Success(profile("Аня"))
+
+        val vm = ChatViewModel(repo, matchRepo, "m1")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals("Аня", vm.uiState.value.partnerName)
+
+        events.tryEmit(ChatEvent.Disconnected)
+        events.tryEmit(ChatEvent.Connected)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        coVerify(exactly = 1) { matchRepo.partner("m1") }
+    }
+
+    @Test
+    fun `a refused name read leaves the thread itself alone`() = runTest {
+        coEvery { repo.history("m1", any()) } returns ApiResult.Success(listOf(message("1", false, "привет")))
+        coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
+        coEvery { repo.sendTyping(any(), any()) } returns Unit
+        coEvery { matchRepo.partner("m1") } returns ApiResult.Error(-1, "Сервер недоступен.")
+
+        val vm = ChatViewModel(repo, matchRepo, "m1")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(listOf("1"), vm.uiState.value.messages.map { it.id })
+        assertNull(vm.uiState.value.historyError)
+        assertNull(vm.uiState.value.partnerName)
+        assertFalse(vm.uiState.value.loading)
+    }
+
+    @Test
+    fun `a name still missing after two refusals is asked for on the third connection`() = runTest {
+        coEvery { repo.history("m1", any()) } returns ApiResult.Success(emptyList())
+        coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
+        coEvery { repo.sendTyping(any(), any()) } returns Unit
+        coEvery { matchRepo.partner("m1") } returnsMany listOf(
+            ApiResult.Error(-1, "Сервер недоступен."),
+            ApiResult.Error(-1, "Сервер недоступен."),
+            ApiResult.Success(profile("Аня")),
+        )
+
+        val vm = ChatViewModel(repo, matchRepo, "m1")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        events.tryEmit(ChatEvent.Connected)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        assertNull(vm.uiState.value.partnerName)
+
+        events.tryEmit(ChatEvent.Disconnected)
+        events.tryEmit(ChatEvent.Connected)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals("Аня", vm.uiState.value.partnerName)
     }
 }
