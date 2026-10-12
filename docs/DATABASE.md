@@ -287,7 +287,10 @@ onboarding_completed_at IS NOT NULL` добавлен миграцией `f3a07c
 и `backend/tests/test_an_activity_tag_nobody_can_select_caps_the_score.py` держат правило с тех пор.
 Миграция условила каждый `UPDATE` прежним массивом (`WHERE slug = … AND interests = <список>`) и
 потому не трогает список, который оператор поправил сам; `downgrade` возвращает ровно те массивы,
-что заменила. `category` — другая колонка, и в оценке она не участвует: `ActivitySignal` несёт её,
+что заменила. С стадии 71 тот же список сверяется и посевом: строку, которая в базе отличается
+от каталога, `_seed_catalogs` называет в `WARNING` и не переписывает — перенести правку в
+существующую базу значит написать ревизию данных, а не перезапустить посев (`docs/OPERATIONS.md`,
+§17). `category` — другая колонка, и в оценке она не участвует: `ActivitySignal` несёт её,
 ни одна из компонент её не читает. Единственный потребитель `interests` — движок рекомендаций: ни
 один маршрут, ни `RecommendationDto`/`ActivityDto` на Android этого списка не отдают.
 
@@ -347,4 +350,10 @@ onboarding_completed_at IS NOT NULL` добавлен миграцией `f3a07c
 
 - **Миграции:** `alembic upgrade head` (применяется автоматически в docker-compose при старте backend).
 - **Сид:** `python -m app.seed [--if-empty]`. Идемпотентно создаёт справочники (`interests`, `activities`, `test_questions`/`test_options`), затем демо-домен: 1 демо-пользователь (`demo@befos.app` / `Demo12345`), 50 пользователей и 4 демо-матча. `RNG_SEED=20240501` — детерминированная генерация. Функции `_seed_catalogs`, `_clear_domain`, `run_seed` переиспользуются и в тестах.
+  Справочники пишутся в пустую таблицу, а в непустую посев дописывает только отсутствующие строки:
+  правку каталога, которую база уже обошла, `_seed_catalogs` называет в `WARNING` (`Catalogue
+  drift: N reference row(s)…`) и не переписывает — у держателя строки может быть своя редактура, тот
+  же смысл, что у условия `WHERE slug = … AND interests = <список>` в `7c4f2a91be36`, а у вариантов
+  теста `test_answers.option_id` указывает на выбор человека. Пути ремонта — в
+  [`docs/OPERATIONS.md`](OPERATIONS.md), §17.
 - **Копия, восстановление и откат** — в [`docs/OPERATIONS.md`](OPERATIONS.md): что именно копируется (и почему том Docker копией не является), как drill проверяет копию отпечатком `backend/ops/backup_fingerprint.sql`, и в каком порядке ставятся миграции релиза.
