@@ -154,6 +154,20 @@ fun ChatScreen(
                 }
             }
 
+            // A gap the reconnect could not read is named over the thread instead of left
+            // invisible behind a pill that says the link is back. It stays until the read
+            // itself answers: a bubble arriving live does not close the page still missing.
+            if (state.messages.isNotEmpty() && state.historyError != null) {
+                InlineNotice(
+                    text = state.historyError!! + " Часть сообщений за паузу могла не показаться.",
+                    modifier = Modifier
+                        .padding(horizontal = Spacing.gutter)
+                        .padding(bottom = Spacing.xs),
+                    actionLabel = "Повторить",
+                    onAction = vm::retryHistory,
+                )
+            }
+
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 when {
                     state.loading -> ListSkeleton(rows = 6)
