@@ -11,6 +11,7 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.channels.ClosedSendChannelException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -18,6 +19,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -453,5 +455,101 @@ class ChatViewModelTest {
         assertEquals(true, vm.uiState.value.connected)
         assertEquals(listOf("1", "2"), vm.uiState.value.messages.map { it.id })
         coVerify(exactly = 2) { dialingRepo.history("m1", any()) }
+    }
+
+    @Test
+    fun `a typing frame the socket cannot carry still sends the message`() = runTest {
+        coEvery { repo.history("m1", any()) } returns ApiResult.Success(emptyList())
+        coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
+        coEvery { repo.sendTyping("m1", true) } returns Unit
+        coEvery { repo.sendTyping("m1", false) } throws ClosedSendChannelException("WebSocket Session is closed")
+        coEvery { repo.send("m1", "hey", any()) } returns ApiResult.Success(message("9", true, "hey"))
+
+        val vm = ChatViewModel(repo, matchRepo, "m1")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        vm.onDraftChange("hey")
+        vm.send()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        coVerify(exactly = 1) { repo.send("m1", "hey", any()) }
+        assertEquals(listOf("9"), vm.uiState.value.messages.map { it.id })
+        assertFalse(vm.uiState.value.sending)
+    }
+
+    @Test
+    fun `a typing frame that fails on the first keystroke leaves the draft on screen`() = runTest {
+        coEvery { repo.history("m1", any()) } returns ApiResult.Success(emptyList())
+        coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
+        coEvery { repo.sendTyping("m1", true) } throws ClosedSendChannelException("WebSocket Session is closed")
+        coEvery { repo.sendTyping("m1", false) } returns Unit
+        coEvery { repo.send("m1", "hey", any()) } returns ApiResult.Success(message("9", true, "hey"))
+
+        val vm = ChatViewModel(repo, matchRepo, "m1")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        vm.onDraftChange("hey")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals("hey", vm.uiState.value.draft)
+
+        // The indicator is gone; the screen that carries it is not. A scope cancelled by the throw
+        // would silently ignore this send, so the message itself is the proof of survival.
+        vm.send()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        coVerify(exactly = 1) { repo.send("m1", "hey", any()) }
+        assertEquals(listOf("9"), vm.uiState.value.messages.map { it.id })
+    }
+
+    @Test
+    fun `a send the server refuses names its own reason when the typing frame failed too`() = runTest {
+        // The two failures travel together: the socket is down, so the hint throws, and the server
+        // answers the HTTP send with its own refusal. Only the second one is worth showing, and
+        // only if the first is allowed to pass without taking the request down with it.
+        coEvery { repo.history("m1", any()) } returns ApiResult.Success(emptyList())
+        coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
+        coEvery { repo.sendTyping(any(), any()) } throws ClosedSendChannelException("WebSocket Session is closed")
+        coEvery { repo.send("m1", "too long", any()) } returns
+            ApiResult.Error(422, "Сообщение слишком длинное — разбейте его на два.")
+
+        val vm = ChatViewModel(repo, matchRepo, "m1")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        vm.onDraftChange("too long")
+        vm.send()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals("too long", vm.uiState.value.draft)
+        assertEquals("Сообщение слишком длинное — разбейте его на два.", vm.uiState.value.sendError)
+    }
+
+    @Test
+    fun `a retry after a typing frame the socket could not carry keeps the same name`() = runTest {
+        val names = mutableListOf<String?>()
+        var attempts = 0
+        coEvery { repo.history("m1", any()) } returns ApiResult.Success(emptyList())
+        coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
+        coEvery { repo.sendTyping(any(), any()) } throws ClosedSendChannelException("WebSocket Session is closed")
+        coEvery { repo.send("m1", "again", captureNullable(names)) } coAnswers {
+            attempts++
+            if (attempts == 1) ApiResult.Error(-1, "Сервер недоступен. Проверьте соединение и попробуйте ещё раз.")
+            else ApiResult.Success(message("9", true, "again"))
+        }
+
+        val vm = ChatViewModel(repo, matchRepo, "m1")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        vm.onDraftChange("again")
+        vm.send()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        vm.send()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        // A hint that could not fly is not a new message: the retry must reuse the name.
+        assertEquals(2, names.size)
+        assertEquals(1, names.distinct().size)
+        assertTrue(names.first() != null)
+        assertEquals(listOf("9"), vm.uiState.value.messages.map { it.id })
     }
 }
