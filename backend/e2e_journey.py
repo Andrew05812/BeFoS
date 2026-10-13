@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import sys
 import time
 
@@ -18,6 +19,12 @@ import websockets  # comes with uvicorn[standard], the same server that answers 
 BASE = "http://localhost:8000/api/v1"
 WS_BASE = "ws://localhost:8000"
 results: list[tuple[bool, str]] = []
+
+# The four words the map splits its sections on, and the two units a node's sentence can be written
+# in. A scale value («0.90») in an explanation the canvas prints as a percent is the defect stage 75
+# found on the live pair, so the journey reads the document with the same eyes the screen does.
+_CONNECTIONS = {"harmony", "complementarity", "discussion", "unknown"}
+_SCALE_VALUE = re.compile(r"\d+[.,]\d+")
 
 
 def check(ok: bool, label: str, extra: str = "") -> None:
@@ -215,10 +222,13 @@ def main() -> int:
     bad = c.post(f"{BASE}/auth/login", json={"email": email_a, "password": "wrongpass1"})
     check(bad.status_code >= 400, "bad password rejected", str(bad.status_code))
 
-    # 3. onboarding both
+    # 3. onboarding both. B names two interests A never picked, on purpose: a pair whose answers
+    # overlap only partly is the ordinary case, and it is the only way this live path can show the
+    # map's fourth word — an answer one person never gave is an absence, not a difference.
     oa = c.post(f"{BASE}/users/me/onboarding", headers=ha, json=onboard_payload("Анна", "female", ["male"], shared))
     check(oa.status_code == 200, "onboarding A", str(oa.status_code))
-    ob = c.post(f"{BASE}/users/me/onboarding", headers=hb, json=onboard_payload("Борис", "male", ["female"], shared))
+    ob = c.post(f"{BASE}/users/me/onboarding", headers=hb,
+                json=onboard_payload("Борис", "male", ["female"], shared + slugs[4:6]))
     check(ob.status_code == 200, "onboarding B", str(ob.status_code))
 
     me = c.get(f"{BASE}/users/me", headers=ha).json()
@@ -298,6 +308,56 @@ def main() -> int:
     comp2 = c.get(f"{BASE}/matches/{match_id}/compatibility", headers=ha).json()
     check(comp2["overall"] == comp["overall"], "compatibility is deterministic", f"{comp['overall']}=={comp2['overall']}")
 
+    # 10b. the pair map. The canvas both partners open reads this document, so a journey that
+    # promises the product chain has no dead ends has to walk into it too: one map for the two of
+    # them, the engine's own percent and weight per band, and a node that explains itself in the
+    # unit the mark above its sentence prints.
+    uni = c.get(f"{BASE}/matches/{match_id}/universe", headers=ha)
+    check(uni.status_code == 200, "universe map opens for A", str(uni.status_code))
+    ua = uni.json()
+    ub = c.get(f"{BASE}/matches/{match_id}/universe", headers=hb).json()
+    check(ub == ua, "both partners open one map, not two mirrors", f"{len(ua['layers'])} layers")
+    check({ua["a_user_id"], ua["b_user_id"]} == {uid_a, uid_b}, "the two worlds are the two of them",
+          f"{ua['a_user_id'][:8]} / {ua['b_user_id'][:8]}")
+    check(ua["overall"] == comp["overall"] and ua["engine_version"] == comp["engine_version"],
+          "the map arrives with the percent the pair has", f"map={ua['overall']} engine={comp['overall']}")
+    band = {cat["category"]: cat for cat in comp["categories"]}
+    check(len(ua["layers"]) == len(band) and all(l["category"] in band for l in ua["layers"]),
+          "the map shows the bands the engine scored", str([l["category"] for l in ua["layers"]]))
+    moved = [(l["category"], l["score"], band[l["category"]]["score"], l["weight"],
+              band[l["category"]]["weight"], l["has_data"], band[l["category"]]["has_data"])
+             for l in ua["layers"]
+             if l["score"] != band[l["category"]]["score"] or l["weight"] != band[l["category"]]["weight"]
+             or l["has_data"] != band[l["category"]]["has_data"]]
+    check(not moved, "no second engine sits behind the map", str(moved[:3]))
+    check(abs(sum(l["weight"] for l in ua["layers"]) - 1.0) < 1e-6,
+          "map weights sum to 1.0", str(round(sum(l["weight"] for l in ua["layers"]), 6)))
+
+    nodes = [(l, n) for l in ua["layers"] for n in l["nodes"]]
+    check(len(nodes) >= 10, "the map has answers to draw", f"{len(nodes)} nodes")
+    scale_offenders = [f"{l['category']}/{n['key']}" for l, n in nodes if _SCALE_VALUE.search(n["evidence"])]
+    check(not scale_offenders, "every node explains itself in percents", str(scale_offenders[:3]))
+    blank = [f"{l['category']}/{n['key']}" for l, n in nodes if not n["evidence"].strip()]
+    check(not blank, "no node opens an empty explanation", str(blank[:3]))
+    words = {n["connection"] for _, n in nodes}
+    check(words <= _CONNECTIONS, "connection words are the four the screen splits on", str(sorted(words)))
+    check("unknown" in words, "the map had an absence to draw on this path", str(sorted(words)))
+    mismatched = [f"{l['category']}/{n['key']}" for l, n in nodes
+                  if (n["connection"] == "unknown") is n["has_data"]]
+    check(not mismatched, "an absence is never drawn as a meeting", str(mismatched[:3]))
+    silent_with_number = [f"{l['category']}/{n['key']}" for l, n in nodes
+                          if n["connection"] == "unknown" and re.search(r"\d", n["evidence"])]
+    check(not silent_with_number, "an absence explains itself without a number", str(silent_with_number[:3]))
+    off_scale = [(n["key"], n["a_value"], n["b_value"]) for _, n in nodes
+                 if any(v is not None and not 0.0 <= v <= 1.0 for v in (n["a_value"], n["b_value"]))]
+    check(not off_scale, "node answers stay on the 0..1 scale", str(off_scale[:3]))
+    unnamed = [n["key"] for _, n in nodes if n["label"] == n["key"]]
+    check(not unnamed, "every node is named, not keyed", str(unnamed[:3]))
+    cov_wrong = [(l["category"], l["coverage"]) for l in ua["layers"]
+                 if not 0.0 <= l["coverage"] <= 1.0
+                 or abs(l["coverage"] - (sum(1 for n in l["nodes"] if n["has_data"]) / max(1, len(l["nodes"])))) > 1e-6]
+    check(not cov_wrong, "coverage counts the compared nodes and sits beside the percent", str(cov_wrong[:3]))
+
     # 11. chat: A sends, B reads, B replies
     m1 = c.post(f"{BASE}/matches/{match_id}/messages", headers=ha, json={"body": "Привет! Это E2E сообщение."})
     check(m1.status_code in (200, 201) and m1.json()["is_own"] is True, "A sends message", str(m1.status_code))
@@ -317,6 +377,9 @@ def main() -> int:
     check(rc.status_code in (200, 201), "register C (a stranger to the pair)", str(rc.status_code))
     tok_c = rc.json()["tokens"]["access_token"]
     realtime(match_id, uid_a, uid_b, tok_a, tok_b, tok_c, c)
+    stranger_map = c.get(f"{BASE}/matches/{match_id}/universe",
+                         headers={"Authorization": f"Bearer {tok_c}"}).status_code
+    check(stranger_map == 404, "the map is not open to a stranger", str(stranger_map))
     cd = c.delete(f"{BASE}/users/me", headers={"Authorization": f"Bearer {tok_c}"})
     check(cd.status_code == 200, "the stranger account is deleted again", str(cd.status_code))
 
@@ -349,11 +412,19 @@ def main() -> int:
         "match list shows the percent the pair has now",
         f"list={row['compatibility']} live={comp_now['overall']} (was {comp['overall']})",
     )
+    # The canvas reads the same live derivation, so a re-take has to move the map and the stored
+    # percent together — a map that kept the old document would show the pair a pair that no longer
+    # exists.
+    map_now = c.get(f"{BASE}/matches/{match_id}/universe", headers=ha).json()
+    check(map_now["overall"] == comp_now["overall"],
+          "the map follows the re-taken test", f"map={map_now['overall']} live={comp_now['overall']}")
 
     # 13. IDOR: B cannot read A's private match with someone else / cross-account safety
     # A blocked-user flow
     blk = c.post(f"{BASE}/users/{uid_b}/block", headers=ha)
     check(blk.status_code == 200, "A blocks B", str(blk.status_code))
+    maps_after = [c.get(f"{BASE}/matches/{match_id}/universe", headers=h).status_code for h in (ha, hb)]
+    check(maps_after == [404, 404], "a dissolved pair has no map left to open", str(maps_after))
     unblk_ok = c.get(f"{BASE}/users/{uid_b}", headers=ha).status_code
     check(unblk_ok in (200, 403, 404), "profile access after block is defined", str(unblk_ok))
 
