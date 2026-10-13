@@ -110,10 +110,28 @@ async def _pair(client: AsyncClient) -> tuple[uuid.UUID, uuid.UUID]:
     return uuid.UUID(back.json()["match_id"]), uuid.UUID(anya["user_id"])
 
 
+async def _viewer_row(user_id) -> "User":
+    """The viewer as `_context()` holds it: read once, outside the measured window, then detached.
+
+    Stage 78 moved this read out of the harness's call: on the wire `get_current_user` resolves the
+    account from the token before the handler runs, so the wrapper prices the handler and is handed
+    the row the dependency would have handed over. A test that gives the wrapper no such row is not
+    testing the harness's contract — it is testing a context the stand never builds.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models import User
+
+    async with AsyncSessionLocal() as fresh:
+        row = await fresh.get(User, uuid.UUID(str(user_id)))
+    assert row is not None, f"no account {user_id} to price the map for"
+    return row
+
+
 async def test_measuring_the_map_sends_the_reads_the_screen_pays(client: AsyncClient,
                                                                  session: AsyncSession) -> None:
     """The measured window carries the match check, both profiles, both vectors and the titles."""
     match_id, viewer = await _pair(client)
+    viewer_user = await _viewer_row(viewer)
     statements: list[str] = []
 
     def before(conn, cursor, statement, parameters, context, executemany):
@@ -124,7 +142,7 @@ async def test_measuring_the_map_sends_the_reads_the_screen_pays(client: AsyncCl
     event.listen(engine, "before_cursor_execute", before)
     try:
         out = await _probe()._build_paths()["universe_map"](
-            session, {"match_id": match_id, "viewer_id": viewer}
+            session, {"match_id": match_id, "viewer_id": viewer, "viewer_user": viewer_user}
         )
     finally:
         event.remove(engine, "before_cursor_execute", before)
@@ -153,7 +171,12 @@ async def test_the_membership_check_sits_inside_the_measured_window(client: Asyn
 
     with pytest.raises(NotFoundError):
         await _probe()._build_paths()["universe_map"](
-            session, {"match_id": match_id, "viewer_id": uuid.UUID(stranger["user_id"])}
+            session,
+            {
+                "match_id": match_id,
+                "viewer_id": uuid.UUID(stranger["user_id"]),
+                "viewer_user": await _viewer_row(stranger["user_id"]),
+            },
         )
 
 
