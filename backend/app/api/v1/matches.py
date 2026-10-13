@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.deps import get_current_user
+from app.compatibility.universe import build_universe
 from app.core.database import get_session
 from app.core.exceptions import NotFoundError
 from app.models import Interest, Match, User
@@ -18,6 +19,9 @@ from app.schemas.schemas import (
     MatchSummary,
     RecommendationListResponse,
     RecommendationOut,
+    UniverseLayerOut,
+    UniverseNodeOut,
+    UniverseOut,
 )
 from app.services.compatibility_service import CompatibilityService
 from app.services.matches_service import MatchesService
@@ -97,6 +101,51 @@ async def match_compatibility(
         strengths=[ExplanationItemOut(**vars(i)) for i in explanation.strengths],
         differences=[ExplanationItemOut(**vars(i)) for i in explanation.differences],
         shared_interests=[shared_titles.get(s, s) for s in explanation.shared_interests],
+    )
+
+
+@router.get("/{match_id}/universe", response_model=UniverseOut)
+async def match_universe(
+    match_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    match = await session.get(Match, match_id)
+    if match is None or current_user.id not in (match.user_a_id, match.user_b_id):
+        raise NotFoundError("Match not found.")
+
+    # The pair's own order, not requester-first: both people open one map of two worlds.
+    service = CompatibilityService(session)
+    a, b = await service.pair_inputs(match.user_a_id, match.user_b_id)
+    result = service.score_inputs(a, b)
+    universe = build_universe(a, b, result)
+
+    titles: dict[str, str] = {}
+    slugs = {n.key for layer in universe.layers if layer.key == "interests" for n in layer.nodes}
+    if slugs:
+        rows = (await session.execute(select(Interest).where(Interest.slug.in_(slugs)))).scalars().all()
+        titles = {i.slug: i.name for i in rows}
+
+    return UniverseOut(
+        overall=universe.overall_percent,
+        engine_version=universe.version,
+        a_user_id=str(match.user_a_id),
+        b_user_id=str(match.user_b_id),
+        layers=[
+            UniverseLayerOut(
+                category=layer.key,
+                label=layer.label,
+                score=layer.score,
+                weight=layer.weight,
+                has_data=layer.has_data,
+                coverage=layer.coverage,
+                nodes=[
+                    UniverseNodeOut(**{**vars(node), "label": titles.get(node.key, node.label)})
+                    for node in layer.nodes
+                ],
+            )
+            for layer in universe.layers
+        ],
     )
 
 
