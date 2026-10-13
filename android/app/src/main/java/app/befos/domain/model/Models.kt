@@ -69,6 +69,51 @@ data class Compatibility(
     val sharedInterests: List<String>,
 )
 
+/**
+ * How two answers relate. `UNKNOWN` is not a weak match: it is the server saying there was
+ * nothing to compare, and the map must draw it as an absence rather than as a meeting.
+ */
+enum class Connection {
+    HARMONY,
+    COMPLEMENTARITY,
+    DISCUSSION,
+    UNKNOWN,
+    ;
+
+    companion object {
+        fun fromJson(raw: String): Connection =
+            values().firstOrNull { it.name.equals(raw, ignoreCase = true) } ?: UNKNOWN
+    }
+}
+
+data class UniverseNode(
+    val key: String,
+    val label: String,
+    val aValue: Double?,
+    val bValue: Double?,
+    val hasData: Boolean,
+    val connection: Connection,
+    val evidence: String,
+)
+
+data class UniverseLayer(
+    val category: String,
+    val label: String,
+    val score: Int,
+    val weight: Double,
+    val hasData: Boolean,
+    val coverage: Double,
+    val nodes: List<UniverseNode>,
+)
+
+data class Universe(
+    val overall: Int,
+    val engineVersion: Int,
+    val aUserId: String,
+    val bUserId: String,
+    val layers: List<UniverseLayer>,
+)
+
 data class DiscoveryCard(
     val userId: String,
     val name: String,

@@ -27,6 +27,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import app.befos.core.designsystem.AppButton
 import app.befos.core.designsystem.AppCard
 import app.befos.core.designsystem.AppTopBar
 import app.befos.core.designsystem.CompatibilityScore
@@ -46,7 +47,7 @@ import app.befos.presentation.common.CategoryScoreList
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun CompatibilityScreen(matchId: String, onBack: () -> Unit) {
+fun CompatibilityScreen(matchId: String, onBack: () -> Unit, onOpenUniverse: () -> Unit) {
     val vm: CompatibilityViewModel = beFosViewModel { CompatibilityViewModel(it.matchRepository, matchId) }
     val state by vm.uiState.collectAsState()
 
@@ -117,6 +118,13 @@ fun CompatibilityScreen(matchId: String, onBack: () -> Unit) {
                             )
                         }
                     }
+
+                    AppButton(
+                        text = "Открыть карту пары",
+                        onClick = onOpenUniverse,
+                        secondary = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
 
                     Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
                         SectionHeader("По категориям")

@@ -16,6 +16,11 @@ object Routes {
     const val COMPATIBILITY = "compatibility/{$CHAT_ARG}"
     fun compatibility(matchId: String) = "compatibility/$matchId"
 
+    // The same pair's answers, opened as a map instead of a percent: the compatibility screen
+    // sums the seven bands, this one shows the two answers each sum was built from.
+    const val UNIVERSE = "universe/{$CHAT_ARG}"
+    fun universe(matchId: String) = "universe/$matchId"
+
     const val RECOMMENDATIONS = "recommendations/{$CHAT_ARG}"
     fun recommendations(matchId: String) = "recommendations/$matchId"
 

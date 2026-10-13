@@ -14,6 +14,7 @@ import app.befos.core.di.beFosViewModel
 import app.befos.presentation.auth.AuthScreen
 import app.befos.presentation.chat.ChatScreen
 import app.befos.presentation.compatibility.CompatibilityScreen
+import app.befos.presentation.universe.UniverseScreen
 import app.befos.presentation.editprofile.EditProfileScreen
 import app.befos.presentation.main.MainScreen
 import app.befos.presentation.onboarding.OnboardingScreen
@@ -181,7 +182,19 @@ fun BeFosNavHost(navController: NavHostController) {
             arguments = listOf(navArgument(Routes.CHAT_ARG) { type = NavType.StringType }),
         ) { entry ->
             val matchId = entry.arguments?.getString(Routes.CHAT_ARG).orEmpty()
-            CompatibilityScreen(matchId = matchId, onBack = { navController.popBackStack() })
+            CompatibilityScreen(
+                matchId = matchId,
+                onBack = { navController.popBackStack() },
+                onOpenUniverse = { navController.navigate(Routes.universe(matchId)) { launchSingleTop = true } },
+            )
+        }
+
+        composable(
+            route = Routes.UNIVERSE,
+            arguments = listOf(navArgument(Routes.CHAT_ARG) { type = NavType.StringType }),
+        ) { entry ->
+            val matchId = entry.arguments?.getString(Routes.CHAT_ARG).orEmpty()
+            UniverseScreen(matchId = matchId, onBack = { navController.popBackStack() })
         }
 
         composable(

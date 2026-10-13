@@ -7,6 +7,7 @@ import app.befos.core.network.apiCallUnit
 import app.befos.data.model.AnswersRequest
 import app.befos.data.model.AuthResponseDto
 import app.befos.data.model.CompatibilityDto
+import app.befos.data.model.UniverseDto
 import app.befos.data.model.DiscoveryPageDto
 import app.befos.data.model.InterestListDto
 import app.befos.data.model.LikeResponseDto
@@ -206,6 +207,13 @@ class ApiService(private val client: HttpClient) {
         client.apiCall {
             method = HttpMethod.Get
             url(endpoint("matches/$matchId/compatibility"))
+        }
+
+    /** The same pair scored by the same engine, but answered node by node instead of one bar. */
+    suspend fun getUniverse(matchId: String): ApiResult<UniverseDto> =
+        client.apiCall {
+            method = HttpMethod.Get
+            url(endpoint("matches/$matchId/universe"))
         }
 
     suspend fun getRecommendations(matchId: String, force: Boolean = false): ApiResult<RecommendationListDto> =

@@ -15,6 +15,7 @@ import app.befos.domain.model.PublicProfile
 import app.befos.domain.model.Question
 import app.befos.domain.model.Recommendation
 import app.befos.domain.model.TestProgress
+import app.befos.domain.model.Universe
 import kotlinx.coroutines.flow.Flow
 import java.io.InputStream
 
@@ -65,6 +66,7 @@ interface MatchRepository {
     suspend fun matches(): ApiResult<List<MatchSummary>>
     suspend fun partner(matchId: String): ApiResult<PublicProfile>
     suspend fun compatibility(matchId: String): ApiResult<Compatibility>
+    suspend fun universe(matchId: String): ApiResult<Universe>
     suspend fun recommendations(matchId: String): ApiResult<List<Recommendation>>
     suspend fun selectRecommendation(matchId: String, activityId: Int): ApiResult<Unit>
 }
