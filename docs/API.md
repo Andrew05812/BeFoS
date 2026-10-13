@@ -463,6 +463,7 @@ has_data}`. У личной анкеты `has_data` всегда `true`: кат�
 | GET | `/matches` | — | `{matches: [MatchSummary]}` |
 | GET | `/matches/{match_id}` | — | `{match_id, compatibility, created_at, other_user: PublicProfile}` |
 | GET | `/matches/{match_id}/compatibility` | — | `CompatibilityOut` |
+| GET | `/matches/{match_id}/universe` | — | `UniverseOut`; `404`, если матча нет или зритель в нём не участвует |
 | GET | `/matches/{match_id}/recommendations` | `force` | `{match_id, recommendations: [...]}` |
 | POST | `/matches/{match_id}/recommendations/{activity_id}/select` | — | `204`; `404`, если активности нет в каталоге или пара распалась пока шёл запрос |
 
@@ -548,6 +549,28 @@ PostgreSQL вычисляет оконные функции раньше `DISTIN
 формат сохранённого вектора ответов (`compatibility_profiles.version`), а сохранённый процент пары
 (`Match.compatibility_score`) версии не держит — он пересчитывается, когда кто-то из двоих правит
 интересы, цель знакомства или пересдаёт тест.
+
+`UniverseOut` — карта пары «два мира»: те же семь полос, но разложенные на узлы с двумя сторонами.
+Процент, вес и `has_data` полосы скопированы из `CompatibilityResult` того же движка — маршрут
+ничего не оценивает заново, поэтому карта и экран пары не могут рассказать паре два разных числа.
+Узел несёт `a_value`/`b_value` (0..1 или `null`, если половина пары этот вопрос не трогала),
+`connection` из четырёх слов — `harmony`, `complementarity`, `discussion`, `unknown` — и `evidence`:
+строку, которая называет значения именно этого узла, а не соседний текст. Четвёртое слово несущее:
+`unknown` означает отсутствие сравнения, и карта не выдаёт его за совпадение. `coverage` полосы —
+доля узлов, где сравнение состоялось, — стоит рядом с процентом и не двигает его. Порядок `a`/`b`
+взят из самой строки матча (`user_a`/`user_b`), а не от зрителя, поэтому двое открывают одну карту.
+
+```json
+{
+  "overall": 82, "engine_version": 1,
+  "a_user_id": "uuid", "b_user_id": "uuid",
+  "layers": [{ "category": "values", "label": "Ценности", "score": 88, "weight": 0.25,
+               "has_data": true, "coverage": 0.8,
+               "nodes": [{ "key": "family", "label": "Семья", "a_value": 0.9, "b_value": 0.7,
+                            "has_data": true, "connection": "harmony",
+                            "evidence": "Семья: 0.90 против 0.70, похожие ответы дают 0.80" }]}]
+}
+```
 
 `recommendations[]`:
 
