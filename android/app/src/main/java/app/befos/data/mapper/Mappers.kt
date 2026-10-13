@@ -16,8 +16,12 @@ import app.befos.data.model.ProgressDto
 import app.befos.data.model.PublicProfileDto
 import app.befos.data.model.QuestionDto
 import app.befos.data.model.RecommendationDto
+import app.befos.data.model.UniverseDto
+import app.befos.data.model.UniverseLayerDto
+import app.befos.data.model.UniverseNodeDto
 import app.befos.domain.model.CategoryScore
 import app.befos.domain.model.Compatibility
+import app.befos.domain.model.Connection
 import app.befos.domain.model.DiscoveryCard
 import app.befos.domain.model.Explanation
 import app.befos.domain.model.Interest
@@ -32,6 +36,9 @@ import app.befos.domain.model.Question
 import app.befos.domain.model.Recommendation
 import app.befos.domain.model.Activity
 import app.befos.domain.model.TestProgress
+import app.befos.domain.model.Universe
+import app.befos.domain.model.UniverseLayer
+import app.befos.domain.model.UniverseNode
 
 fun InterestDto.toDomain() = Interest(slug, name, category)
 
@@ -74,6 +81,34 @@ fun CompatibilityDto.toDomain() = Compatibility(
     strengths = strengths.map { it.toDomain() },
     differences = differences.map { it.toDomain() },
     sharedInterests = sharedInterests,
+)
+
+fun UniverseNodeDto.toDomain() = UniverseNode(
+    key = key,
+    label = label,
+    aValue = aValue,
+    bValue = bValue,
+    hasData = hasData,
+    connection = Connection.fromJson(connection),
+    evidence = evidence,
+)
+
+fun UniverseLayerDto.toDomain() = UniverseLayer(
+    category = category,
+    label = label,
+    score = score,
+    weight = weight,
+    hasData = hasData,
+    coverage = coverage,
+    nodes = nodes.map { it.toDomain() },
+)
+
+fun UniverseDto.toDomain() = Universe(
+    overall = overall,
+    engineVersion = engineVersion,
+    aUserId = aUserId,
+    bUserId = bUserId,
+    layers = layers.map { it.toDomain() },
 )
 
 fun DiscoveryCardDto.toDomain() = DiscoveryCard(

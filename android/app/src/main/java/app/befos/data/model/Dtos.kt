@@ -196,6 +196,38 @@ data class CompatibilityDto(
     @SerialName("shared_interests") val sharedInterests: List<String> = emptyList(),
 )
 
+// ---------- Compatibility Universe ----------
+@Serializable
+data class UniverseNodeDto(
+    val key: String = "",
+    val label: String = "",
+    @SerialName("a_value") val aValue: Double? = null,
+    @SerialName("b_value") val bValue: Double? = null,
+    @SerialName("has_data") val hasData: Boolean = false,
+    val connection: String = "unknown",
+    val evidence: String = "",
+)
+
+@Serializable
+data class UniverseLayerDto(
+    val category: String = "",
+    val label: String = "",
+    val score: Int = 0,
+    val weight: Double = 0.0,
+    @SerialName("has_data") val hasData: Boolean = false,
+    val coverage: Double = 0.0,
+    val nodes: List<UniverseNodeDto> = emptyList(),
+)
+
+@Serializable
+data class UniverseDto(
+    val overall: Int,
+    @SerialName("engine_version") val engineVersion: Int = 1,
+    @SerialName("a_user_id") val aUserId: String = "",
+    @SerialName("b_user_id") val bUserId: String = "",
+    val layers: List<UniverseLayerDto> = emptyList(),
+)
+
 // ---------- Discovery ----------
 @Serializable
 data class DiscoveryCardDto(
