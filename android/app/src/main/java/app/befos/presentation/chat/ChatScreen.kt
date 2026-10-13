@@ -69,6 +69,8 @@ import app.befos.core.designsystem.Spacing
 import app.befos.core.designsystem.WarningAmber
 import app.befos.core.designsystem.rememberHaptics
 import app.befos.core.di.beFosViewModel
+import app.befos.core.network.CHAT_CLOSED
+import app.befos.core.network.CHAT_CLOSED_DETAIL
 import kotlinx.coroutines.delay
 import java.time.OffsetDateTime
 import java.time.ZoneId
@@ -127,21 +129,28 @@ fun ChatScreen(
             )
         },
         bottomBar = {
-            ChatInputBar(
-                draft = state.draft,
-                onDraftChange = vm::onDraftChange,
-                onSend = vm::send,
-                enabled = !state.sending,
-                sending = state.sending,
-                sendError = state.sendError,
-                onDismissError = vm::dismissSendError,
-            )
+            // A thread the server refuses as gone cannot receive a message, so the field that
+            // would send one is held back rather than left to fail on every tap — the same call
+            // the card of a formed pair makes about «Нравится» and «Пропустить».
+            if (!state.gone) {
+                ChatInputBar(
+                    draft = state.draft,
+                    onDraftChange = vm::onDraftChange,
+                    onSend = vm::send,
+                    enabled = !state.sending,
+                    sending = state.sending,
+                    sendError = state.sendError,
+                    onDismissError = vm::dismissSendError,
+                )
+            }
         },
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
             // Tidy status pill — no raw technical wording for the user.
             // It takes its own row: floated over the list it covered the first bubble.
-            if (!state.loading && !state.connected) {
+            // A gone thread is named below, and the pill's fallback line would promise a
+            // recovery the dial has already stopped attempting.
+            if (!state.loading && !state.connected && !state.gone) {
                 Row(
                     modifier = Modifier
                         .align(Alignment.CenterHorizontally)
@@ -173,14 +182,23 @@ fun ChatScreen(
                     modifier = Modifier
                         .padding(horizontal = Spacing.gutter)
                         .padding(bottom = Spacing.xs),
-                    actionLabel = "Повторить",
-                    onAction = vm::retryHistory,
+                    actionLabel = if (state.gone) null else "Повторить",
+                    onAction = if (state.gone) null else vm::retryHistory,
                 )
             }
 
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 when {
                     state.loading -> ListSkeleton(rows = 6)
+                    state.messages.isEmpty() && state.gone -> EmptyState(
+                        // The pair is gone, not unread: this is the screen's own terminal state,
+                        // so it takes the wording the product already uses for a chat that closed
+                        // and says what is still true of it, instead of repeating the advice the
+                        // refused read carried — that advice was written for a list that reloads.
+                        title = CHAT_CLOSED,
+                        message = CHAT_CLOSED_DETAIL,
+                        overline = "Переписка",
+                    )
                     state.messages.isEmpty() && state.historyError != null -> ErrorState(
                         message = state.historyError!!,
                         title = "Не удалось загрузить переписку",

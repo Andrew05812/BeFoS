@@ -791,4 +791,108 @@ class ChatViewModelTest {
 
         assertEquals("Аня", vm.uiState.value.partnerName)
     }
+
+    @Test
+    fun `a thread the server refuses as gone is not offered a retry`() = runTest {
+        coEvery { repo.history("m1", any()) } returns ApiResult.Error(404, "Пара не найдена. Обновите список.")
+        coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
+        coEvery { repo.sendTyping(any(), any()) } returns Unit
+
+        val vm = ChatViewModel(repo, matchRepo, "m1")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        // Measured on the live stand (`s72_d11_block_pair.txt`, 03:17:13…03:17:16 UTC): once one
+        // partner blocks, `ChatService._require_membership` answers 404 for every read of the pair
+        // on both sides. A second read of the same match id pays for the same refusal, so the
+        // screen cannot present this as a page that merely failed to arrive.
+        assertTrue(vm.uiState.value.gone)
+        assertEquals("Пара не найдена. Обновите список.", vm.uiState.value.historyError)
+        assertFalse(vm.uiState.value.loading)
+    }
+
+    @Test
+    fun `a thread a network failure could not answer is still worth a retry`() = runTest {
+        coEvery { repo.history("m1", any()) } returns
+            ApiResult.Error(-1, "Не получилось связаться с сервером. Попробуйте ещё раз.")
+        coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
+        coEvery { repo.sendTyping(any(), any()) } returns Unit
+
+        val vm = ChatViewModel(repo, matchRepo, "m1")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        // Only a refusal that names the pair ends the thread: the transport codes the client
+        // invents itself (-1, -2) and the session's 401 can answer differently next time.
+        assertFalse(vm.uiState.value.gone)
+        assertEquals("Не получилось связаться с сервером. Попробуйте ещё раз.", vm.uiState.value.historyError)
+    }
+
+    @Test
+    fun `a gap read that finds the pair gone stops promising a retry`() = runTest {
+        coEvery { repo.history("m1", any()) } returnsMany listOf(
+            ApiResult.Success(listOf(message("1", false, "привет"))),
+            ApiResult.Error(404, "Пара не найдена. Обновите список."),
+        )
+        coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
+        coEvery { repo.sendTyping(any(), any()) } returns Unit
+
+        val vm = ChatViewModel(repo, matchRepo, "m1")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        events.tryEmit(ChatEvent.Connected)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        events.tryEmit(ChatEvent.Disconnected)
+        events.tryEmit(ChatEvent.Connected)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        // The bubbles the reader already has stay on screen; what ends is the promise that the
+        // missing page can still be read.
+        assertEquals(listOf("1"), vm.uiState.value.messages.map { it.id })
+        assertTrue(vm.uiState.value.gone)
+    }
+
+    @Test
+    fun `a page that arrives after a refusal leaves the thread open again`() = runTest {
+        coEvery { repo.history("m1", any()) } returnsMany listOf(
+            ApiResult.Error(404, "Пара не найдена. Обновите список."),
+            ApiResult.Success(listOf(message("1", false, "привет"))),
+        )
+        coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
+        coEvery { repo.sendTyping(any(), any()) } returns Unit
+
+        val vm = ChatViewModel(repo, matchRepo, "m1")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        assertTrue(vm.uiState.value.gone)
+
+        events.tryEmit(ChatEvent.Connected)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        events.tryEmit(ChatEvent.Disconnected)
+        events.tryEmit(ChatEvent.Connected)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        // A page that came through is the pair answering for itself: the end-of-thread state
+        // cannot outlive the read that disproved it.
+        assertEquals(listOf("1"), vm.uiState.value.messages.map { it.id })
+        assertFalse(vm.uiState.value.gone)
+        assertNull(vm.uiState.value.historyError)
+    }
+
+    @Test
+    fun `a refusal of one send does not end a thread the screen is reading`() = runTest {
+        coEvery { repo.history("m1", any()) } returns ApiResult.Success(emptyList())
+        coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
+        coEvery { repo.sendTyping(any(), any()) } returns Unit
+        coEvery { repo.send("m1", "привет", any()) } returns
+            ApiResult.Error(404, "Пара не найдена. Обновите список.")
+
+        val vm = ChatViewModel(repo, matchRepo, "m1")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        vm.onDraftChange("привет")
+        vm.send()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        // The read is what decides whether this screen is a conversation. A refused write keeps
+        // the person's text where they typed it instead of hiding the field around it.
+        assertFalse(vm.uiState.value.gone)
+        assertEquals("привет", vm.uiState.value.draft)
+        assertEquals("Пара не найдена. Обновите список.", vm.uiState.value.sendError)
+    }
 }

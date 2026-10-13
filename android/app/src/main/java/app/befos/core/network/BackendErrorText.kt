@@ -9,6 +9,23 @@ import java.util.Locale
  * status text rather than the raw English.
  */
 
+/**
+ * The one wording for a chat this person can no longer open. Three paths reach that fact — the
+ * REST refusal of a dissolved pair, the websocket handshake the server will not grant, and the
+ * screen that shows an empty thread — so it is stated once and shared rather than written three
+ * times that can drift apart.
+ */
+const val CHAT_CLOSED = "Этот чат больше недоступен."
+
+/**
+ * What a closed chat still offers its reader. The line under [CHAT_CLOSED] must not be the
+ * localized refusal of the read that set the state: «Пара не найдена. Обновите список.» was
+ * written for a list that can be pulled again, and on a terminal screen it is advice that cannot
+ * be followed — the same class of promise the «Повторить» button belonged to.
+ */
+const val CHAT_CLOSED_DETAIL = "Пара распущена, и её строки не перечитываются: новое обращение " +
+    "получит тот же отказ."
+
 /** Lowercased backend message -> UI copy. Keys mirror the raise sites in the API. */
 private val translated: Map<String, String> = mapOf(
     // auth
@@ -51,8 +68,8 @@ private val translated: Map<String, String> = mapOf(
     // chat
     "message cannot be empty." to "Напишите сообщение.",
     "message is too long." to "Сообщение слишком длинное — разбейте его на два.",
-    "you are not a participant of this chat." to "Этот чат больше недоступен.",
-    "you are not a participant of this match." to "Этот чат больше недоступен.",
+    "you are not a participant of this chat." to CHAT_CLOSED,
+    "you are not a participant of this match." to CHAT_CLOSED,
     "match not found." to "Пара не найдена. Обновите список.",
     // Frames the live socket refuses. Reached only when this client sends something the
     // server cannot use; the wording stays advice-shaped, never the English contract text.

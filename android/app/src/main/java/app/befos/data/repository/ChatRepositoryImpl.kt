@@ -2,6 +2,7 @@ package app.befos.data.repository
 
 import app.befos.core.network.ApiConfig
 import app.befos.core.network.ApiResult
+import app.befos.core.network.CHAT_CLOSED
 import app.befos.core.network.TokenStore
 import app.befos.core.network.befosJson
 import app.befos.core.network.defaultHttpMessage
@@ -232,8 +233,6 @@ internal fun socketFailureMessage(e: Throwable): String = when (val status = han
 
 /** Whether the dial loop may pay for another attempt: a server that answered 401 or 403 will answer the same way. */
 internal fun retryAfterDialFailure(e: Throwable): Boolean = handshakeStatus(e) !in setOf(401, 403)
-
-private const val CHAT_CLOSED = "Этот чат больше недоступен."
 
 /**
  * A dropped socket that never opened is retried 4, 8, 16 and then 30 s apart rather than

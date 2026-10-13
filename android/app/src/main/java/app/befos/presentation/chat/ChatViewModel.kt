@@ -32,6 +32,13 @@ data class ChatUiState(
      * the dial answers: a drop that ended cleanly leaves the generic reconnecting line.
      */
     val socketReason: String? = null,
+    /**
+     * Whether the server refuses this thread as one that does not exist. A read of a dissolved
+     * pair is not a page that failed to arrive: the refusal is the pair's state, so another read
+     * of the same id pays for the same answer, and a screen that keeps offering one promises what
+     * cannot happen. Only a read of the thread sets it, and only a page that arrived takes it back.
+     */
+    val gone: Boolean = false,
 )
 
 class ChatViewModel(
@@ -88,12 +95,23 @@ class ChatViewModel(
         viewModelScope.launch {
             when (val result = chatRepository.history(matchId)) {
                 is ApiResult.Success -> _uiState.update {
-                    it.copy(loading = false, messages = result.data.sortedBy { m -> m.createdAt }, historyError = null)
+                    it.copy(
+                        loading = false,
+                        gone = false,
+                        messages = result.data.sortedBy { m -> m.createdAt },
+                        historyError = null,
+                    )
                 }
                 // The read itself writes the receipt and tells the partner's socket, so a page
                 // that arrived needs no second call — and a page that did not arrive must not
                 // claim a backlog the person never saw.
-                is ApiResult.Error -> _uiState.update { it.copy(loading = false, historyError = result.message) }
+                is ApiResult.Error -> _uiState.update {
+                    it.copy(
+                        loading = false,
+                        historyError = result.message,
+                        gone = it.gone || isEndOfThread(result.code),
+                    )
+                }
             }
         }
     }
@@ -153,16 +171,24 @@ class ChatViewModel(
                 is ApiResult.Success -> _uiState.update { state ->
                     val known = state.messages.mapTo(HashSet()) { it.id }
                     val fresh = result.data.filterNot { it.id in known }
-                    if (fresh.isEmpty()) state
+                    if (fresh.isEmpty()) state.copy(gone = false, historyError = null)
                     else state.copy(
                         messages = (state.messages + fresh).sortedBy { it.createdAt },
                         otherTyping = false,
+                        historyError = null,
+                        gone = false,
                     )
                 }
                 // The status pill has just said the link is back, so a page that did not come
                 // through it cannot go unmentioned: the gap stays real until the read answers,
-                // and naming it is what gives the retry something to act on.
-                is ApiResult.Error -> _uiState.update { it.copy(historyError = result.message) }
+                // and naming it is what gives the retry something to act on. A page the pair
+                // refuses outright is not a gap the next read closes.
+                is ApiResult.Error -> _uiState.update {
+                    it.copy(
+                        historyError = result.message,
+                        gone = it.gone || isEndOfThread(result.code),
+                    )
+                }
             }
         }
     }
@@ -244,3 +270,15 @@ class ChatViewModel(
         socketJob?.cancel()
     }
 }
+
+/**
+ * Whether a refused thread read ends the conversation instead of pausing it.
+ *
+ * The status is the only part of the answer that separates the two, and `ApiResult.Error` carries
+ * it. Measured on the live stand (`s72_d11_block_pair.txt`, прогон 03:17:13…03:17:16 UTC): after
+ * one partner blocks, every read of the pair answers 404 on both sides, because
+ * `ChatService._require_membership` raises the same `NotFoundError` for a row that is not there as
+ * for a row that is not yours. A transport failure is worded by the client as -1, and a session
+ * that has run out as 401 — both can answer differently on the next read, so neither ends a thread.
+ */
+private fun isEndOfThread(code: Int): Boolean = code == 404
