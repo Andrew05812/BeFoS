@@ -213,6 +213,34 @@ class CompatibilityOut(BaseModel):
     shared_interests: list[str] = []
 
 
+class UniverseNodeOut(BaseModel):
+    key: str
+    label: str
+    a_value: float | None = Field(default=None, ge=0, le=1)
+    b_value: float | None = Field(default=None, ge=0, le=1)
+    has_data: bool
+    connection: str = Field(pattern=r"^(harmony|complementarity|discussion|unknown)$")
+    evidence: str
+
+
+class UniverseLayerOut(BaseModel):
+    category: str
+    label: str
+    score: int = Field(ge=0, le=100)
+    weight: float
+    has_data: bool
+    coverage: float = Field(ge=0, le=1)
+    nodes: list[UniverseNodeOut] = []
+
+
+class UniverseOut(BaseModel):
+    overall: int = Field(ge=0, le=100)
+    engine_version: int
+    a_user_id: str
+    b_user_id: str
+    layers: list[UniverseLayerOut]
+
+
 # ---------- Discovery ----------
 class DiscoveryCard(BaseModel):
     user_id: str

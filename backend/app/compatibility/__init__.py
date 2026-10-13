@@ -11,6 +11,12 @@ from app.compatibility.explanation import (
     build_explanation,
 )
 from app.compatibility.traits import goal_compatibility
+from app.compatibility.universe import (
+    Universe,
+    UniverseLayer,
+    UniverseNode,
+    build_universe,
+)
 from app.compatibility.weights import (
     DEFAULT_WEIGHT_CONFIG,
     DEFAULT_WEIGHTS,
@@ -28,6 +34,10 @@ __all__ = [
     "ExplanationItem",
     "build_explanation",
     "goal_compatibility",
+    "Universe",
+    "UniverseLayer",
+    "UniverseNode",
+    "build_universe",
     "DEFAULT_WEIGHT_CONFIG",
     "DEFAULT_WEIGHTS",
     "WeightConfig",
