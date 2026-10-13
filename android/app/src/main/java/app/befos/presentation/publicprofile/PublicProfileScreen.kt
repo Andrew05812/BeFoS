@@ -80,6 +80,7 @@ fun PublicProfileScreen(
     userId: String,
     onBack: () -> Unit,
     onOpenChat: (String) -> Unit,
+    matchId: String? = null,
 ) {
     val vm: PublicProfileViewModel = beFosViewModel {
         PublicProfileViewModel(
@@ -87,7 +88,9 @@ fun PublicProfileScreen(
             it.discoveryRepository,
             it.safetyRepository,
             it.answeredUsers,
+            it.matchRepository,
             userId,
+            matchId,
         )
     }
     val state by vm.uiState.collectAsState()
@@ -233,29 +236,33 @@ fun PublicProfileScreen(
                             InlineNotice(message)
                         }
 
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(bottom = Spacing.xxl),
-                            horizontalArrangement = Arrangement.spacedBy(Spacing.lg),
-                        ) {
-                            AppButton(
-                                text = "Пропустить",
-                                onClick = {
-                                    haptics.medium()
-                                    vm.pass()
-                                },
-                                enabled = !state.busy,
-                                variant = AppButtonVariant.Tonal,
-                                modifier = Modifier.weight(1f),
-                            )
-                            AppButton(
-                                text = "Нравится",
-                                onClick = {
-                                    haptics.medium()
-                                    vm.like()
-                                },
-                                enabled = !state.busy,
-                                modifier = Modifier.weight(1f),
-                            )
+                        // «Нравится» and «Пропустить» answer whether two strangers should be introduced. A pair
+                        // has already answered it, and both gestures are refused by the deck once it has the row.
+                        if (!state.partner) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(bottom = Spacing.xxl),
+                                horizontalArrangement = Arrangement.spacedBy(Spacing.lg),
+                            ) {
+                                AppButton(
+                                    text = "Пропустить",
+                                    onClick = {
+                                        haptics.medium()
+                                        vm.pass()
+                                    },
+                                    enabled = !state.busy,
+                                    variant = AppButtonVariant.Tonal,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                AppButton(
+                                    text = "Нравится",
+                                    onClick = {
+                                        haptics.medium()
+                                        vm.like()
+                                    },
+                                    enabled = !state.busy,
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
                         }
                     }
                 }

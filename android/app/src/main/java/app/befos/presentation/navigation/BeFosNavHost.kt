@@ -157,6 +157,22 @@ fun BeFosNavHost(navController: NavHostController) {
                 onBack = { navController.popBackStack() },
                 onOpenCompatibility = { navController.navigate(Routes.compatibility(matchId)) { launchSingleTop = true } },
                 onOpenRecommendations = { navController.navigate(Routes.recommendations(matchId)) { launchSingleTop = true } },
+                // Keyed by the pair, not by the person: the card of a partner who pressed
+                // «Скрыть из подбора» answers here and 404s on the deck route.
+                onOpenPartnerCard = { navController.navigate(Routes.partner(matchId)) { launchSingleTop = true } },
+            )
+        }
+
+        composable(
+            route = Routes.PARTNER,
+            arguments = listOf(navArgument(Routes.CHAT_ARG) { type = NavType.StringType }),
+        ) { entry ->
+            val matchId = entry.arguments?.getString(Routes.CHAT_ARG).orEmpty()
+            PublicProfileScreen(
+                userId = "",
+                matchId = matchId,
+                onBack = { navController.popBackStack() },
+                onOpenChat = { id -> navController.navigate(Routes.chat(id)) { launchSingleTop = true } },
             )
         }
 
