@@ -6,6 +6,7 @@ import app.befos.core.network.ApiResult
 import app.befos.domain.model.LikeOutcome
 import app.befos.domain.model.PublicProfile
 import app.befos.domain.repository.DiscoveryRepository
+import app.befos.domain.repository.MatchRepository
 import app.befos.domain.repository.ProfileRepository
 import app.befos.domain.repository.SafetyRepository
 import app.befos.domain.safety.AnsweredUsers
@@ -28,6 +29,7 @@ data class PublicProfileUiState(
     val reportDetails: String = "",
     val reportError: String? = null,
     val gone: Boolean = false,
+    val partner: Boolean = false,
 )
 
 class PublicProfileViewModel(
@@ -35,10 +37,17 @@ class PublicProfileViewModel(
     private val discoveryRepository: DiscoveryRepository,
     private val safetyRepository: SafetyRepository,
     private val answeredUsers: AnsweredUsers,
+    private val matchRepository: MatchRepository,
     private val userId: String,
+    private val matchId: String? = null,
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(PublicProfileUiState())
+    // Opened from a chat there is no user id to start from, and none is needed: `partner(matchId)`
+    // answers the card of the person the pair is with. Every write below targets the id that arrived
+    // with the card, because a card read by a pair knows a person the route never named.
+    private var peerId: String = userId
+
+    private val _uiState = MutableStateFlow(PublicProfileUiState(partner = matchId != null))
     val uiState: StateFlow<PublicProfileUiState> = _uiState.asStateFlow()
 
     init {
@@ -48,8 +57,17 @@ class PublicProfileViewModel(
     fun load() {
         _uiState.update { it.copy(loading = true, error = null) }
         viewModelScope.launch {
-            when (val result = profileRepository.publicProfile(userId)) {
-                is ApiResult.Success -> _uiState.update { it.copy(loading = false, profile = result.data) }
+            // The deck route filters by «Скрыть из подбора» on purpose, and stage 113 pinned that
+            // it stays so for a card id copied out of a link. A pair is not that reader: the route
+            // it has proves membership, so the partner's card is asked there and answers even after
+            // the partner stopped showing in the deck.
+            val result = if (matchId != null) matchRepository.partner(matchId)
+            else profileRepository.publicProfile(userId)
+            when (result) {
+                is ApiResult.Success -> {
+                    peerId = result.data.userId
+                    _uiState.update { it.copy(loading = false, profile = result.data) }
+                }
                 is ApiResult.Error -> _uiState.update { it.copy(loading = false, error = result.message) }
             }
         }
@@ -59,7 +77,7 @@ class PublicProfileViewModel(
         if (_uiState.value.busy) return
         _uiState.update { it.copy(busy = true, error = null) }
         viewModelScope.launch {
-            when (val result = discoveryRepository.like(userId)) {
+            when (val result = discoveryRepository.like(peerId)) {
                 is ApiResult.Success -> {
                     answeredOnce()
                     _uiState.update {
@@ -75,7 +93,7 @@ class PublicProfileViewModel(
         if (_uiState.value.busy) return
         _uiState.update { it.copy(busy = true, error = null) }
         viewModelScope.launch {
-            when (val result = discoveryRepository.pass(userId)) {
+            when (val result = discoveryRepository.pass(peerId)) {
                 is ApiResult.Success -> {
                     answeredOnce()
                     _uiState.update { it.copy(busy = false, gone = true) }
@@ -97,7 +115,7 @@ class PublicProfileViewModel(
         if (_uiState.value.busy) return
         _uiState.update { it.copy(blockDialog = false, busy = true, error = null) }
         viewModelScope.launch {
-            when (val result = safetyRepository.block(userId)) {
+            when (val result = safetyRepository.block(peerId)) {
                 is ApiResult.Success -> {
                     answeredOnce()
                     _uiState.update { it.copy(busy = false, gone = true) }
@@ -112,7 +130,7 @@ class PublicProfileViewModel(
      * this screen, so without the signal the same person — now blocked, or already liked —
      * is waiting as the next card.
      */
-    private fun answeredOnce() = answeredUsers.publish(userId)
+    private fun answeredOnce() = answeredUsers.publish(peerId)
 
     fun openReport() = _uiState.update { it.copy(reportDialog = true, reportError = null) }
     fun closeReport() = _uiState.update { it.copy(reportDialog = false, reportError = null) }
@@ -129,7 +147,7 @@ class PublicProfileViewModel(
         _uiState.update { it.copy(busy = true, reportError = null) }
         viewModelScope.launch {
             val result = safetyRepository.report(
-                userId = userId,
+                userId = peerId,
                 reason = s.reportReason,
                 details = s.reportDetails.trim().ifBlank { null },
             )

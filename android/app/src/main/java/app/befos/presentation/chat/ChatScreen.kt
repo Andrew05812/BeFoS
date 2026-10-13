@@ -32,6 +32,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Insights
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -81,6 +82,7 @@ fun ChatScreen(
     onBack: () -> Unit,
     onOpenCompatibility: () -> Unit,
     onOpenRecommendations: () -> Unit,
+    onOpenPartnerCard: () -> Unit,
 ) {
     val vm: ChatViewModel = beFosViewModel { ChatViewModel(it.chatRepository, it.matchRepository, matchId) }
     val state by vm.uiState.collectAsState()
@@ -109,6 +111,12 @@ fun ChatScreen(
                 title = state.partnerName ?: "Собеседник",
                 onBack = onBack,
                 actions = {
+                    // The card the deck no longer serves: a mutual match takes the person out of
+                    // the queue, so without this action the closest person in the product is the
+                    // one whose «о себе», interests and age cannot be read a second time.
+                    IconButton(onClick = onOpenPartnerCard) {
+                        Icon(Icons.Filled.Person, contentDescription = "Анкета собеседника")
+                    }
                     IconButton(onClick = onOpenCompatibility) {
                         Icon(Icons.Filled.Insights, contentDescription = "Совместимость")
                     }

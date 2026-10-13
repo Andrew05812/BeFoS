@@ -19,7 +19,9 @@ fine or teaches the operator to skip the one step that proves the data is readab
 ``README.md`` is where the numbers are actually measured — its «Тесты» section keeps one table row
 per suite, each naming its count, the day it was measured, the UTC window and the artifact. The
 checks below read that table as the source and require the three imperative documents to expect
-exactly what it publishes, so that the next stage cannot leave one of them behind again.
+exactly what it publishes, so that the next stage cannot leave one of them behind again. The
+paragraph above that table is one of the documents: until the tenth revision of stage 72 it mirrored
+the measured counts by hand and had fallen a whole revision behind them.
 """
 
 from __future__ import annotations
@@ -205,10 +207,45 @@ def _operations_claim() -> tuple[int, str]:
     return int(match.group("left")), match.group("date")
 
 
+def _counter_claims() -> dict[str, tuple[int, str]]:
+    """The counts README's own «Тесты» opening promises, keyed by suite.
+
+    The paragraph above the table is the first thing a reader cites, and until stage 72's tenth
+    revision it was the one place the table's numbers were mirrored by hand: it still promised the
+    eighth revision's 528 while the row below it had been re-measured at 534. It therefore has to
+    state all three suites in the same shape the release checklist does.
+    """
+    text = _readme_text()
+    paragraph = text[text.index("## Тесты") : text.index("| Набор | Результат |")]
+    claims = {match.group("set"): match for match in _RELEASE_CLAIM.finditer(paragraph)}
+    assert set(claims) == set(_SET_LABELS), (
+        f"the opening of README's «Тесты» names counts for {sorted(claims)}; the paragraph above "
+        "the table has to promise all three suites the table measures"
+    )
+    out: dict[str, tuple[int, str]] = {}
+    for label, match in claims.items():
+        assert match.group("left") == match.group("right"), (
+            f"the opening expects {label} {match.group('left')}/{match.group('right')}: a suite "
+            "is either green or it is not"
+        )
+        out[_SET_LABELS[label]] = (int(match.group("left")), match.group("date"))
+    return out
+
+
 def _divergences() -> list[str]:
     """Every place an imperative document promises a count the measurement table disagrees with."""
     measured = _measured_counts()
     out: list[str] = []
+    for suite, (number, date) in _counter_claims().items():
+        if number != measured[suite][0]:
+            out.append(
+                f"README «Тесты» opening: {suite} {number}, measured {measured[suite][0]}"
+            )
+        if date != measured[suite][1]:
+            out.append(
+                f"README «Тесты» opening: {suite} dates its count at {date}, the table measured "
+                f"it on {measured[suite][1]}"
+            )
     for suite, number in _command_block_counts().items():
         if number != measured[suite][0]:
             out.append(
@@ -249,6 +286,16 @@ def test_the_command_block_comments_the_counts_the_table_publishes():
         assert printed[suite] == measured[suite][0], (
             f"the block tells the reader to expect {printed[suite]} for {suite} while the table in "
             f"the same file publishes {measured[suite][0]}"
+        )
+
+
+def test_the_counter_paragraph_promises_the_counts_the_table_publishes():
+    measured = _measured_counts()
+    promised = _counter_claims()
+    for suite in _COMMANDS:
+        assert promised[suite] == measured[suite], (
+            f"the paragraph above the table promises {promised[suite]} for {suite} while the same "
+            f"file measures {measured[suite]}"
         )
 
 
@@ -314,6 +361,16 @@ def test_the_guard_reads_the_numbers_it_compares(monkeypatch):
     assert any(
         "command block" in line for line in _divergences()
     ), "the block could say anything about the Android suite and stay green"
+    monkeypatch.undo()
+
+    backend = measured[_BACKEND][0]
+    counter_claim = f"**{backend}/{backend}**"
+    opening = _readme_text().replace(counter_claim, "**191/191**", 1)
+    assert opening != _readme_text(), "the flip did not reach the paragraph above the table"
+    monkeypatch.setitem(globals(), "_readme_text", lambda: opening)
+    assert any(
+        "opening" in line for line in _divergences()
+    ), "the counter paragraph could still promise a count the table no longer measures"
     monkeypatch.undo()
 
     backend_claim = f"**{measured[_BACKEND][0]}/{measured[_BACKEND][0]}**"

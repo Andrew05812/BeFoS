@@ -5,6 +5,7 @@ import app.befos.core.network.ApiResult
 import app.befos.domain.model.LikeOutcome
 import app.befos.domain.model.PublicProfile
 import app.befos.domain.repository.DiscoveryRepository
+import app.befos.domain.repository.MatchRepository
 import app.befos.domain.repository.ProfileRepository
 import app.befos.domain.repository.SafetyRepository
 import app.befos.domain.safety.AnsweredUsers
@@ -30,6 +31,7 @@ class PublicProfileViewModelTest {
     private val discovery: DiscoveryRepository = mockk()
     private val safety: SafetyRepository = mockk()
     private val answered: AnsweredUsers = mockk()
+    private val matches: MatchRepository = mockk()
 
     private fun profile() = PublicProfile(
         userId = "u-1", name = "Аня", age = 27, city = "Казань", about = null,
@@ -41,7 +43,7 @@ class PublicProfileViewModelTest {
     private fun viewModel(): PublicProfileViewModel {
         coEvery { profiles.publicProfile("u-1") } returns ApiResult.Success(profile())
         every { answered.publish(any()) } returns Unit
-        return PublicProfileViewModel(profiles, discovery, safety, answered, "u-1")
+        return PublicProfileViewModel(profiles, discovery, safety, answered, matches, "u-1")
     }
 
     private fun advance() = mainRule.testDispatcher.scheduler.advanceUntilIdle()

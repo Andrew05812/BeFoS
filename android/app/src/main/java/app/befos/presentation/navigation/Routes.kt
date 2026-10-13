@@ -22,4 +22,10 @@ object Routes {
     const val USER_ARG = "userId"
     const val PUBLIC_PROFILE = "user/{$USER_ARG}"
     fun publicProfile(userId: String) = "user/$userId"
+
+    // The same card, asked by the pair instead of by the deck: `GET /users/{id}` filters on
+    // «Скрыть из подбора» on purpose, so a link built on the user id answers «Профиль недоступен»
+    // to the person sitting in the chat the card was opened from.
+    const val PARTNER = "partner/{$CHAT_ARG}"
+    fun partner(matchId: String) = "partner/$matchId"
 }
