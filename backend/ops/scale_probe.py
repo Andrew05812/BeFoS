@@ -41,6 +41,14 @@ MAINTENANCE_DB = os.environ.get("SCALE_MAINT_DB", "postgres")
 VIEWER_EMAIL = "scale_probe_viewer@befos.test"
 PASSWORD = "Demo12345"
 DECK_SIZE = 20
+# The string the stand writes into `refresh_tokens.user_agent`. Named because the session paths
+# mint rows the crowd never had, and a reader of the table has to be able to tell a session this
+# harness made from a session somebody else's run left behind.
+USER_AGENT = "scale-probe"
+# Sessions the logout path is allowed to end. One per repeat of that path, plus room for `--runs`
+# up to this: the queue is filled once, outside the window, and running dry would price a request
+# the route answers without touching the table.
+LOGOUT_SESSIONS = 16
 
 CITIES = ["Almaty", "Astana", "Shymkent", "Karaganda", "Aktau"]
 GOALS = ["relationship", "marriage", "casual", "friendship", "networking"]
@@ -419,6 +427,63 @@ async def _answer_payload(session, ctx) -> None:
     ]
 
 
+async def _prime_session(session, ctx) -> None:
+    """Mint, outside the measured window, the one live session the rotation path redeems.
+
+    The stand's `refresh_tokens` table was empty for every run up to stage 76: the harness wrote
+    profiles, passes, matches and messages, but no session, so there was no token to present and
+    the rotation could not be measured at all. One login through the service is the whole setup —
+    and it has to stay outside the window, because what the screen pays is the redeem and the mint,
+    not the password check that put the token there.
+    """
+    from app.services.auth_service import AuthService
+
+    if ctx.get("refresh_token"):
+        return
+    user = await AuthService(session).authenticate(ctx["viewer_email"], PASSWORD)
+    ctx["refresh_token"] = (await AuthService(session).issue_tokens(user, USER_AGENT))[
+        "refresh_token"
+    ]
+
+
+async def _prime_sessions(session, ctx) -> None:
+    """Mint the queue of sessions the logout path ends, one per repeat of that path.
+
+    `POST /auth/logout` answers 204 whether or not the token named a session — its handler swallows
+    the failure — so a queue that ran out would leave the harness timing a request the product
+    answers without touching the table. The queue is filled ahead of the window for the same reason
+    `_drain_deck` is: writing the sessions is stand setup, ending one is the screen's work.
+    """
+    from app.services.auth_service import AuthService
+
+    if ctx.get("logout_tokens"):
+        return
+    user = await AuthService(session).authenticate(ctx["viewer_email"], PASSWORD)
+    service = AuthService(session)
+    ctx["logout_tokens"] = [
+        (await service.issue_tokens(user, USER_AGENT))["refresh_token"]
+        for _ in range(LOGOUT_SESSIONS)
+    ]
+
+
+async def _session_rows(asyncpg, database: str) -> dict:
+    """How many sessions the stand actually held when these rows were shot.
+
+    Read after the paths ran, and counted exactly rather than estimated: `pg_stat_user_tables` is
+    snapshotted before the harness touches the database, so its `n_live_tup` for `refresh_tokens`
+    says nothing about the rows the session paths just wrote. The number belongs in the artifact
+    because the reader of a latency row for a rotation has to be able to ask how many rows the
+    table held — on a stand that never minted a session, the answer used to be zero.
+    """
+    conn = await asyncpg.connect(dsn=_asyncpg_dsn(database))
+    try:
+        live = await conn.fetchval("SELECT count(*) FROM refresh_tokens WHERE revoked IS FALSE")
+        total = await conn.fetchval("SELECT count(*) FROM refresh_tokens")
+    finally:
+        await conn.close()
+    return {"total": int(total), "live": int(live), "revoked": int(total) - int(live)}
+
+
 def _build_paths():
     """One wrapper per screen: each calls the same service object the API route calls."""
     from app.services.auth_service import AuthService
@@ -428,7 +493,13 @@ def _build_paths():
     from app.services.matches_service import MatchesService
 
     async def login(session, ctx):
-        await AuthService(session).authenticate(ctx["viewer_email"], PASSWORD)
+        service = AuthService(session)
+        user = await service.authenticate(ctx["viewer_email"], PASSWORD)
+        # The mounted `POST /auth/login` answers with a session: it calls `authenticate` and then
+        # `issue_tokens`, and the second of those is the INSERT into `refresh_tokens` that makes the
+        # answer usable. Pricing only the first published a row of one statement per call — a
+        # password check, presented as the price of signing in.
+        await service.issue_tokens(user, USER_AGENT)
 
     async def public_profile(session, ctx):
         await DiscoveryService(session).get_public_profile(ctx["viewer_id"], ctx["peer_id"])
@@ -513,6 +584,34 @@ def _build_paths():
         current_user = await session.get(User, ctx["viewer_id"])
         return await match_universe(ctx["match_id"], current_user=current_user, session=session)
 
+    async def session_refresh(session, ctx):
+        # The call a client makes when its access token died: redeem the stored refresh token and
+        # mint the pair that replaces it. The redeemed string is replaced in the context by the one
+        # this call issued, because rotation consumes what it is given — keeping it would measure
+        # one rotation and then four refusals, and a refusal writes nothing.
+        token = ctx.get("refresh_token")
+        if not token:
+            raise RuntimeError("no live session to redeem: `_prime_session` did not run")
+        tokens = await AuthService(session).refresh(token, USER_AGENT)
+        ctx["refresh_token"] = tokens["refresh_token"]
+
+    async def session_logout(session, ctx):
+        queue = ctx.get("logout_tokens")
+        if not queue:
+            raise RuntimeError(
+                f"the session queue is empty: the logout path needs one minted session per "
+                f"repeat (`--runs` above {LOGOUT_SESSIONS})"
+            )
+        token = queue.pop(0)
+        # The route reads the owner out of the token it was given before it revokes anything, so
+        # the wrapper does the same; whose session it is never comes from the harness's own state.
+        import uuid as uuid_module
+
+        from app.core.security import decode_token
+
+        user_id = uuid_module.UUID(decode_token(token, "refresh")["sub"])
+        await AuthService(session).logout(user_id, token)
+
     return {
         "login": login,
         "public_profile": public_profile,
@@ -528,6 +627,8 @@ def _build_paths():
         "like": like,
         "deck_exhausted": deck_exhausted,
         "universe_map": universe_map,
+        "session_refresh": session_refresh,
+        "session_logout": session_logout,
     }
 
 
@@ -540,7 +641,12 @@ def _build_setups():
     request body — the client took that map off the previous screen, so the screen under
     measurement never sends it.
     """
-    return {"deck_exhausted": _drain_deck, "answers_submit": _answer_payload}
+    return {
+        "deck_exhausted": _drain_deck,
+        "answers_submit": _answer_payload,
+        "session_refresh": _prime_session,
+        "session_logout": _prime_sessions,
+    }
 
 
 async def _seed_catalog(engine) -> None:
@@ -948,12 +1054,14 @@ async def _measure_size(asyncpg, database: str, size: int, acted: int, runs: int
         event.remove(engine.sync_engine, "before_cursor_execute", before)
 
     plans = await _plans(asyncpg, _asyncpg_dsn(database), captured)
+    sessions = await _session_rows(asyncpg, database)
     scale = {
         "users": size,
         "viewer_passes": activity["passes"],
         "viewer_matches": activity["matches"],
         "crowd_matches": activity["crowd_matches"],
         "crowd_messages_per_match": activity["crowd_messages"],
+        "refresh_tokens": sessions,
         "seed": seed,
         "tables": {r["relname"]: r["n_live_tup"] for r in tables},
         "sizes": {r["relname"]: {"total": r["total"], "heap": r["heap"]} for r in sizes},
