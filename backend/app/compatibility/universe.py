@@ -7,6 +7,10 @@ itself shows, using the same ``STRENGTH_THRESHOLD`` and ``DIFFERENCE_THRESHOLD``
 already reads in ``app.compatibility.explanation``. What the universe adds is the missing half of
 the sentence: not one percent per band, but the pair of answers the percent was summed from.
 
+Every evidence line names those answers in the unit the mark above it already prints — a percent,
+rounded half away from zero the way the client's ``roundToInt()`` rounds it — so a tap opens a
+sentence about the number it sits under rather than a second rendering of the same fact.
+
 Four connection types, and the fourth is load-bearing:
 
 * ``harmony`` — two named answers sit in the same top band (similarity >= ``STRENGTH_THRESHOLD``).
@@ -25,6 +29,7 @@ stage 70 named for the matrix).
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 
 from app.compatibility.engine import CompatibilityInput, CompatibilityResult, _clamp01
@@ -74,8 +79,14 @@ def _band(sim: float) -> str:
     return COMPLEMENTARITY
 
 
-def _side(value: float | None) -> str:
-    return "—" if value is None else f"{value:.2f}"
+def _percent(value: float) -> str:
+    """The number the mark under this node prints, not the engine's 0..1 scale value.
+
+    Half always rounds away from zero because that is what the client does
+    (``(value * 100f).roundToInt()``); Python's own rounding sends 0.125 to 12 while the mark
+    next to this sentence shows 13.
+    """
+    return str(int(math.floor(_clamp01(float(value)) * 100 + 0.5)))
 
 
 def _trait_nodes(category_key: str, a: CompatibilityInput, b: CompatibilityInput) -> list[UniverseNode]:
@@ -99,8 +110,8 @@ def _trait_nodes(category_key: str, a: CompatibilityInput, b: CompatibilityInput
                     has_data=True,
                     connection=_band(sim),
                     evidence=(
-                        f"{trait.label}: {_side(_clamp01(float(va)))} против "
-                        f"{_side(_clamp01(float(vb)))}, похожие ответы дают {sim:.2f}"
+                        f"{trait.label}: {_percent(_clamp01(float(va)))} против "
+                        f"{_percent(_clamp01(float(vb)))}, сходство ответов {_percent(sim)}"
                     ),
                 )
             )
@@ -154,7 +165,7 @@ def _goal_nodes(a: CompatibilityInput, b: CompatibilityInput) -> list[UniverseNo
                 b_value=cell,
                 has_data=True,
                 connection=_band(cell),
-                evidence=f"цели «{a.dating_goal}» и «{b.dating_goal}», клетка матрицы {cell:.2f}",
+                evidence=f"цели «{a.dating_goal}» и «{b.dating_goal}» дают {_percent(cell)}",
             )
         ]
     return [
