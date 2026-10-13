@@ -502,6 +502,17 @@ def _build_paths():
 
         await DiscoveryService(session).feed(ctx["viewer_id"], limit=DECK_SIZE)
 
+    async def universe_map(session, ctx):
+        # The pair's map is the one screen that recomputes the whole engine on every open, and it is
+        # priced here by calling the handler the API dispatches rather than by re-assembling the steps
+        # someone believed it takes: stage 75 changed the body of this route, and a copied harness
+        # would have gone on publishing yesterday's call as today's number.
+        from app.api.v1.matches import match_universe
+        from app.models import User
+
+        current_user = await session.get(User, ctx["viewer_id"])
+        return await match_universe(ctx["match_id"], current_user=current_user, session=session)
+
     return {
         "login": login,
         "public_profile": public_profile,
@@ -516,6 +527,7 @@ def _build_paths():
         "test_complete": test_complete,
         "like": like,
         "deck_exhausted": deck_exhausted,
+        "universe_map": universe_map,
     }
 
 
