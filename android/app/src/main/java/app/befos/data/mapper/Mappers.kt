@@ -182,6 +182,10 @@ fun RecommendationDto.toDomain() = Recommendation(
     selected = selected,
     partnerSelected = partnerSelected,
     declined = declined,
+    myMeetingTime = myMeetingTime,
+    partnerMeetingTime = partnerMeetingTime,
+    iAcceptedTime = iAcceptedTime,
+    agreedTime = agreedTime,
 )
 
 fun OnboardingData.toRequest() = OnboardingRequest(

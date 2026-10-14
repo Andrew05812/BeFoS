@@ -17,6 +17,7 @@ from app.schemas.schemas import (
     ExplanationItemOut,
     MatchListResponse,
     MatchSummary,
+    MeetingTimeIn,
     RecommendationListResponse,
     RecommendationOut,
     UniverseLayerOut,
@@ -174,6 +175,10 @@ async def match_recommendations(
                 selected=r["selected"],
                 partner_selected=r["partner_selected"],
                 declined=r["declined"],
+                my_meeting_time=r["my_meeting_time"],
+                partner_meeting_time=r["partner_meeting_time"],
+                i_accepted_time=r["i_accepted_time"],
+                agreed_time=r["agreed_time"],
             )
             for r in recs
         ],
@@ -223,4 +228,40 @@ async def restore_recommendation(
     """Take a refusal back, which puts the card where this person's page shows it again."""
     service = RecommendationService(session)
     await service.set_declined(match_id, current_user.id, activity_id, False)
+    return None
+
+
+@router.put("/{match_id}/recommendations/{activity_id}/time", status_code=204)
+async def propose_meeting_time(
+    match_id: uuid.UUID,
+    payload: MeetingTimeIn,
+    activity_id: int = Path(le=2**31 - 1),
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Name the moment this person would meet for this idea, or move the one they named.
+
+    A PUT rather than a POST: the pair has one row per person per card, so a second tap on a
+    different hour replaces the offer instead of adding a second one for the other half to choose
+    between.
+    """
+    service = RecommendationService(session)
+    await service.propose_time(match_id, current_user.id, activity_id, payload.when)
+    return None
+
+
+@router.post("/{match_id}/recommendations/{activity_id}/time/accept", status_code=204)
+async def accept_meeting_time(
+    match_id: uuid.UUID,
+    payload: MeetingTimeIn,
+    activity_id: int = Path(le=2**31 - 1),
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Agree to the moment the other half named. The instant is sent back rather than read off the
+    row here, because the value the person saw is the value they answered; if it moved since, this
+    answers 409 and the page reloads the offer instead of agreeing to an unseen one.
+    """
+    service = RecommendationService(session)
+    await service.accept_time(match_id, current_user.id, activity_id, payload.when)
     return None

@@ -5,6 +5,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -20,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -28,7 +31,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -46,6 +51,7 @@ import app.befos.core.designsystem.Elev
 import app.befos.core.designsystem.EmptyState
 import app.befos.core.designsystem.ErrorState
 import app.befos.core.designsystem.InlineNotice
+import app.befos.core.designsystem.InterestChip
 import app.befos.core.designsystem.ListSkeleton
 import app.befos.core.designsystem.Spacing
 import app.befos.core.designsystem.cardPaintedSurface
@@ -54,6 +60,9 @@ import app.befos.core.designsystem.scoreTextColorOnWash
 import app.befos.core.designsystem.tabularDigits
 import app.befos.core.di.beFosViewModel
 import app.befos.domain.model.Recommendation
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.ZonedDateTime
 
 @Composable
 fun RecommendationsScreen(matchId: String, onBack: () -> Unit) {
@@ -177,9 +186,12 @@ fun RecommendationsScreen(matchId: String, onBack: () -> Unit) {
                         hidden = shared,
                         selected = state.selected.contains(rec.activity.id),
                         declined = false,
+                        time = cardTime(rec, state),
                         onSelect = { vm.select(rec.activity.id, rec.activity.title) },
                         onDecline = { vm.decline(rec.activity.id) },
                         onRestore = null,
+                        onProposeTime = { whenIso -> vm.proposeTime(rec.activity.id, whenIso) },
+                        onAcceptTime = { whenIso -> vm.acceptTime(rec.activity.id, whenIso) },
                     )
                 }
                 if (refused.isNotEmpty()) {
@@ -206,9 +218,12 @@ fun RecommendationsScreen(matchId: String, onBack: () -> Unit) {
                             hidden = shared,
                             selected = state.selected.contains(rec.activity.id),
                             declined = true,
+                            time = cardTime(rec, state),
                             onSelect = { vm.select(rec.activity.id, rec.activity.title) },
                             onDecline = null,
                             onRestore = { vm.restore(rec.activity.id) },
+                            onProposeTime = { whenIso -> vm.proposeTime(rec.activity.id, whenIso) },
+                            onAcceptTime = { whenIso -> vm.acceptTime(rec.activity.id, whenIso) },
                         )
                     }
                 }
@@ -223,9 +238,12 @@ private fun RecommendationCard(
     hidden: Set<String>,
     selected: Boolean,
     declined: Boolean,
+    time: CardTime,
     onSelect: () -> Unit,
     onDecline: (() -> Unit)?,
     onRestore: (() -> Unit)?,
+    onProposeTime: (String) -> Unit,
+    onAcceptTime: (String) -> Unit,
 ) {
     val accent = scoreColor(rec.score)
     // Never empty a card of its explanation: when the pair-level fact above is the only
@@ -353,6 +371,172 @@ private fun RecommendationCard(
                     )
                 }
             }
+            MeetingTimeSection(
+                time = time,
+                // The hour belongs to an idea the pair is already talking about, so the editor opens
+                // only for a card this person sent into the chat. Agreeing is not gated the same way:
+                // the other half's hour is on the card either way, and a yes to it is an answer the
+                // pair has not asked anyone to write first.
+                canOffer = selected && !declined,
+                canAgree = !declined,
+                onProposeTime = onProposeTime,
+                onAcceptTime = onAcceptTime,
+            )
+        }
+    }
+}
+
+/**
+ * What one card holds about the pair's plan: the hours the page reported, the hour this visit's tap
+ * wrote, and the reason the last time tap did not land.
+ */
+private data class CardTime(
+    val mine: String?,
+    val partner: String?,
+    val agreed: String?,
+    val iAccepted: String?,
+    val failure: String?,
+)
+
+private fun cardTime(rec: Recommendation, state: RecommendationsUiState): CardTime = CardTime(
+    // The tap of this visit answers before the page does: an hour this person named stays on the
+    // card even while a read that started earlier reports the row without one.
+    mine = state.myOffers[rec.activity.id] ?: rec.myMeetingTime,
+    partner = rec.partnerMeetingTime,
+    agreed = state.agreedMoments[rec.activity.id] ?: rec.agreedTime,
+    iAccepted = rec.iAcceptedTime,
+    failure = state.timeErrors[rec.activity.id],
+)
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun MeetingTimeSection(
+    time: CardTime,
+    canOffer: Boolean,
+    canAgree: Boolean,
+    onProposeTime: (String) -> Unit,
+    onAcceptTime: (String) -> Unit,
+) {
+    // The clock is read once for this card, not once per recomposition: an hour row that recomputed
+    // itself mid-glance could drop a chip under the finger already aiming at it.
+    val now = remember { ZonedDateTime.now() }
+    val plan = time.agreed
+    val partnerOffer = time.partner
+    val mine = time.mine
+    // Which hour to offer is a decision being made, not a fact about the pair, so it never enters
+    // the view state: the screen holds it until the tap that sends it.
+    var editing by remember { mutableStateOf(false) }
+    var chosenDay by remember { mutableStateOf<LocalDate?>(null) }
+    var chosenHour by remember { mutableStateOf<Int?>(null) }
+
+    val days = remember(now) { meetingDays(now) }
+    val day = chosenDay?.takeIf { it in days } ?: days.first()
+    val hours = remember(day, now) { meetingHours(day, now) }
+    val hour = chosenHour?.takeIf { it in hours } ?: hours.first()
+
+    Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+        if (plan != null) {
+            ChoiceChip(
+                "Договорились: ${formatMeetingInstant(plan, now)}",
+                Icons.Filled.CheckCircle,
+                EmberSoft,
+                EmberDeep,
+                MaterialTheme.colorScheme.primary,
+            )
+        } else {
+            if (partnerOffer != null) {
+                ChoiceChip(
+                    "Партнёр предлагает: ${formatMeetingInstant(partnerOffer, now)}",
+                    Icons.AutoMirrored.Filled.Send,
+                    MaterialTheme.colorScheme.surfaceVariant,
+                    MaterialTheme.colorScheme.onSurfaceVariant,
+                    MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (canAgree) {
+                    // The instant goes back exactly as this card read it, so an offer the partner has
+                    // moved in the meantime is refused rather than agreed to silently.
+                    AppButton(
+                        text = "Подходит",
+                        onClick = { onAcceptTime(partnerOffer) },
+                        variant = AppButtonVariant.Tonal,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+            if (time.iAccepted != null && partnerOffer != null && time.iAccepted != partnerOffer) {
+                // Not a plan and not nothing: the yes was real, and the hour it answered is gone. The
+                // card says both, because either sentence alone leaves the person guessing.
+                Text(
+                    "Вы соглашались на ${formatMeetingInstant(time.iAccepted, now)}, но партнёр назвал другой час.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (mine != null) {
+                ChoiceChip(
+                    "Вы предложили: ${formatMeetingInstant(mine, now)}",
+                    Icons.Filled.Schedule,
+                    MaterialTheme.colorScheme.surfaceVariant,
+                    MaterialTheme.colorScheme.onSurfaceVariant,
+                    MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (canOffer) {
+                if (editing) {
+                    Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                        Text(
+                            "КОГДА ВАМ УДОБНО",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                            verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+                        ) {
+                            days.forEach { date ->
+                                InterestChip(
+                                    label = meetingDayLabel(date, now),
+                                    selected = date == day,
+                                    onClick = { chosenDay = date },
+                                )
+                            }
+                        }
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                            verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+                        ) {
+                            hours.forEach { candidate ->
+                                InterestChip(
+                                    label = meetingHourLabel(candidate),
+                                    selected = candidate == hour,
+                                    onClick = { chosenHour = candidate },
+                                )
+                            }
+                        }
+                        AppButton(
+                            text = "Предложить: ${meetingDayLabel(day, now)}, ${meetingHourLabel(hour)}",
+                            onClick = {
+                                onProposeTime(meetingInstant(day, hour, ZoneId.systemDefault()))
+                                editing = false
+                            },
+                            variant = AppButtonVariant.Tonal,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                } else {
+                    AppButton(
+                        text = if (mine == null) "Договориться о времени" else "Изменить время",
+                        onClick = { editing = true },
+                        variant = AppButtonVariant.Ghost,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+        }
+        time.failure?.let { failure ->
+            // Named on the card it belongs to: an hour the server refused for one idea is not a
+            // reason to doubt another one's plan.
+            InlineNotice(text = failure)
         }
     }
 }

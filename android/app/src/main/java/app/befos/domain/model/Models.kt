@@ -207,6 +207,16 @@ data class Recommendation(
     // Whether this person pushed the card away. Never answered for the other half: a proposal is a
     // message the pair received, a refusal is one person editing their own list.
     val declined: Boolean,
+    // The hour this person named for the card, and the hour the other half named. ISO text with an
+    // offset, kept as text: agreeing sends back exactly the string the person read.
+    val myMeetingTime: String?,
+    val partnerMeetingTime: String?,
+    // An hour this person agreed to that the partner has since moved. It is not a plan, and it is
+    // not nothing either: the card says the agreement happened and that its moment is no longer the
+    // one being offered.
+    val iAcceptedTime: String?,
+    // The moment both halves hold: null until one row's agreement equals the other row's offer.
+    val agreedTime: String?,
 )
 
 data class LikeOutcome(
