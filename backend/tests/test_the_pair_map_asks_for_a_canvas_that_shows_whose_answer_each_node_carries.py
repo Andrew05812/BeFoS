@@ -38,6 +38,7 @@ MAPPERS = CLIENT / "data/mapper/Mappers.kt"
 MODELS = CLIENT / "domain/model/Models.kt"
 LAYOUT = CLIENT / "presentation/universe/UniverseLayout.kt"
 SCREEN = CLIENT / "presentation/universe/UniverseScreen.kt"
+STORY = CLIENT / "presentation/universe/UniverseStory.kt"
 VIEW_MODEL = CLIENT / "presentation/universe/UniverseViewModel.kt"
 ROUTES = CLIENT / "presentation/navigation/Routes.kt"
 NAV_HOST = CLIENT / "presentation/navigation/BeFosNavHost.kt"
@@ -206,11 +207,22 @@ def test_the_four_sections_the_brief_names_are_on_the_screen() -> None:
     screen = _read(SCREEN)
     for title in SECTION_TITLES:
         assert title in screen, f"UniverseScreen.kt lost the section «{title}»"
-    assert re.search(r"Карта — это считанные ответы, а не диагноз", screen) is not None, (
-        "the screen lets the map read as a verdict instead of a set of answers"
+    # Stage 79.3 gathered the caveat into one constant all three readings share, so the screen
+    # names it instead of spelling it out. The guard follows the words: they have to stay on this
+    # one constant, and every reading has to print it.
+    story = _read(STORY)
+    caveat = re.search(r'internal const val MAP_DISCLAIMER: String =\n(?P<text>.*?)\n\n', story, re.S)
+    assert caveat is not None, "UniverseStory.kt defines no single MAP_DISCLAIMER for the readings to share"
+    text = caveat["text"]
+    assert re.search(r"Карта — это считанные ответы, а не диагноз", text) is not None, (
+        "the shared caveat lets the map read as a verdict instead of a set of answers"
     )
-    assert re.search(r"обязательно полезно для отношений", screen) is not None, (
-        "nothing on the screen refuses the promise that a combination must be useful"
+    assert re.search(r"обязательно полезно для отношений", text) is not None, (
+        "nothing in the caveat refuses the promise that a combination must be useful"
+    )
+    assert screen.count("MAP_DISCLAIMER") == 3, (
+        "a reading of the map no longer prints the caveat, so that screen lets the map "
+        "read as a verdict"
     )
 
 
