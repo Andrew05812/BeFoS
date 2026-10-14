@@ -76,6 +76,7 @@ class UniverseViewModelTest {
                 nodes = listOf(node("hiking", 1.0, 1.0, Connection.HARMONY)),
             ),
         ),
+        story = listOf("Мы совпадаем на 68%.", "Ценности — 70%."),
     )
 
     private fun profile(userId: String, name: String) = Profile(

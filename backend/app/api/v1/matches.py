@@ -150,6 +150,7 @@ async def match_universe(
             )
             for layer in universe.layers
         ],
+        story=list(universe.story),
     )
 
 

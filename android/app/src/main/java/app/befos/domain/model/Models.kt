@@ -116,6 +116,12 @@ data class Universe(
     val aUserId: String,
     val bUserId: String,
     val layers: List<UniverseLayer>,
+    /**
+     * The same map retold in aggregate sentences the pair can send outside the app. Written by the
+     * engine from band percents and counts only — no axis label, no answer — so the reading that
+     * travels is the one reading that carries nothing personal.
+     */
+    val story: List<String>,
 )
 
 data class DiscoveryCard(

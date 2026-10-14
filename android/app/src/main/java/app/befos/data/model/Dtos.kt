@@ -230,6 +230,7 @@ data class UniverseDto(
     @SerialName("a_user_id") val aUserId: String = "",
     @SerialName("b_user_id") val bUserId: String = "",
     val layers: List<UniverseLayerDto> = emptyList(),
+    val story: List<String> = emptyList(),
 )
 
 // ---------- Discovery ----------

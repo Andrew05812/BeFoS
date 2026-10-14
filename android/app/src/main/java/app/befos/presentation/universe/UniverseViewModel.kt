@@ -30,6 +30,12 @@ data class UniverseUiState(
     /** Filter over the connection types; null shows every band the pair has. */
     val filter: Connection? = null,
     /**
+     * Which of stage 79.3's three readings the screen shows. All three read this same `data`, so
+     * switching never fetches and never recomputes: the map, the band-by-band analysis and the
+     * shareable story are one document seen three ways.
+     */
+    val mode: UniverseMode = UniverseMode.Map,
+    /**
      * Who owns the left and the right world, in the pair's own `a`/`b` order. Resolved from the
      * two ids the map answers with, never assumed: the map is pair-global, so the requester is
      * not automatically `a`. Null while the names have not arrived, and the screen labels the
@@ -53,6 +59,9 @@ data class UniverseUiState(
         }
     }
 }
+
+/** The three readings of one map document (stage 79.3). */
+enum class UniverseMode { Map, Analysis, Story }
 
 data class Selection(val layer: UniverseLayer, val node: UniverseNode)
 
@@ -114,5 +123,13 @@ class UniverseViewModel(
 
     fun setFilter(filter: Connection?) {
         _uiState.update { it.copy(filter = filter, selectedKey = null) }
+    }
+
+    /**
+     * Switching reading is a pure view change: the tapped node stays tapped, because the analysis
+     * and the map describe the same document, and no second request is made.
+     */
+    fun setMode(mode: UniverseMode) {
+        _uiState.update { it.copy(mode = mode) }
     }
 }

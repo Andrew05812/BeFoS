@@ -38,6 +38,13 @@ explanation line:
 * ``suggestion`` — one line the pair can act on, worded from the two answers' own low/high labels.
   It is a product invitation («обсудите», «пусть каждый приносит»), not a claim about what a
   relationship requires.
+
+The document also carries ``story``: the same seven bands retold in sentences built from aggregates
+only — overall percent, each band's percent, weight, how many of its points landed under each
+connection word. No axis label and no single answer reaches those lines, because a node label *is*
+one person's reply, and the reading that leaves the phone must carry the shape of the pair instead
+of either half of their questionnaire. It is composed here, from the layers this module already
+assembled, so no second query and no second source of the pair's numbers appears behind it.
 """
 
 from __future__ import annotations
@@ -111,6 +118,10 @@ class Universe:
     overall_percent: int
     version: int
     layers: tuple[UniverseLayer, ...]
+    # The pair's own summary, in the order it reads as a story. Lines are built from layer
+    # aggregates only — no axis label, no answer value — which is what lets the same document be
+    # shared without carrying either person's questionnaire out of the app.
+    story: tuple[str, ...] = field(default_factory=tuple)
 
 
 def _band(sim: float) -> str:
@@ -336,6 +347,55 @@ def _goal_nodes(a: CompatibilityInput, b: CompatibilityInput) -> list[UniverseNo
     ]
 
 
+def _count_word(count: int, one: str, few: str, many: str) -> str:
+    """Russian pluralisation for the counts the story prints."""
+    if count % 10 == 1 and count % 100 != 11:
+        return one
+    if count % 10 in (2, 3, 4) and count % 100 not in (12, 13, 14):
+        return few
+    return many
+
+
+def build_story(overall_percent: int, layers: tuple[UniverseLayer, ...]) -> tuple[str, ...]:
+    """The map retold as a story the pair can send outside the app.
+
+    Only aggregates reach these lines: the overall percent, each band's percent, its weight, and how
+    many of its points fell into each connection word. No axis label and no single answer appears,
+    because a node label is itself one person's reply — «куда смотрит ambition» tells the reader who
+    answered what — while «три совпадения и один разговор» tells them nothing personal.
+
+    A band with no data keeps its label (a band name is taxonomy, not an answer) and prints no
+    percent: defect 72-1 is exactly the unscored category passing itself off as a measurement, and a
+    shared story is where that misread would travel furthest.
+
+    The order is by weight, then by the engine's own band order, so the story reads the same for
+    both partners — the map is pair-global, and a story that opened differently depending on who
+    tapped share would be a second, requester-first document.
+    """
+    ordered = sorted(enumerate(layers), key=lambda pair: (-pair[1].weight, pair[0]))
+    lines = [f"Мы совпадаем на {overall_percent}% — и вот как это легло по областям."]
+    for _, layer in ordered:
+        if not layer.has_data:
+            lines.append(f"{layer.label}: сравнивать было нечего, поэтому процентов тут нет.")
+            continue
+        compared = [node for node in layer.nodes if node.has_data]
+        harmony = sum(1 for node in compared if node.connection == HARMONY)
+        complement = sum(1 for node in compared if node.connection == COMPLEMENTARITY)
+        discussion = sum(1 for node in compared if node.connection == DISCUSSION)
+        parts = [
+            f"{harmony} {_count_word(harmony, 'совпадение', 'совпадения', 'совпадений')}",
+            f"{complement} {_count_word(complement, 'дополнение', 'дополнения', 'дополнений')}",
+            f"{discussion} {_count_word(discussion, 'разговор', 'разговора', 'разговоров')}",
+        ]
+        lines.append(
+            f"{layer.label} — {layer.score}% (вес {int(round(layer.weight * 100))}%), "
+            f"сверено {len(compared)} из {len(layer.nodes)}: "
+            + ", ".join(parts)
+            + "."
+        )
+    return tuple(lines)
+
+
 def build_universe(
     a: CompatibilityInput,
     b: CompatibilityInput,
@@ -384,4 +444,5 @@ def build_universe(
         overall_percent=result.overall_percent,
         version=result.version,
         layers=tuple(layers),
+        story=build_story(result.overall_percent, tuple(layers)),
     )

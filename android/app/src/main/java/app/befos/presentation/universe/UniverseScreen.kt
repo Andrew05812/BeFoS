@@ -63,8 +63,10 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.befos.core.designsystem.AppButton
 import app.befos.core.designsystem.AppCard
 import app.befos.core.designsystem.AppTopBar
+import app.befos.core.designsystem.CompatibilityBadge
 import app.befos.core.designsystem.CompatibilityScore
 import app.befos.core.designsystem.CompatibilitySkeleton
 import app.befos.core.designsystem.EmptyState
@@ -75,6 +77,7 @@ import app.befos.core.designsystem.Motion
 import app.befos.core.designsystem.SectionHeader
 import app.befos.core.designsystem.Spacing
 import app.befos.core.di.beFosViewModel
+import app.befos.core.share.shareText
 import app.befos.domain.model.Connection
 import app.befos.domain.model.Universe
 import app.befos.domain.model.UniverseLayer
@@ -86,6 +89,7 @@ fun UniverseScreen(matchId: String, onBack: () -> Unit) {
         UniverseViewModel(it.matchRepository, it.profileRepository, matchId)
     }
     val state by vm.uiState.collectAsState()
+    val context = LocalContext.current
 
     Scaffold(
         topBar = { AppTopBar(title = "Карта пары", onBack = onBack) },
@@ -112,18 +116,21 @@ fun UniverseScreen(matchId: String, onBack: () -> Unit) {
                 modifier = Modifier.padding(padding),
                 onSelect = vm::select,
                 onFilter = vm::setFilter,
+                onMode = vm::setMode,
+                onShare = { text -> shareText(context, STORY_TITLE, text) },
             )
         }
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun UniverseContent(
     state: UniverseUiState,
     modifier: Modifier,
     onSelect: (String?) -> Unit,
     onFilter: (Connection?) -> Unit,
+    onMode: (UniverseMode) -> Unit,
+    onShare: (String) -> Unit,
 ) {
     val universe = state.data
     Column(
@@ -145,6 +152,44 @@ private fun UniverseContent(
             return@Column
         }
 
+        UniverseModeSwitcher(mode = state.mode, onMode = onMode)
+
+        // One document, three readings: switching never refetches and never recomputes, because all
+        // three branches below read the same `universe` the map was drawn from.
+        when (state.mode) {
+            UniverseMode.Map -> UniverseMapView(state, onSelect, onFilter)
+            UniverseMode.Analysis -> UniverseAnalysisView(state, onSelect)
+            UniverseMode.Story -> UniverseStoryView(state, onShare)
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun UniverseModeSwitcher(mode: UniverseMode, onMode: (UniverseMode) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+        SectionHeader(
+            title = "Как читать",
+            subtitle = "Карта, разбор по полосам и история, которую можно отдать, — три взгляда " +
+                "на один и тот же расчёт.",
+        )
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+            UniverseMode.entries.forEach {
+                InterestChip(label = modeWord(it), selected = mode == it, onClick = { onMode(it) })
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun UniverseMapView(
+    state: UniverseUiState,
+    onSelect: (String?) -> Unit,
+    onFilter: (Connection?) -> Unit,
+) {
+    val universe = state.data ?: return
+    Column(verticalArrangement = Arrangement.spacedBy(Spacing.section)) {
         Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -334,12 +379,126 @@ private fun UniverseContent(
         }
 
         Text(
-            "Карта — это считанные ответы, а не диагноз: она не утверждает, что такое сочетание " +
-                "обязательно полезно для отношений.",
+            MAP_DISCLAIMER,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
+}
+
+/**
+ * Deep Analysis: the same seven bands read one under another, heaviest first, each with every node
+ * it owns. No new numbers appear here — the band line is the caption the canvas already prints, and
+ * a node opens the same panel the map gives it.
+ */
+@Composable
+private fun UniverseAnalysisView(state: UniverseUiState, onSelect: (String?) -> Unit) {
+    val universe = state.data ?: return
+    Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
+        SectionHeader(
+            title = "По полосам",
+            subtitle = "Сверху те области, вес которых больше. Порядок — единственное, что здесь " +
+                "считается на клиенте: проценты и покрытие пришли с сервера.",
+        )
+        AppCard(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier.padding(Spacing.xl),
+                verticalArrangement = Arrangement.spacedBy(Spacing.lg),
+            ) {
+                analysisOrder(universe.layers).forEach { layer ->
+                    Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                        // A band the engine could not score must not be shown with a badge: an empty
+                        // category printing its neutral placeholder is defect 72-1.
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                        ) {
+                            Text(
+                                bandCaption(layer),
+                                modifier = Modifier.weight(1f),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            if (layer.hasData) {
+                                CompatibilityBadge(percent = layer.score, compact = true)
+                            }
+                        }
+                        AssuranceRow(
+                            confidence = layer.confidence,
+                            compared = layer.nodes.any { it.hasData },
+                        )
+                        layer.nodes.forEach { node ->
+                            NodeRow(
+                                node = node,
+                                layer = layer,
+                                state = state,
+                                expanded = state.selectedKey == node.key,
+                                onClick = { onSelect(node.key) },
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        Text(
+            MAP_DISCLAIMER,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/**
+ * Our Story: the reading built to leave the phone. The sentences come from the engine, aggregates
+ * only, so the client adds no number and no name of its own before handing them to another app.
+ */
+@Composable
+private fun UniverseStoryView(state: UniverseUiState, onShare: (String) -> Unit) {
+    val universe = state.data ?: return
+    Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
+        SectionHeader(
+            title = "Наша история",
+            subtitle = "В этом тексте только итоги полос: ни одного ответа отдельно взятого " +
+                "человека, поэтому его не жалко отдать кому угодно.",
+        )
+        AppCard(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier.padding(Spacing.xl),
+                verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+            ) {
+                if (universe.story.isEmpty()) {
+                    // An older server answers the map without a story. The share would then send an
+                    // empty artefact, so the control says what is missing instead of opening a sheet.
+                    Text(
+                        "Карта есть, а слов к ней нет: этот ответ сервера историю ещё не приносит.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    universe.story.forEach { line ->
+                        Text(line, style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+                AppButton(
+                    text = "Поделиться",
+                    onClick = { onShare(storyShareText(universe.story)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = universe.story.isNotEmpty(),
+                )
+            }
+        }
+        Text(
+            MAP_DISCLAIMER,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+internal fun modeWord(mode: UniverseMode): String = when (mode) {
+    UniverseMode.Map -> "Два мира"
+    UniverseMode.Analysis -> "По полосам"
+    UniverseMode.Story -> "Наша история"
 }
 
 @Composable
@@ -555,14 +714,21 @@ private fun NodeRow(
 }
 
 /**
- * The node's own assurance, drawn as four steps: each step is a quarter of the width of the band
- * that decided this connection, so a half-filled row says «half of this band's width still
- * separates the answer from the next band». Nothing here is a probability of the relationship.
+ * The assurance a node or a whole band carries, drawn as four steps: each step is a quarter of the
+ * width of the band that decided this connection, so a half-filled row says «half of this band's
+ * width still separates the answer from the next band». Nothing here is a probability of the
+ * relationship, and a band that compared nothing gets the same «сравнения не было» an unknown node
+ * gets — its mean is a mean over an empty set.
  */
 @Composable
 private fun AssuranceRow(node: UniverseNode) {
+    AssuranceRow(confidence = node.confidence, compared = node.connection != Connection.UNKNOWN)
+}
+
+@Composable
+private fun AssuranceRow(confidence: Int, compared: Boolean) {
     val ink = MaterialTheme.colorScheme.onSurfaceVariant
-    val filled = assuranceSteps(node.confidence)
+    val filled = assuranceSteps(confidence)
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -581,7 +747,7 @@ private fun AssuranceRow(node: UniverseNode) {
             }
         }
         Text(
-            assuranceWord(node.confidence, node.connection),
+            assuranceWord(confidence, compared),
             style = MaterialTheme.typography.labelSmall,
             color = ink,
         )
@@ -609,8 +775,11 @@ internal const val ASSURANCE_STEPS = 4
  * the map is where the scale gets explained — a per-node paragraph would put that essay on every
  * row the pair scrolls through.
  */
-internal fun assuranceWord(confidence: Int, connection: Connection): String = when {
-    connection == Connection.UNKNOWN -> "сравнения не было"
+internal fun assuranceWord(confidence: Int, connection: Connection): String =
+    assuranceWord(confidence, connection != Connection.UNKNOWN)
+
+internal fun assuranceWord(confidence: Int, compared: Boolean): String = when {
+    !compared -> "сравнения не было"
     confidence <= 0 -> "на границе полосы"
     confidence < 34 -> "ближе к краю"
     confidence < 67 -> "в середине полосы"
