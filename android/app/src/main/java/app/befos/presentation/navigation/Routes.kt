@@ -10,8 +10,16 @@ object Routes {
     const val SETTINGS = "settings"
 
     const val CHAT_ARG = "matchId"
-    const val CHAT = "chat/{$CHAT_ARG}"
-    fun chat(matchId: String) = "chat/$matchId"
+    // A question the map hands to the composer. Optional, so a route built without one still matches
+    // the same screen, and every caller that opens a thread pays the same single read it always did.
+    const val DRAFT_ARG = "draft"
+    // The parameter name is written out and only its value is a placeholder — the form the navigator
+    // reads as «this query argument may be absent».
+    const val CHAT = "chat/{$CHAT_ARG}?${DRAFT_ARG}={$DRAFT_ARG}"
+
+    /** `draft` has to arrive already percent-encoded: the text it carries is a whole sentence. */
+    fun chat(matchId: String, draft: String? = null): String =
+        if (draft == null) "chat/$matchId" else "chat/$matchId?$DRAFT_ARG=$draft"
 
     const val COMPATIBILITY = "compatibility/{$CHAT_ARG}"
     fun compatibility(matchId: String) = "compatibility/$matchId"

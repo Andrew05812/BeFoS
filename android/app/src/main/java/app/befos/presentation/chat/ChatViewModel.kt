@@ -45,9 +45,18 @@ class ChatViewModel(
     private val chatRepository: ChatRepository,
     private val matchRepository: MatchRepository,
     private val matchId: String,
+    /**
+     * A line another screen handed over for the pair to send, already sitting in the composer when
+     * the thread opens. It is a draft and nothing more: this ViewModel never sends it, so the message
+     * stays the person's own, and an edit of it is an edit of a draft that has not been attempted
+     * yet — `pendingAttempt` is still empty.
+     */
+    private val initialDraft: String? = null,
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(ChatUiState())
+    private val _uiState = MutableStateFlow(
+        ChatUiState(draft = initialDraft?.takeIf { it.isNotBlank() }.orEmpty())
+    )
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
 
     private var socketJob: Job? = null

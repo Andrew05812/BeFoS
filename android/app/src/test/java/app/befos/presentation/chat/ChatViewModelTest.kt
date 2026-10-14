@@ -895,4 +895,58 @@ class ChatViewModelTest {
         assertEquals("привет", vm.uiState.value.draft)
         assertEquals("Пара не найдена. Обновите список.", vm.uiState.value.sendError)
     }
+
+    @Test
+    fun `a question the map carried opens in the composer and waits for the person`() = runTest {
+        coEvery { repo.history("m1", any()) } returns ApiResult.Success(emptyList())
+        coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
+        coEvery { repo.sendTyping(any(), any()) } returns Unit
+        val carried = "Хочу спросить: Как вы решаете конфликты?"
+
+        val vm = ChatViewModel(repo, matchRepo, "m1", carried)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        // The map hands over a draft, not a message: sending it on the pair's behalf would put
+        // words in a thread nobody typed, and a typing frame would announce a person who has not
+        // touched the field yet.
+        assertEquals(carried, vm.uiState.value.draft)
+        coVerify(exactly = 0) { repo.send(any(), any(), any()) }
+        coVerify(exactly = 0) { repo.sendTyping(any(), any()) }
+    }
+
+    @Test
+    fun `a handover of nothing leaves an empty field rather than a blank line`() = runTest {
+        coEvery { repo.history("m1", any()) } returns ApiResult.Success(emptyList())
+        coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
+        coEvery { repo.sendTyping(any(), any()) } returns Unit
+
+        val vm = ChatViewModel(repo, matchRepo, "m1", "   ")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        // A route can only carry a string, so the empty case arrives as spaces. The send button is
+        // held back by `draft.isNotBlank()`, and the placeholder text has to be what shows.
+        assertEquals("", vm.uiState.value.draft)
+    }
+
+    @Test
+    fun `what the map left in the field can be rewritten and sent as the person's own`() = runTest {
+        coEvery { repo.history("m1", any()) } returns ApiResult.Success(emptyList())
+        coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
+        coEvery { repo.sendTyping(any(), any()) } returns Unit
+        val carried = "Хочу спросить: Как вы решаете конфликты?"
+        val own = "Как ты решаешь конфликты?"
+        coEvery { repo.send("m1", own, any()) } returns ApiResult.Success(message("9", true, own))
+
+        val vm = ChatViewModel(repo, matchRepo, "m1", carried)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        vm.onDraftChange(own)
+        vm.send()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        // The carried line is a starting point: editing it must produce one send of the edited
+        // text, not a second message of the sentence the map wrote.
+        coVerify(exactly = 1) { repo.send("m1", own, any()) }
+        coVerify(exactly = 0) { repo.send("m1", carried, any()) }
+        assertEquals("", vm.uiState.value.draft)
+    }
 }
