@@ -12,8 +12,8 @@ import app.befos.domain.model.OnboardingData
 import app.befos.domain.model.Profile
 import app.befos.domain.model.ProfileUpdateData
 import app.befos.domain.model.PublicProfile
-import app.befos.domain.model.Question
 import app.befos.domain.model.Recommendation
+import app.befos.domain.model.TestCatalog
 import app.befos.domain.model.TestProgress
 import app.befos.domain.model.Universe
 import kotlinx.coroutines.flow.Flow
@@ -50,7 +50,7 @@ interface ProfileRepository {
 }
 
 interface TestRepository {
-    suspend fun questions(): ApiResult<List<Question>>
+    suspend fun catalog(): ApiResult<TestCatalog>
     suspend fun progress(): ApiResult<TestProgress>
     suspend fun submitAnswers(answers: Map<Int, Int>): ApiResult<TestProgress>
     suspend fun complete(): ApiResult<List<app.befos.domain.model.CategoryScore>>

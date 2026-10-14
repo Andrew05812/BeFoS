@@ -143,12 +143,29 @@ class QuestionOut(ORMModel):
     text: str
     position: int
     options: list[OptionOut] = []
+    # The option this person's stored answer stands on, or null where the server holds none.
+    # Without it a test left halfway reopens as question one with every card unmarked: the
+    # person cannot see what they answered, cannot change one answer, and has to re-tap the
+    # questions they already passed to reach the one they had not.
+    selected_option_id: int | None = None
+
+
+class CategoryProgressOut(BaseModel):
+    # One category of the catalogue with its Russian label and how much of it the person
+    # answered. The screen needs both halves: the label to name the section, and the pair of
+    # numbers to say what is still missing — a category nobody answered has to stay in this
+    # list with ``answered=0``, because hiding it is how an empty band becomes invisible.
+    key: str
+    label: str
+    total: int
+    answered: int
 
 
 class TestListResponse(BaseModel):
     questions: list[QuestionOut]
     total: int
     answered: int
+    categories: list[CategoryProgressOut]
 
 
 class AnswerIn(BaseModel):

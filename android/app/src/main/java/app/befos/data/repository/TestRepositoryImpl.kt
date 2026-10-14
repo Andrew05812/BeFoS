@@ -7,14 +7,19 @@ import app.befos.data.model.AnswerDto
 import app.befos.data.model.AnswersRequest
 import app.befos.data.remote.ApiService
 import app.befos.domain.model.CategoryScore
-import app.befos.domain.model.Question
+import app.befos.domain.model.TestCatalog
 import app.befos.domain.model.TestProgress
 import app.befos.domain.repository.TestRepository
 
 class TestRepositoryImpl(private val api: ApiService) : TestRepository {
 
-    override suspend fun questions(): ApiResult<List<Question>> =
-        api.getTests().map { dto -> dto.questions.map { it.toDomain() } }
+    override suspend fun catalog(): ApiResult<TestCatalog> =
+        api.getTests().map { dto ->
+            TestCatalog(
+                questions = dto.questions.map { it.toDomain() },
+                categories = dto.categories.map { it.toDomain() },
+            )
+        }
 
     override suspend fun progress(): ApiResult<TestProgress> =
         api.getProgress().map { it.toDomain() }

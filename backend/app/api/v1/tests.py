@@ -26,13 +26,25 @@ async def list_tests(
 ):
     service = TestService(session)
     questions = await service.list_questions()
-    # The response carries the whole catalog, so its size is counted from the rows it sends
-    # rather than asked of the database next to the read that just listed them.
-    answered = await service.count_answered(current_user.id)
+    # One read of the person's own answers carries everything this response needs beyond the
+    # catalogue itself: how many answers there are, which option of each question to mark, and
+    # how far each category has come. Counting them was a separate query and still left the
+    # screen unable to say what the person had already answered.
+    choices = await service.answer_choices(current_user.id)
     return TestListResponse(
-        questions=[QuestionOut.model_validate(q) for q in questions],
+        questions=[
+            QuestionOut.model_validate(q).model_copy(
+                update={"selected_option_id": choices.get(q.id)}
+            )
+            for q in questions
+        ],
+        # The response carries the whole catalog, so its size is counted from the rows it sends
+        # rather than asked of the database next to the read that just listed them.
         total=len(questions),
-        answered=answered,
+        # Every stored row counts — the same set ``GET /tests/progress`` counts, because the two
+        # places a person can compare their own progress have to agree about its size.
+        answered=len(choices),
+        categories=service.category_summary(questions, choices),
     )
 
 

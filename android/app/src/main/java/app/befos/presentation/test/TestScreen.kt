@@ -36,17 +36,23 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.befos.core.designsystem.AppButton
 import app.befos.core.designsystem.AppCard
+import app.befos.core.designsystem.Ember
+import app.befos.core.designsystem.EmberDeep
 import app.befos.core.designsystem.EmberGradient
 import app.befos.core.designsystem.ErrorState
 import app.befos.core.designsystem.InlineNotice
 import app.befos.core.designsystem.Motion
 import app.befos.core.designsystem.Spacing
 import app.befos.core.designsystem.TestSkeleton
+import app.befos.core.designsystem.answersWord
 import app.befos.core.designsystem.rememberHaptics
+import app.befos.core.designsystem.tabularDigits
 import app.befos.core.di.beFosViewModel
 import app.befos.presentation.common.CategoryScoreList
 
@@ -137,6 +143,49 @@ private fun TestQuestionView(state: TestUiState, vm: TestViewModel) {
             )
         }
 
+        // Which part of the test this question belongs to, and how much of that part is filled:
+        // the whole-test counter above says how far the person has walked, not what is still
+        // empty, and a person who answered four questions of one band sees 19% either way.
+        state.currentCategory?.let { band ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    band.label.uppercase(),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = EmberDeep,
+                )
+                Text(
+                    "${band.answered} из ${band.total}",
+                    style = MaterialTheme.typography.labelMedium.tabularDigits(),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+
+        // A test that came back with answers says so: without this line the person cannot tell
+        // a continued test from one that forgot everything, and the number under the counter is
+        // just a position.
+        if (state.storedOnArrival > 0 && state.result == null) {
+            Text(
+                "Продолжаем: на сервере уже ${state.storedOnArrival} ${answersWord(state.storedOnArrival)}.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        state.pendingNotice?.let { notice ->
+            // The tap stays on screen while its write is unconfirmed, so the notice is about the
+            // record, not about the choice — and «Повторить» re-posts the taps that did not land.
+            InlineNotice(
+                text = notice,
+                actionLabel = "Повторить",
+                onAction = vm::retryRecords,
+            )
+        }
+
         AnimatedContent(
             targetState = question.id,
             transitionSpec = {
@@ -155,10 +204,19 @@ private fun TestQuestionView(state: TestUiState, vm: TestViewModel) {
                 )
                 Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
                     target.options.forEachIndexed { i, option ->
+                        // The live choice, not only the one the catalogue came back with: going back
+                        // to a question tapped a minute ago must show it answered like any other.
+                        val chosen = option.id == state.answers[target.id]
                         AppCard(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .heightIn(min = 64.dp),
+                                .heightIn(min = 64.dp)
+                                .then(
+                                    if (chosen) Modifier.border(
+                                        1.5.dp, Ember.copy(alpha = 0.55f), MaterialTheme.shapes.medium
+                                    ) else Modifier
+                                )
+                                .semantics { selected = chosen },
                             onClick = {
                                 haptics.light()
                                 vm.select(option.id)
@@ -173,20 +231,28 @@ private fun TestQuestionView(state: TestUiState, vm: TestViewModel) {
                                     modifier = Modifier
                                         .size(32.dp)
                                         .clip(CircleShape)
-                                        .background(MaterialTheme.colorScheme.surfaceVariant)
-                                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape),
+                                        .background(
+                                            if (chosen) Ember
+                                            else MaterialTheme.colorScheme.surfaceVariant
+                                        )
+                                        .border(
+                                            1.dp,
+                                            if (chosen) Ember else MaterialTheme.colorScheme.outlineVariant,
+                                            CircleShape,
+                                        ),
                                     contentAlignment = Alignment.Center,
                                 ) {
                                     Text(
                                         ('А' + i).toString(),
                                         style = MaterialTheme.typography.labelLarge,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        color = if (chosen) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                 }
                                 Text(
                                     option.text,
                                     style = MaterialTheme.typography.bodyLarge,
-                                    color = MaterialTheme.colorScheme.onSurface,
+                                    fontWeight = if (chosen) FontWeight.SemiBold else FontWeight.Normal,
+                                    color = if (chosen) EmberDeep else MaterialTheme.colorScheme.onSurface,
                                 )
                             }
                         }

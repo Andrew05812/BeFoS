@@ -90,6 +90,19 @@ class TestRepository:
         stmt = select(func.count(TestAnswer.id)).where(TestAnswer.user_id == user_id)
         return int((await self.session.execute(stmt)).scalar_one())
 
+    async def list_answer_choices(self, user_id: uuid.UUID) -> dict[int, int]:
+        """Which option this person stands on per question, in one read of their own rows.
+
+        A pair of columns, not the ORM rows ``list_answers`` carries: the catalogue route needs
+        to mark the cards it is already sending, and loading every answer's question and option
+        for that would read the catalogue a second time to look up what it is printing.
+        """
+        stmt = select(TestAnswer.question_id, TestAnswer.option_id).where(
+            TestAnswer.user_id == user_id
+        )
+        rows = await self.session.execute(stmt)
+        return {int(question_id): int(option_id) for question_id, option_id in rows}
+
     async def get_compatibility_profile(self, user_id: uuid.UUID) -> CompatibilityProfile | None:
         stmt = select(CompatibilityProfile).where(CompatibilityProfile.user_id == user_id)
         return (await self.session.execute(stmt)).scalar_one_or_none()

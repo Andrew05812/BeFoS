@@ -138,6 +138,17 @@ fun compatibilityLevel(percent: Int): String = when (percent.coerceIn(0, 100)) {
     else -> "Низкая"
 }
 
+/**
+ * «1 ответ / 2 ответа / 5 ответов». The counts this word follows come from the server, so the
+ * screen cannot pick the ending by eye — and two screens now print the same saved-answer count.
+ */
+fun answersWord(count: Int): String = when {
+    count % 100 in 11..14 -> "ответов"
+    count % 10 == 1 -> "ответ"
+    count % 10 in 2..4 -> "ответа"
+    else -> "ответов"
+}
+
 private fun lerp(a: Color, b: Color, t: Float): Color {
     val f = t.coerceIn(0f, 1f)
     return Color(
