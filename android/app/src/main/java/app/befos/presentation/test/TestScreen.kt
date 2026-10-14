@@ -50,18 +50,11 @@ import app.befos.core.designsystem.InlineNotice
 import app.befos.core.designsystem.Motion
 import app.befos.core.designsystem.Spacing
 import app.befos.core.designsystem.TestSkeleton
+import app.befos.core.designsystem.answersWord
 import app.befos.core.designsystem.rememberHaptics
 import app.befos.core.designsystem.tabularDigits
 import app.befos.core.di.beFosViewModel
 import app.befos.presentation.common.CategoryScoreList
-
-/** «1 ответ / 2 ответа / 5 ответов»: the count comes from the server, so the word has to follow it. */
-private fun answersWord(count: Int): String = when {
-    count % 100 in 11..14 -> "ответов"
-    count % 10 == 1 -> "ответ"
-    count % 10 in 2..4 -> "ответа"
-    else -> "ответов"
-}
 
 @Composable
 fun TestScreen(onFinished: () -> Unit) {

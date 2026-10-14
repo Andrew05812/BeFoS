@@ -50,6 +50,7 @@ import app.befos.core.designsystem.ProfileSkeleton
 import app.befos.core.designsystem.Motion
 import app.befos.core.designsystem.SectionHeader
 import app.befos.core.designsystem.Spacing
+import app.befos.core.designsystem.answersWord
 import app.befos.core.designsystem.tabularDigits
 import app.befos.core.di.beFosViewModel
 import app.befos.presentation.common.goalLabel
@@ -104,6 +105,8 @@ fun ProfileScreen(
 
                 TestProgressCard(
                     percent = state.testProgress?.percent ?: 0,
+                    answered = state.testProgress?.answered ?: 0,
+                    total = state.testProgress?.total ?: 0,
                     completed = state.testProgress?.completed ?: false,
                     failed = state.testProgress == null && state.testProgressFailed,
                     onTest = onTest,
@@ -190,7 +193,15 @@ private fun ProfileHero(photoUrl: String?, title: String, city: String, goal: St
 }
 
 @Composable
-private fun TestProgressCard(percent: Int, completed: Boolean, failed: Boolean, onTest: () -> Unit) {
+private fun TestProgressCard(
+    percent: Int,
+    answered: Int,
+    total: Int,
+    completed: Boolean,
+    failed: Boolean,
+    onTest: () -> Unit,
+) {
+    val lines = testProgressCopy(answered = answered, total = total, completed = completed, failed = failed)
     var visible by remember { androidx.compose.runtime.mutableStateOf(false) }
     LaunchedEffect(Unit) { visible = true }
     val fill by animateFloatAsState(
@@ -207,11 +218,7 @@ private fun TestProgressCard(percent: Int, completed: Boolean, failed: Boolean, 
                 Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
                     Text("ТЕСТ СОВМЕСТИМОСТИ", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(
-                        when {
-                            failed -> "Прогресс теста не загрузился"
-                            completed -> "Тест пройден"
-                            else -> "Тест не пройден"
-                        },
+                        lines.title,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                     )
@@ -248,16 +255,12 @@ private fun TestProgressCard(percent: Int, completed: Boolean, failed: Boolean, 
                 )
             }
             Text(
-                when {
-                    failed -> "Данные теста не загрузились — попробуйте обновить."
-                    completed -> "Вы можете пройти тест заново, чтобы уточнить ответы."
-                    else -> "Пройдите тест — без него совместимость считается неточно."
-                },
+                lines.body,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             AppButton(
-                text = if (completed) "Пройти заново" else "Пройти тест",
+                text = lines.button,
                 onClick = onTest,
                 variant = if (completed) AppButtonVariant.Tonal else AppButtonVariant.Filled,
                 modifier = Modifier.fillMaxWidth(),
@@ -265,3 +268,36 @@ private fun TestProgressCard(percent: Int, completed: Boolean, failed: Boolean, 
         }
     }
 }
+
+/** Three lines the test card prints, one per state the person can be in. */
+internal data class TestProgressCopy(val title: String, val body: String, val button: String)
+
+/**
+ * Answers on the server are a different case from no answers: the test screen opens on the first
+ * unmarked question, so the entry point has to offer what it actually leads to. The counts quoted
+ * here are the ones `/tests/progress` returned — the card does not count anything itself.
+ */
+internal fun testProgressCopy(answered: Int, total: Int, completed: Boolean, failed: Boolean): TestProgressCopy =
+    when {
+        failed -> TestProgressCopy(
+            title = "Прогресс теста не загрузился",
+            body = "Данные теста не загрузились — попробуйте обновить.",
+            button = "Пройти тест",
+        )
+        completed -> TestProgressCopy(
+            title = "Тест пройден",
+            body = "Вы можете пройти тест заново, чтобы уточнить ответы.",
+            button = "Пройти заново",
+        )
+        answered > 0 -> TestProgressCopy(
+            title = "Тест начат",
+            body = "На сервере ${answered} ${answersWord(answered)} из ${total} — " +
+                "откроется с вопроса, где вы остановились.",
+            button = "Продолжить тест",
+        )
+        else -> TestProgressCopy(
+            title = "Тест не пройден",
+            body = "Пройдите тест — без него совместимость считается неточно.",
+            button = "Пройти тест",
+        )
+    }
