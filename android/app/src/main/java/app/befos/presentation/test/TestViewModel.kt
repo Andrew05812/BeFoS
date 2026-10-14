@@ -6,6 +6,7 @@ import app.befos.core.network.ApiResult
 import app.befos.domain.model.CategoryProgress
 import app.befos.domain.model.CategoryScore
 import app.befos.domain.model.Question
+import app.befos.domain.model.TestProgress
 import app.befos.domain.repository.TestRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -33,9 +34,14 @@ data class TestUiState(
     // How many answers the person came back with, so the screen can say it is continuing rather
     // than starting, and can say it without counting the marks the person cannot see.
     val storedOnArrival: Int = 0,
-    // The band the person was sent in for, kept after the catalogue arrives so the screen can name
-    // the reason it did not open on question one. Null when the test was opened on its own.
-    val openedSection: String? = null,
+    // The band the person was sent in for, as the catalogue counted it at arrival. Kept as its own
+    // numbers rather than read back out of `categories`, because the line explaining where the
+    // screen opened is about the arrival: rewritten mid-walk it would become a second counter that
+    // disagrees with the first by design. Null when the test was opened on its own.
+    val openedBand: CategoryProgress? = null,
+    // The sections a refused scoring attempt was short of, in the counts the server itself gave
+    // back. Empty while the screen has nothing to send the person back into.
+    val openSections: List<CategoryProgress> = emptyList(),
     val submitting: Boolean = false,
     val result: List<CategoryScore>? = null,
     val error: String? = null,
@@ -44,8 +50,6 @@ data class TestUiState(
     val current: Question? get() = questions.getOrNull(index)
     val currentCategory: CategoryProgress?
         get() = current?.let { question -> categories.firstOrNull { it.key == question.category } }
-    val openedCategory: CategoryProgress?
-        get() = openedSection?.let { key -> categories.firstOrNull { it.key == key } }
     val progress: Float get() = if (questions.isEmpty()) 0f else (index + 1) / questions.size.toFloat()
 
     // Driven by the taps that are still waiting, not by the flag a failed write left behind: a
@@ -74,6 +78,17 @@ internal fun startIndex(questions: List<Question>, section: String?): Int {
     return ofSection.firstOrNull { (_, q) -> q.selectedOptionId == null }?.index
         ?: ofSection.first().index
 }
+
+/**
+ * The section counts the server just confirmed, in place of the ones the screen printed until now.
+ *
+ * Every write is answered with the counts of the whole questionnaire, so the line next to the
+ * section label can move on the tap that landed instead of waiting for a reload. A response from
+ * before the sections were reported carries none, and then the arrived counts stay — the line would
+ * otherwise disappear under the person's own answers.
+ */
+private fun TestUiState.withCounts(progress: TestProgress): TestUiState =
+    if (progress.categories.isEmpty()) this else copy(categories = progress.categories)
 
 class TestViewModel(
     private val testRepository: TestRepository,
@@ -107,7 +122,8 @@ class TestViewModel(
                             answers = stored,
                             storedOnArrival = stored.size,
                             index = resumeAt,
-                            openedSection = startSection,
+                            openedBand = result.data.categories.firstOrNull { band -> band.key == startSection },
+                            openSections = emptyList(),
                             unsaved = emptyMap(),
                             saveError = null,
                         )
@@ -178,8 +194,10 @@ class TestViewModel(
         val pending = _uiState.value.unsaved
         if (pending.isEmpty()) return
         viewModelScope.launch {
-            when (testRepository.submitAnswers(pending)) {
-                is ApiResult.Success -> _uiState.update { it.copy(unsaved = emptyMap(), saveError = null) }
+            when (val written = testRepository.submitAnswers(pending)) {
+                is ApiResult.Success -> _uiState.update { state ->
+                    state.copy(unsaved = emptyMap(), saveError = null).withCounts(written.data)
+                }
                 is ApiResult.Error -> _uiState.update { it.copy(saveError = NOT_SAVED) }
             }
         }
@@ -187,12 +205,17 @@ class TestViewModel(
 
     private fun record(questionId: Int, optionId: Int) {
         viewModelScope.launch {
-            when (testRepository.submitAnswers(mapOf(questionId to optionId))) {
+            when (val written = testRepository.submitAnswers(mapOf(questionId to optionId))) {
                 is ApiResult.Success -> _uiState.update { state ->
                     // Only this tap leaves the pending set. A newer tap on the same question stays,
                     // because the server has now been told about an older choice of it.
                     val confirmed = state.unsaved[questionId] == optionId
-                    state.copy(unsaved = if (confirmed) state.unsaved - questionId else state.unsaved)
+                    state.copy(
+                        unsaved = if (confirmed) state.unsaved - questionId else state.unsaved,
+                        // The question is marked either way, so the section count the route returns
+                        // is the person's own work either way — and it arrives with the write, so
+                        // the line under the counter moves on the tap instead of on the next reload.
+                    ).withCounts(written.data)
                 }
                 is ApiResult.Error -> _uiState.update { it.copy(saveError = NOT_SAVED) }
             }
@@ -200,20 +223,53 @@ class TestViewModel(
     }
 
     private fun finish(answers: Map<Int, Int>) {
-        _uiState.update { it.copy(submitting = true, error = null) }
+        _uiState.update { it.copy(submitting = true, error = null, openSections = emptyList()) }
         viewModelScope.launch {
             when (val submitted = testRepository.submitAnswers(answers)) {
                 is ApiResult.Error -> {
                     _uiState.update { it.copy(submitting = false, error = submitted.message) }
                     return@launch
                 }
-                // The whole map went through, so nothing the person tapped is waiting anymore.
-                is ApiResult.Success -> _uiState.update { it.copy(unsaved = emptyMap(), saveError = null) }
+                // The whole map went through, so nothing the person tapped is waiting anymore, and
+                // the counts this response carries are the ones the refusal below is read against.
+                is ApiResult.Success -> _uiState.update { state ->
+                    state.copy(unsaved = emptyMap(), saveError = null).withCounts(submitted.data)
+                }
             }
             when (val completed = testRepository.complete()) {
                 is ApiResult.Success -> _uiState.update { it.copy(submitting = false, result = completed.data) }
-                is ApiResult.Error -> _uiState.update { it.copy(submitting = false, error = completed.message) }
+                is ApiResult.Error -> _uiState.update { state ->
+                    // The route refuses to score a questionnaire it still counts short, and the
+                    // sections it is short in are the ones the writes just named. Where they are,
+                    // the person gets those numbers and a way into the section rather than a
+                    // sentence to retry; where they are not, the refusal is the server's own reason
+                    // and stays its own — an invitation built on counts that say «finished» would
+                    // describe a failure the client cannot see.
+                    val open = state.categories.filter { it.answered < it.total }
+                    state.copy(
+                        submitting = false,
+                        openSections = open,
+                        error = if (open.isEmpty()) completed.message else null,
+                    )
+                }
             }
+        }
+    }
+
+    /**
+     * The person took the invitation: the screen moves to the first card of the section the server
+     * counted short, and the invitation goes away with the move — its numbers are the arrival's, and
+     * leaving them on screen while the person answers a different section would keep a count of a
+     * moment that has passed.
+     */
+    fun goToFirstOpenSection() {
+        val band = _uiState.value.openSections.firstOrNull() ?: return
+        _uiState.update {
+            it.copy(
+                index = startIndex(it.questions, band.key),
+                openSections = emptyList(),
+                error = null,
+            )
         }
     }
 }

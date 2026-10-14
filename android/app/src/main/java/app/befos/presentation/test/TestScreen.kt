@@ -61,6 +61,7 @@ import app.befos.core.designsystem.answersWord
 import app.befos.core.designsystem.rememberHaptics
 import app.befos.core.designsystem.tabularDigits
 import app.befos.core.di.beFosViewModel
+import app.befos.domain.model.CategoryProgress
 import app.befos.domain.model.Option
 import app.befos.presentation.common.CategoryScoreList
 
@@ -175,11 +176,27 @@ private fun TestQuestionView(state: TestUiState, vm: TestViewModel) {
 
         // Opened from a compatibility band rather than from the profile: the screen has to say why
         // it is not on question one, or the person reads a mid-test position as a lost place.
-        state.openedCategory?.let { band ->
+        state.openedBand?.let { band ->
             Text(
                 sectionOpeningWord(band.label, band.answered, band.total),
                 style = MaterialTheme.typography.bodySmall,
                 color = EmberDeep,
+            )
+        }
+
+        // A scoring attempt the server refused because sections are still empty is not a failure to
+        // retry: it is the next thing to do. The counts the person's own writes came back with name
+        // both the gap and the section to walk into.
+        state.openSections.firstOrNull()?.let { first ->
+            InlineNotice(
+                text = unfinishedWord(
+                    answered = state.categories.sumOf { it.answered },
+                    total = state.categories.sumOf { it.total },
+                    open = state.openSections,
+                ),
+                actionLabel = continueSectionWord(first),
+                onAction = vm::goToFirstOpenSection,
+                isError = false,
             )
         }
 
@@ -293,13 +310,16 @@ private fun TestQuestionView(state: TestUiState, vm: TestViewModel) {
             }
         }
 
-        if (question.isScale && question.options.size > 1) {
-            // A released thumb does not page on its own, so the move is asked for here — and the
-            // ask is dimmed while the question holds no answer, because there is nothing to leave with.
+        // Moving on is asked for, not assumed: a released thumb can still be a level about to be
+        // changed, and a card that already holds an answer can be read again without being chosen
+        // again. The ask is dimmed while the question holds nothing, because there is nothing to
+        // leave with.
+        val holdsAnswer = state.answers[question.id] != null
+        if (holdsAnswer || (question.isScale && question.options.size > 1)) {
             AppButton(
                 text = if (state.index == state.questions.lastIndex) "Завершить" else "Далее",
                 onClick = vm::next,
-                enabled = state.answers[question.id] != null,
+                enabled = holdsAnswer,
                 loading = state.submitting,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -382,6 +402,21 @@ internal fun sectionOpeningWord(label: String, answered: Int, total: Int): Strin
         "Открыли раздел «$label»: у вас $answered ${answersWord(answered)} из $total. " +
             "Продолжаем с первой карточки раздела без ответа."
 }
+
+/**
+ * The line a refused scoring attempt prints. The route answers only on a full set and its refusal
+ * carries a bare count, while the writes that just landed carried the sections — so the sentence is
+ * built from those: how far the person has come, and which sections the server still counts short.
+ * It promises no partner and no percentage, because both would be units the response never gave.
+ */
+internal fun unfinishedWord(answered: Int, total: Int, open: List<CategoryProgress>): String {
+    val sections = open.joinToString(", ") { "${it.label} — ${it.answered} из ${it.total}" }
+    return "Профиля ещё нет: у вас $answered ${answersWord(answered)} из $total. " +
+        "Без ответа остаётся: $sections."
+}
+
+/** What the button next to that line asks for: the section the person is being sent into. */
+internal fun continueSectionWord(band: CategoryProgress): String = "Продолжить «${band.label}»"
 
 /**
  * One gradation, set with a thumb instead of tapped as cards.
