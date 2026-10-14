@@ -81,12 +81,15 @@ import java.util.Locale
 @Composable
 fun ChatScreen(
     matchId: String,
+    initialDraft: String?,
     onBack: () -> Unit,
     onOpenCompatibility: () -> Unit,
     onOpenRecommendations: () -> Unit,
     onOpenPartnerCard: () -> Unit,
 ) {
-    val vm: ChatViewModel = beFosViewModel { ChatViewModel(it.chatRepository, it.matchRepository, matchId) }
+    val vm: ChatViewModel = beFosViewModel {
+        ChatViewModel(it.chatRepository, it.matchRepository, matchId, initialDraft)
+    }
     val state by vm.uiState.collectAsState()
     val listState = rememberLazyListState()
     // Following every incoming message would yank the reader back down while they are

@@ -29,6 +29,10 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -84,7 +88,12 @@ import app.befos.domain.model.UniverseLayer
 import app.befos.domain.model.UniverseNode
 
 @Composable
-fun UniverseScreen(matchId: String, onBack: () -> Unit) {
+fun UniverseScreen(
+    matchId: String,
+    onBack: () -> Unit,
+    onAskInChat: (String) -> Unit,
+    onOpenRecommendations: () -> Unit,
+) {
     val vm: UniverseViewModel = beFosViewModel {
         UniverseViewModel(it.matchRepository, it.profileRepository, matchId)
     }
@@ -92,7 +101,20 @@ fun UniverseScreen(matchId: String, onBack: () -> Unit) {
     val context = LocalContext.current
 
     Scaffold(
-        topBar = { AppTopBar(title = "Карта пары", onBack = onBack) },
+        topBar = {
+            AppTopBar(
+                title = "Карта пары",
+                onBack = onBack,
+                actions = {
+                    // The map reads the pair's answers; the ideas are what the two of them can do
+                    // about it. The same control the chat header already offers, so the pair does
+                    // not have to leave the reading they are in to reach it.
+                    IconButton(onClick = onOpenRecommendations) {
+                        Icon(Icons.Filled.AutoAwesome, contentDescription = "Идеи для встречи")
+                    }
+                },
+            )
+        },
     ) { padding ->
         when {
             state.loading -> CompatibilitySkeleton(Modifier.padding(padding))
@@ -118,6 +140,7 @@ fun UniverseScreen(matchId: String, onBack: () -> Unit) {
                 onFilter = vm::setFilter,
                 onMode = vm::setMode,
                 onShare = { text -> shareText(context, STORY_TITLE, text) },
+                onAskInChat = onAskInChat,
             )
         }
     }
@@ -131,6 +154,7 @@ private fun UniverseContent(
     onFilter: (Connection?) -> Unit,
     onMode: (UniverseMode) -> Unit,
     onShare: (String) -> Unit,
+    onAskInChat: (String) -> Unit,
 ) {
     val universe = state.data
     Column(
@@ -157,7 +181,7 @@ private fun UniverseContent(
         // One document, three readings: switching never refetches and never recomputes, because all
         // three branches below read the same `universe` the map was drawn from.
         when (state.mode) {
-            UniverseMode.Map -> UniverseMapView(state, onSelect, onFilter)
+            UniverseMode.Map -> UniverseMapView(state, onSelect, onFilter, onAskInChat)
             UniverseMode.Analysis -> UniverseAnalysisView(state, onSelect)
             UniverseMode.Story -> UniverseStoryView(state, onShare)
         }
@@ -187,6 +211,7 @@ private fun UniverseMapView(
     state: UniverseUiState,
     onSelect: (String?) -> Unit,
     onFilter: (Connection?) -> Unit,
+    onAskInChat: (String) -> Unit,
 ) {
     val universe = state.data ?: return
     Column(verticalArrangement = Arrangement.spacedBy(Spacing.section)) {
@@ -306,11 +331,19 @@ private fun UniverseMapView(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                                 selection.node.questions.forEach { question ->
-                                    Text(
-                                        question,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
+                                    Column {
+                                        Text(
+                                            question,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                        // The map can name the axis the two answers disagree on; only
+                                        // the pair can settle it. The question goes to the composer as
+                                        // a draft — the app does not speak for either of them.
+                                        TextButton(onClick = { onAskInChat(chatDraftFor(question)) }) {
+                                            Text("Спросить в чате")
+                                        }
+                                    }
                                 }
                             }
                         }

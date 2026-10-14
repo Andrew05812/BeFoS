@@ -1,5 +1,6 @@
 package app.befos.presentation.navigation
 
+import android.net.Uri
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -150,11 +151,21 @@ fun BeFosNavHost(navController: NavHostController) {
 
         composable(
             route = Routes.CHAT,
-            arguments = listOf(navArgument(Routes.CHAT_ARG) { type = NavType.StringType }),
+            arguments = listOf(
+                navArgument(Routes.CHAT_ARG) { type = NavType.StringType },
+                // The line a tap on the map left for the composer. Nullable with no default so a
+                // route built without one opens an empty field, exactly as it did before.
+                navArgument(Routes.DRAFT_ARG) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+            ),
         ) { entry ->
             val matchId = entry.arguments?.getString(Routes.CHAT_ARG).orEmpty()
             ChatScreen(
                 matchId = matchId,
+                initialDraft = entry.arguments?.getString(Routes.DRAFT_ARG),
                 onBack = { navController.popBackStack() },
                 onOpenCompatibility = { navController.navigate(Routes.compatibility(matchId)) { launchSingleTop = true } },
                 onOpenRecommendations = { navController.navigate(Routes.recommendations(matchId)) { launchSingleTop = true } },
@@ -194,7 +205,19 @@ fun BeFosNavHost(navController: NavHostController) {
             arguments = listOf(navArgument(Routes.CHAT_ARG) { type = NavType.StringType }),
         ) { entry ->
             val matchId = entry.arguments?.getString(Routes.CHAT_ARG).orEmpty()
-            UniverseScreen(matchId = matchId, onBack = { navController.popBackStack() })
+            UniverseScreen(
+                matchId = matchId,
+                onBack = { navController.popBackStack() },
+                // The draft travels as text, encoded: it is a whole sentence, and a route is a URI.
+                onAskInChat = { draft ->
+                    navController.navigate(Routes.chat(matchId, Uri.encode(draft))) {
+                        launchSingleTop = true
+                    }
+                },
+                onOpenRecommendations = {
+                    navController.navigate(Routes.recommendations(matchId)) { launchSingleTop = true }
+                },
+            )
         }
 
         composable(
