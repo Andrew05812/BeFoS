@@ -113,6 +113,7 @@ fun UniverseDto.toDomain() = Universe(
     aUserId = aUserId,
     bUserId = bUserId,
     layers = layers.map { it.toDomain() },
+    story = story,
 )
 
 fun DiscoveryCardDto.toDomain() = DiscoveryCard(
