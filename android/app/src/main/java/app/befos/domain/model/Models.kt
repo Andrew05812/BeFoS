@@ -94,6 +94,9 @@ data class UniverseNode(
     val hasData: Boolean,
     val connection: Connection,
     val evidence: String,
+    val confidence: Int,
+    val suggestion: String,
+    val questions: List<String>,
 )
 
 data class UniverseLayer(
@@ -103,6 +106,7 @@ data class UniverseLayer(
     val weight: Double,
     val hasData: Boolean,
     val coverage: Double,
+    val confidence: Int,
     val nodes: List<UniverseNode>,
 )
 

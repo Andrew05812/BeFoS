@@ -1,8 +1,15 @@
 package app.befos.presentation.universe
 
 import android.provider.Settings
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -20,17 +27,22 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -171,37 +183,92 @@ private fun UniverseContent(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    Text(
+                        "Ряд из четырёх черт в раскрытом узле — насколько уверенно ответ сидит в " +
+                            "своей полосе: пустой ряд значит «ещё шаг, и это читается другой " +
+                            "связью», полный — «иначе этот ответ не читается». Это расстояние до " +
+                            "границы полосы, а не вероятность того, как сложатся отношения.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
         }
 
-        state.selected()?.let { selection ->
-            Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
-                SectionHeader("Выбранный узел")
-                AppCard(modifier = Modifier.fillMaxWidth()) {
-                    Column(
-                        modifier = Modifier.padding(Spacing.xl),
-                        verticalArrangement = Arrangement.spacedBy(Spacing.sm),
-                    ) {
-                        Text(
-                            selection.node.label,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        Text(
-                            "${selection.layer.label} · ${connectionWord(selection.node.connection)}",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Text(
-                            sideLine(selection.node, selection.layer, state.aName, state.bName),
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                        Text(
-                            selection.node.evidence,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+        val selected = state.selected()
+        val reducedMotion = rememberReducedMotion()
+        // A panel that is animating away has already lost its node, so it keeps showing the node it
+        // was opened for until it has finished shrinking.
+        var revealed by remember { mutableStateOf(selected) }
+        LaunchedEffect(state.selectedKey) { state.selected()?.let { revealed = it } }
+        AnimatedVisibility(
+            visible = selected != null,
+            enter = revealIn(reducedMotion),
+            exit = revealOut(reducedMotion),
+        ) {
+            revealed?.let { selection ->
+                // Tapping a second node never closes the panel, so nothing above animates: the
+                // content fades in on its own key instead.
+                val appear = remember(selection.node.key, reducedMotion) {
+                    Animatable(if (reducedMotion) 1f else 0f)
+                }
+                LaunchedEffect(selection.node.key, reducedMotion) {
+                    if (!reducedMotion && appear.value < 1f) appear.animateTo(1f, tween(Motion.Base))
+                }
+                Column(
+                    modifier = Modifier.alpha(appear.value),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.md),
+                ) {
+                    SectionHeader("Выбранный узел")
+                    AppCard(modifier = Modifier.fillMaxWidth()) {
+                        Column(
+                            modifier = Modifier.padding(Spacing.xl),
+                            verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    selection.node.label,
+                                    modifier = Modifier.weight(1f),
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                                // The canvas has no back gesture of its own, so the panel a tap
+                                // opened has to name the control that closes it.
+                                TextButton(onClick = { onSelect(null) }) { Text("Свернуть") }
+                            }
+                            Text(
+                                "${selection.layer.label} · ${connectionWord(selection.node.connection)}",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Text(
+                                sideLine(selection.node, selection.layer, state.aName, state.bName),
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            AssuranceRow(selection.node)
+                            Text(
+                                selection.node.evidence,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            if (selection.node.suggestion.isNotBlank()) {
+                                Text(selection.node.suggestion, style = MaterialTheme.typography.bodyMedium)
+                            }
+                            if (selection.node.questions.isNotEmpty()) {
+                                Text(
+                                    "ЧЕМ ЭТО ИЗМЕРЕНО",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                selection.node.questions.forEach { question ->
+                                    Text(
+                                        question,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -438,6 +505,7 @@ private fun NodeRow(
     expanded: Boolean,
     onClick: () -> Unit,
 ) {
+    val reducedMotion = rememberReducedMotion()
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -445,7 +513,10 @@ private fun NodeRow(
             .semantics {
                 contentDescription = "${node.label}. " +
                     "${sideLine(node, layer, state.aName, state.bName)}. " +
-                    "${connectionWord(node.connection)}. ${node.evidence}"
+                    "${connectionWord(node.connection)}. ${node.evidence}. " +
+                    "${assuranceWord(node.confidence, node.connection)}." +
+                    node.suggestion.takeIf { it.isNotBlank() }?.let { " $it." }.orEmpty() +
+                    node.questions.firstOrNull()?.let { " Измерено вопросом: $it." }.orEmpty()
             },
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
@@ -459,13 +530,61 @@ private fun NodeRow(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        if (expanded) {
-            Text(
-                node.evidence,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+        AnimatedVisibility(
+            visible = expanded,
+            enter = revealIn(reducedMotion),
+            exit = revealOut(reducedMotion),
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    node.evidence,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                AssuranceRow(node)
+                if (node.suggestion.isNotBlank()) {
+                    Text(
+                        node.suggestion,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
         }
+    }
+}
+
+/**
+ * The node's own assurance, drawn as four steps: each step is a quarter of the width of the band
+ * that decided this connection, so a half-filled row says «half of this band's width still
+ * separates the answer from the next band». Nothing here is a probability of the relationship.
+ */
+@Composable
+private fun AssuranceRow(node: UniverseNode) {
+    val ink = MaterialTheme.colorScheme.onSurfaceVariant
+    val filled = assuranceSteps(node.confidence)
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+    ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+            repeat(ASSURANCE_STEPS) { step ->
+                Box(
+                    modifier = Modifier
+                        .size(width = 10.dp, height = 4.dp)
+                        .background(
+                            if (step < filled) ink else ink.copy(alpha = 0.22f),
+                            RoundedCornerShape(2.dp),
+                        ),
+                )
+            }
+        }
+        Text(
+            assuranceWord(node.confidence, node.connection),
+            style = MaterialTheme.typography.labelSmall,
+            color = ink,
+        )
     }
 }
 
@@ -478,6 +597,35 @@ internal fun connectionWord(connection: Connection): String = when (connection) 
     Connection.COMPLEMENTARITY -> "дополнение"
     Connection.DISCUSSION -> "расхождение"
     Connection.UNKNOWN -> "нет данных"
+}
+
+/** How many quarters of its own band's width still separate this answer from the next band. */
+internal const val ASSURANCE_STEPS = 4
+
+/**
+ * The node's assurance in words. `confidence` is a distance inside the band that decided this
+ * connection, not a probability of anything, so the sentence names the distance and never a chance.
+ * Terse on purpose: the same row carries four marks that say the same thing, and the sentence under
+ * the map is where the scale gets explained — a per-node paragraph would put that essay on every
+ * row the pair scrolls through.
+ */
+internal fun assuranceWord(confidence: Int, connection: Connection): String = when {
+    connection == Connection.UNKNOWN -> "сравнения не было"
+    confidence <= 0 -> "на границе полосы"
+    confidence < 34 -> "ближе к краю"
+    confidence < 67 -> "в середине полосы"
+    confidence < 100 -> "у надёжного конца"
+    else -> "иначе не читается"
+}
+
+/**
+ * The same distance drawn as [ASSURANCE_STEPS] marks, one per quarter of the band's width, so the
+ * row and the sentence say the same thing in two channels.
+ */
+internal fun assuranceSteps(confidence: Int): Int = when {
+    confidence <= 0 -> 0
+    confidence >= 100 -> ASSURANCE_STEPS
+    else -> (confidence + 24) / 25
 }
 
 internal fun sectionTitle(connection: Connection): String = when (connection) {
@@ -558,6 +706,10 @@ internal fun universeDescription(state: UniverseUiState): String {
         Connection.entries.forEach { kind ->
             append(" ${connectionWord(kind)}: ${nodes.count { it.connection == kind }}.")
         }
+        // The four marks are drawn per node; the spoken summary explains the scale once, so the
+        // reader is not left with a row of dashes and no key.
+        append(" Уверенность узла — четыре черты: пустой ряд значит «ещё шаг, и это читается")
+        append(" другой связью», полный — «иначе этот ответ не читается».")
     }
 }
 
@@ -672,6 +824,19 @@ private fun rememberReducedMotion(): Boolean {
         Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
     }
 }
+
+/**
+ * A panel opening and closing. Reduced motion keeps both halves instant: the content must arrive
+ * and leave without animation, but it must still arrive and leave — the refusal is about motion,
+ * not about the explanation.
+ */
+private fun revealIn(reduced: Boolean): EnterTransition =
+    if (reduced) fadeIn(tween(0)) + expandVertically(tween(0))
+    else fadeIn(tween(Motion.Base)) + expandVertically(tween(Motion.Base))
+
+private fun revealOut(reduced: Boolean): ExitTransition =
+    if (reduced) fadeOut(tween(0)) + shrinkVertically(tween(0))
+    else fadeOut(tween(Motion.Fast)) + shrinkVertically(tween(Motion.Fast))
 
 /** The expanded row names its own numbers: a mark without its percent is a shape, not evidence. */
 private fun DrawScope.drawMarkPercent(

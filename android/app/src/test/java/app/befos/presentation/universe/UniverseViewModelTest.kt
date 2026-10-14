@@ -40,6 +40,9 @@ class UniverseViewModelTest {
     private fun node(key: String, a: Double?, b: Double?, kind: Connection) = UniverseNode(
         key = key, label = key, aValue = a, bValue = b, hasData = a != null && b != null,
         connection = kind, evidence = "evidence of $key",
+        confidence = if (a != null && b != null) 40 else 0,
+        suggestion = "Совет узла $key",
+        questions = if (kind == Connection.UNKNOWN) listOf("Вопрос анкеты про $key?") else emptyList(),
     )
 
     private fun universe(aId: String = "u-a", bId: String = "u-b") = Universe(
@@ -55,6 +58,7 @@ class UniverseViewModelTest {
                 weight = 0.22,
                 hasData = true,
                 coverage = 0.5,
+                confidence = 20,
                 nodes = listOf(
                     node("honesty", 0.9, 0.86, Connection.HARMONY),
                     node("spontaneity", 0.4, 0.1, Connection.DISCUSSION),
@@ -68,6 +72,7 @@ class UniverseViewModelTest {
                 weight = 0.1,
                 hasData = true,
                 coverage = 1.0,
+                confidence = 40,
                 nodes = listOf(node("hiking", 1.0, 1.0, Connection.HARMONY)),
             ),
         ),

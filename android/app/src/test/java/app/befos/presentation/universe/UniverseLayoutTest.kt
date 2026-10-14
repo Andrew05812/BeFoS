@@ -31,6 +31,9 @@ class UniverseLayoutTest {
         hasData = a != null && b != null,
         connection = connection,
         evidence = "$key: ${a ?: "—"} против ${b ?: "—"}",
+        confidence = if (a != null && b != null) 50 else 0,
+        suggestion = "$key: договоритесь заранее",
+        questions = emptyList(),
     )
 
     private fun layer(
@@ -45,6 +48,7 @@ class UniverseLayoutTest {
         weight = 0.14,
         hasData = hasData,
         coverage = if (nodes.isEmpty()) 0.0 else nodes.count { it.hasData }.toDouble() / nodes.size,
+        confidence = if (nodes.isEmpty()) 0 else nodes.sumOf { it.confidence } / nodes.size,
         nodes = nodes,
     )
 

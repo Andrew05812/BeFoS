@@ -206,6 +206,9 @@ data class UniverseNodeDto(
     @SerialName("has_data") val hasData: Boolean = false,
     val connection: String = "unknown",
     val evidence: String = "",
+    val confidence: Int = 0,
+    val suggestion: String = "",
+    val questions: List<String> = emptyList(),
 )
 
 @Serializable
@@ -216,6 +219,7 @@ data class UniverseLayerDto(
     val weight: Double = 0.0,
     @SerialName("has_data") val hasData: Boolean = false,
     val coverage: Double = 0.0,
+    val confidence: Int = 0,
     val nodes: List<UniverseNodeDto> = emptyList(),
 )
 
