@@ -129,6 +129,10 @@ data class QuestionDto(
     val trait: String = "",
     val text: String,
     val position: Int = 0,
+    // How the server puts this question: `scale` means the ordered options below are better set
+    // with a thumb than tapped as cards. The default is what a response from before the field
+    // actually says — a stack of cards, which is the shape every question has always had.
+    val kind: String = "choice",
     val options: List<OptionDto> = emptyList(),
     // The option this person's stored answer stands on, null where the server holds none. A
     // response from before the field simply carries no marks, which is what it actually said.

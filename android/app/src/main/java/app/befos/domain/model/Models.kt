@@ -34,7 +34,16 @@ data class Question(
     // The option the server's stored answer stands on, null where it holds none. The screen marks
     // that card and the flow starts on the first question that has no mark.
     val selectedOptionId: Int? = null,
-)
+    // How the question is put to the person. `scale` is the same ordered options drawn as a slider;
+    // anything else — including a kind a later server invents — stays the stack of cards, because
+    // cards are the one shape every option set can be answered with.
+    val kind: String = KIND_CHOICE,
+) {
+    val isScale: Boolean get() = kind == KIND_SCALE
+}
+
+const val KIND_CHOICE = "choice"
+const val KIND_SCALE = "scale"
 
 data class CategoryProgress(
     val key: String,

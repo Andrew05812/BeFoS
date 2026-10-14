@@ -139,6 +139,40 @@ class TestViewModel(
 
     fun back() = _uiState.update { if (it.index > 0) it.copy(index = it.index - 1) else it }
 
+    /**
+     * The thumb of a scale question came to rest on one of that question's own stops. Unlike
+     * [select] this does not move the person on: a level is something one sets, passes and comes
+     * back to, and a flow that turned every release into a page turn would be four taps wearing a
+     * slider. The write is the same one a tap pays, so a released level is in the profile before
+     * the person has asked to leave the question.
+     */
+    fun slide(optionId: Int) {
+        if (_uiState.value.submitting) return
+        val q = _uiState.value.current ?: return
+        val answers = _uiState.value.answers.toMutableMap()
+        answers[q.id] = optionId
+        val unsaved = _uiState.value.unsaved.toMutableMap()
+        unsaved[q.id] = optionId
+        _uiState.update { it.copy(answers = answers, unsaved = unsaved) }
+        record(q.id, optionId)
+    }
+
+    /**
+     * «Далее» for a question the person sets with a thumb. Cards move on their own because a tap
+     * cannot mean anything but an answer; a released thumb can still be a level about to be
+     * changed, so moving on is asked for. Asked before any stop is held, it moves nothing and
+     * writes nothing: there is no answer to carry forward, and inventing one would put words the
+     * person never chose into their profile.
+     */
+    fun next() {
+        val state = _uiState.value
+        if (state.submitting) return
+        val q = state.current ?: return
+        if (state.answers[q.id] == null) return
+        if (state.index >= state.questions.lastIndex) finish(state.answers)
+        else _uiState.update { it.copy(index = it.index + 1) }
+    }
+
     /** Re-posts what the catalogue has not confirmed, as one batch. */
     fun retryRecords() {
         val pending = _uiState.value.unsaved

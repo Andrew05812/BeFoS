@@ -70,6 +70,7 @@ fun QuestionDto.toDomain() = Question(
     text = text,
     options = options.map { it.toDomain() },
     selectedOptionId = selectedOptionId,
+    kind = kind,
 )
 
 fun CategoryProgressDto.toDomain() = CategoryProgress(key, label, total, answered)

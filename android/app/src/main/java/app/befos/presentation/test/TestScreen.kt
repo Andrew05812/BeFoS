@@ -25,11 +25,15 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -38,8 +42,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import kotlin.math.roundToInt
 import app.befos.core.designsystem.AppButton
 import app.befos.core.designsystem.AppCard
 import app.befos.core.designsystem.Ember
@@ -54,6 +61,7 @@ import app.befos.core.designsystem.answersWord
 import app.befos.core.designsystem.rememberHaptics
 import app.befos.core.designsystem.tabularDigits
 import app.befos.core.di.beFosViewModel
+import app.befos.domain.model.Option
 import app.befos.presentation.common.CategoryScoreList
 
 @Composable
@@ -212,63 +220,89 @@ private fun TestQuestionView(state: TestUiState, vm: TestViewModel) {
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onBackground,
                 )
-                Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
-                    target.options.forEachIndexed { i, option ->
-                        // The live choice, not only the one the catalogue came back with: going back
-                        // to a question tapped a minute ago must show it answered like any other.
-                        val chosen = option.id == state.answers[target.id]
-                        AppCard(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(min = 64.dp)
-                                .then(
-                                    if (chosen) Modifier.border(
-                                        1.5.dp, Ember.copy(alpha = 0.55f), MaterialTheme.shapes.medium
-                                    ) else Modifier
-                                )
-                                .semantics { selected = chosen },
-                            onClick = {
-                                haptics.light()
-                                vm.select(option.id)
-                            },
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = Spacing.lg, vertical = Spacing.lg),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(Spacing.md),
+                // A question whose options are one gradation is set with a thumb; everything else,
+                // including a kind this client has not heard of, keeps the stack of cards it has
+                // always drawn.
+                if (target.isScale && target.options.size > 1) {
+                    ScaleAnswer(
+                        stops = target.options,
+                        heldId = state.answers[target.id],
+                        onSettle = { optionId ->
+                            haptics.light()
+                            vm.slide(optionId)
+                        },
+                    )
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
+                        target.options.forEachIndexed { i, option ->
+                            // The live choice, not only the one the catalogue came back with: going back
+                            // to a question tapped a minute ago must show it answered like any other.
+                            val chosen = option.id == state.answers[target.id]
+                            AppCard(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 64.dp)
+                                    .then(
+                                        if (chosen) Modifier.border(
+                                            1.5.dp, Ember.copy(alpha = 0.55f), MaterialTheme.shapes.medium
+                                        ) else Modifier
+                                    )
+                                    .semantics { selected = chosen },
+                                onClick = {
+                                    haptics.light()
+                                    vm.select(option.id)
+                                },
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(32.dp)
-                                        .clip(CircleShape)
-                                        .background(
-                                            if (chosen) Ember
-                                            else MaterialTheme.colorScheme.surfaceVariant
-                                        )
-                                        .border(
-                                            1.dp,
-                                            if (chosen) Ember else MaterialTheme.colorScheme.outlineVariant,
-                                            CircleShape,
-                                        ),
-                                    contentAlignment = Alignment.Center,
+                                Row(
+                                    modifier = Modifier.padding(horizontal = Spacing.lg, vertical = Spacing.lg),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(Spacing.md),
                                 ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(32.dp)
+                                            .clip(CircleShape)
+                                            .background(
+                                                if (chosen) Ember
+                                                else MaterialTheme.colorScheme.surfaceVariant
+                                            )
+                                            .border(
+                                                1.dp,
+                                                if (chosen) Ember else MaterialTheme.colorScheme.outlineVariant,
+                                                CircleShape,
+                                            ),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Text(
+                                            ('А' + i).toString(),
+                                            style = MaterialTheme.typography.labelLarge,
+                                            color = if (chosen) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
                                     Text(
-                                        ('А' + i).toString(),
-                                        style = MaterialTheme.typography.labelLarge,
-                                        color = if (chosen) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        option.text,
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        fontWeight = if (chosen) FontWeight.SemiBold else FontWeight.Normal,
+                                        color = if (chosen) EmberDeep else MaterialTheme.colorScheme.onSurface,
                                     )
                                 }
-                                Text(
-                                    option.text,
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    fontWeight = if (chosen) FontWeight.SemiBold else FontWeight.Normal,
-                                    color = if (chosen) EmberDeep else MaterialTheme.colorScheme.onSurface,
-                                )
                             }
                         }
                     }
                 }
             }
+        }
+
+        if (question.isScale && question.options.size > 1) {
+            // A released thumb does not page on its own, so the move is asked for here — and the
+            // ask is dimmed while the question holds no answer, because there is nothing to leave with.
+            AppButton(
+                text = if (state.index == state.questions.lastIndex) "Завершить" else "Далее",
+                onClick = vm::next,
+                enabled = state.answers[question.id] != null,
+                loading = state.submitting,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
 
         if (state.index > 0) {
@@ -347,4 +381,66 @@ internal fun sectionOpeningWord(label: String, answered: Int, total: Int): Strin
     else ->
         "Открыли раздел «$label»: у вас $answered ${answersWord(answered)} из $total. " +
             "Продолжаем с первой карточки раздела без ответа."
+}
+
+/**
+ * One gradation, set with a thumb instead of tapped as cards.
+ *
+ * The stops are the question's own options, in the order the catalogue ships them, so the level a
+ * person lands on is the same stored answer a card tap would have left and the engine reads the
+ * same value either way. The ends are labelled with the first and last of those options rather than
+ * with an invented «меньше / больше»: the client is not told the numbers behind the options, and a
+ * direction it guessed would be a claim about a scale it cannot see.
+ *
+ * Until the person lets go, the thumb is a cursor and not an answer — it starts on a middle stop,
+ * nothing is stored, and the line under it says the level is still theirs to set.
+ */
+@Composable
+private fun ScaleAnswer(stops: List<Option>, heldId: Int?, onSettle: (Int) -> Unit) {
+    var dragging by remember(stops) { mutableStateOf<Float?>(null) }
+    val heldIndex = stops.indexOfFirst { it.id == heldId }
+    val value = dragging ?: if (heldIndex >= 0) heldIndex.toFloat() else stops.size / 2f
+    Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
+        Slider(
+            value = value,
+            onValueChange = { dragging = it },
+            onValueChangeFinished = {
+                val index = value.roundToInt().coerceIn(0, stops.lastIndex)
+                dragging = null
+                onSettle(stops[index].id)
+            },
+            valueRange = 0f..(stops.size - 1).toFloat(),
+            steps = stops.size - 2,
+            // A slider reads its value as a percentage of its range, which says nothing about a
+            // gradation whose ends are words: the stop the thumb holds is announced in those words.
+            modifier = Modifier
+                .fillMaxWidth()
+                .semantics {
+                    stateDescription = if (heldIndex >= 0) stops[heldIndex].text else "уровень не выбран"
+                },
+        )
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
+            Text(
+                stops.first().text,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Start,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                stops.last().text,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.End,
+                modifier = Modifier.weight(1f),
+            )
+        }
+        Text(
+            if (heldIndex >= 0) stops[heldIndex].text
+            else "Проведите по шкале и отпустите на том уровне, который вам ближе.",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = if (heldIndex >= 0) FontWeight.SemiBold else FontWeight.Normal,
+            color = if (heldIndex >= 0) EmberDeep else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
 }
