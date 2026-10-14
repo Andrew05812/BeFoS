@@ -180,6 +180,7 @@ fun RecommendationDto.toDomain() = Recommendation(
     position = position,
     reasons = reasons,
     selected = selected,
+    partnerSelected = partnerSelected,
 )
 
 fun OnboardingData.toRequest() = OnboardingRequest(

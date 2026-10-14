@@ -48,26 +48,30 @@ class ActivityRepository:
             .on_conflict_do_update(constraint="uq_activity_pref", set_={"score": score})
         )
 
-    async def chosen_activity_ids(
-        self, user_id: uuid.UUID, match_id: uuid.UUID, activity_ids: list[int]
-    ) -> set[int]:
-        """Which of these cards this person already chose for this pair.
+    async def chosen_by_pair(
+        self, match_id: uuid.UUID, activity_ids: list[int]
+    ) -> dict[uuid.UUID, set[int]]:
+        """Which of these cards each half of the pair already chose, in one read.
 
-        One read for the page, keyed on the three columns the tap is written under. It answers per
-        viewer rather than per pair: the stored `recommendations` rows are shared by both halves, and
-        a card one half proposed is not a card the other half has used.
+        One statement answers for both people: the question is the same shape — whose taps does
+        this table record for this pair — and asking it twice, once per person, would cost the page
+        a second round trip to say what one row of the answer already says. Keyed by the person who
+        tapped, because a card one half proposed is not a card the other half has used: the page
+        still answers per viewer, it just also names the other half's choice.
         """
         if not activity_ids:
-            return set()
+            return {}
         stmt = (
-            select(ActivityPreference.activity_id)
+            select(ActivityPreference.user_id, ActivityPreference.activity_id)
             .where(
-                ActivityPreference.user_id == user_id,
                 ActivityPreference.match_id == match_id,
                 ActivityPreference.activity_id.in_(activity_ids),
             )
         )
-        return {row[0] for row in (await self.session.execute(stmt)).all()}
+        chosen: dict[uuid.UUID, set[int]] = {}
+        for user_id, activity_id in (await self.session.execute(stmt)).all():
+            chosen.setdefault(user_id, set()).add(activity_id)
+        return chosen
 
     async def replace_recommendations(
         self, match_id: uuid.UUID, recs: list[dict]

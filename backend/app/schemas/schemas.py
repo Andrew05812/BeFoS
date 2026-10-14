@@ -352,6 +352,10 @@ class RecommendationOut(BaseModel):
     # Whether the person reading this page already chose this card for this pair. Per viewer:
     # the pair shares one stored page, and a card one half used is not a card the other used.
     selected: bool
+    # Whether the other half of the pair chose it. A card can be agreed on twice over or picked
+    # by one side only, and the page has to say which — the stored row is not secret, it is the
+    # proposal that already went into the pair's chat.
+    partner_selected: bool
 
 
 class RecommendationListResponse(BaseModel):

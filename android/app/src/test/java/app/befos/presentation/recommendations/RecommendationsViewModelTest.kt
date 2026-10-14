@@ -28,12 +28,14 @@ class RecommendationsViewModelTest {
     private val cinema = Activity(id = 7, slug = "cinema", title = "Поход в кино", description = null, category = "culture")
     private val rec = Recommendation(
         activity = cinema, score = 63, position = 1, reasons = emptyList(), selected = false,
+        partnerSelected = false,
     )
     private val boardGames = Activity(
         id = 8, slug = "board_games", title = "Вечер настольных игр", description = null, category = "leisure",
     )
     private val recBoard = Recommendation(
         activity = boardGames, score = 58, position = 2, reasons = emptyList(), selected = false,
+        partnerSelected = false,
     )
 
     private val proposal = Message(
@@ -241,6 +243,29 @@ class RecommendationsViewModelTest {
         // the notice must stay about the message and must not offer to re-send a mark.
         assertEquals("Не удалось отправить предложение. Сервер недоступен", vm.uiState.value.selectError)
         coVerify(exactly = 0) { match.selectRecommendation(any(), any()) }
+    }
+
+    @Test
+    fun `an idea the partner proposed is answered in chat instead of proposed again`() = runTest {
+        // What the page now reports: the other half put this card into the pair's chat, so the
+        // sentence this tap sends is an answer to it rather than a second copy of the proposal.
+        val match = mockk<MatchRepository> {
+            coEvery { recommendations("m1") } returns
+                ApiResult.Success(listOf(rec.copy(partnerSelected = true)))
+            coEvery { selectRecommendation("m1", 7) } returns ApiResult.Success(Unit)
+        }
+        val chat = chatRepo()
+        val vm = viewModel(match, chat)
+
+        vm.select(7, cinema.title)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        coVerify { chat.send("m1", "Я тоже за: Поход в кино.", any()) }
+        coVerify(exactly = 0) {
+            chat.send("m1", "Идея для нас: Поход в кино. Что скажете?", any())
+        }
+        assertTrue(vm.uiState.value.selected.contains(7))
+        assertNull(vm.uiState.value.selectError)
     }
 
     @Test

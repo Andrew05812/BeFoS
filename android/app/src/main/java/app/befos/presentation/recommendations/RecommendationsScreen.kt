@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -29,6 +30,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.befos.core.designsystem.AppButton
@@ -228,31 +231,60 @@ private fun RecommendationCard(
                     }
                 }
             }
-            if (selected) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(EmberSoft)
-                        .padding(horizontal = Spacing.md, vertical = Spacing.sm),
-                ) {
-                    Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                    Text(
-                        "Отправлено в чат",
-                        color = EmberDeep,
-                        fontWeight = FontWeight.SemiBold,
-                        style = MaterialTheme.typography.bodyMedium,
+            when {
+                selected -> ChoiceChip(
+                    "Эту идею выбрали вы оба".takeIf { rec.partnerSelected } ?: "Отправлено в чат",
+                    Icons.Filled.CheckCircle,
+                    EmberSoft,
+                    EmberDeep,
+                    MaterialTheme.colorScheme.primary,
+                )
+                else -> {
+                    if (rec.partnerSelected) {
+                        // Named before the button rather than instead of it: the idea is in the chat
+                        // already, and this tap is the pair's answer to it, not a second proposal.
+                        ChoiceChip(
+                            "Её уже предложил партнёр",
+                            Icons.AutoMirrored.Filled.Send,
+                            MaterialTheme.colorScheme.surfaceVariant,
+                            MaterialTheme.colorScheme.onSurfaceVariant,
+                            MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    AppButton(
+                        text = "Поддержать в чате".takeIf { rec.partnerSelected } ?: "Предложить в чате",
+                        onClick = onSelect,
+                        variant = AppButtonVariant.Tonal,
+                        modifier = Modifier.fillMaxWidth(),
                     )
                 }
-            } else {
-                AppButton(
-                    text = "Предложить в чате",
-                    onClick = onSelect,
-                    variant = AppButtonVariant.Tonal,
-                    modifier = Modifier.fillMaxWidth(),
-                )
             }
         }
+    }
+}
+
+@Composable
+private fun ChoiceChip(
+    text: String,
+    icon: ImageVector,
+    surface: Color,
+    content: Color,
+    tint: Color,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+        modifier = Modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(surface)
+            .padding(horizontal = Spacing.md, vertical = Spacing.sm),
+    ) {
+        Icon(icon, contentDescription = null, tint = tint)
+        Text(
+            text,
+            color = content,
+            fontWeight = FontWeight.SemiBold,
+            style = MaterialTheme.typography.bodyMedium,
+        )
     }
 }
