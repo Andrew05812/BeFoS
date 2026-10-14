@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from app.compatibility.traits import (
     NEUTRAL_SIDE,
     TRAIT_CATEGORIES_BY_KEY,
+    CategoryTraits,
     describe_side,
     goal_compatibility,
 )
@@ -115,6 +116,61 @@ def _shared_side(values: list[float], low_label: str, high_label: str) -> str | 
     return None if side == NEUTRAL_SIDE else side
 
 
+# The idea counts as sitting between the two answers rather than on one of them when it is within a
+# twentieth of the axis from each. Without a band the comparison below is between two floats that
+# differ by 1e-17 on a card answering 0.5 against a pair at 0.9 and 0.1, and the sentence would
+# publish whichever side the arithmetic happened to land a hair closer to.
+MIDPOINT_BAND = 0.05
+
+
+def _apart_bullet(
+    act_traits: dict[str, float],
+    vec_a: dict[str, float],
+    vec_b: dict[str, float],
+    leisure: CategoryTraits,
+) -> str | None:
+    """Which end of the pair's disagreement this particular idea sits on, or nothing.
+
+    Stage 81 took away the sentence a split pair used to get («Подходит вашему стилю досуга»)
+    because it claimed one half's taste to the other, and left the card with no leisure bullet at
+    all. Silence is the honest answer for an axis the data cannot name, but the pair in front of this
+    card holds two named, opposite answers and one number built as the mean of how well each of them
+    matches the idea — so the card is aimed at one of the two, and said so nowhere. Naming the two
+    sides and the idea's own distance from them is the same arithmetic the score already made, in the
+    words `describe_side` gives, and it says nothing about which person sits where: the page is one
+    text for both halves.
+    """
+    apart: list[tuple[float, str, str]] = []
+    for trait in leisure.traits:
+        if trait.key not in act_traits or trait.key not in vec_a or trait.key not in vec_b:
+            continue
+        va = _clamp01(float(vec_a[trait.key]))
+        vb = _clamp01(float(vec_b[trait.key]))
+        side_a = describe_side(va, trait.low_label, trait.high_label)
+        side_b = describe_side(vb, trait.low_label, trait.high_label)
+        if side_a == side_b or NEUTRAL_SIDE in (side_a, side_b):
+            continue
+        act = _clamp01(act_traits[trait.key])
+        near_a, near_b = abs(act - va), abs(act - vb)
+        if abs(near_a - near_b) <= MIDPOINT_BAND:
+            where = "идея посередине между вами"
+        else:
+            where = f"идея ближе к «{side_a if near_a < near_b else side_b}»"
+        apart.append(
+            (
+                abs(va - vb),
+                trait.key,
+                f"{trait.label}: вы на разных сторонах — «{side_a}» против «{side_b}», {where}",
+            )
+        )
+    if not apart:
+        return None
+    # The widest disagreement of the axes this idea speaks on, with the axis key breaking a tie the
+    # same way the agreement list above does: the page is stored and re-read.
+    apart.sort(key=lambda c: (-c[0], c[1]))
+    return apart[0][2]
+
+
 def _interest_match(act: ActivitySignal, a: UserSignal, b: UserSignal) -> tuple[float, list[str]]:
     if not act.interests:
         return 0.5, []
@@ -184,6 +240,13 @@ def _leisure_match(act: ActivitySignal, a: UserSignal, b: UserSignal) -> tuple[f
     if candidates:
         candidates.sort(key=lambda c: (-c[0], c[1]))
         reasons.append(candidates[0][2])
+    else:
+        # Agreement about the idea's own axis comes first when the pair has it: the card then says
+        # something the two of them share. Without any such axis the card was left mute on a pair
+        # whose two answers are the reason its number is what it is.
+        apart = _apart_bullet(act_traits, vec_a, vec_b, leisure)
+        if apart:
+            reasons.append(apart)
     return score, reasons
 
 
