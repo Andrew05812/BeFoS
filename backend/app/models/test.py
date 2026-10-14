@@ -17,6 +17,10 @@ class TestQuestion(TimestampMixin, Base):
     category: Mapped[str] = mapped_column(String(40), nullable=False)
     trait: Mapped[str] = mapped_column(String(60), nullable=False)
     text: Mapped[str] = mapped_column(Text, nullable=False)
+    # How the question is put to the person: `choice` is a stack of cards, one tap per answer,
+    # `scale` is the same ordered options drawn as a slider. Presentation only — the answer stays
+    # a `test_options` row either way, so a stored answer means the same thing under either kind.
+    kind: Mapped[str] = mapped_column(String(16), default="choice", server_default="choice", nullable=False)
     position: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 

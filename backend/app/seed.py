@@ -51,7 +51,7 @@ from app.models.base import utc_today
 from app.seed_data.activities_catalog import ACTIVITIES
 from app.seed_data.interests_catalog import INTERESTS
 from app.seed_data.placeholder_images import generate_avatar
-from app.seed_data.questions_catalog import QUESTIONS
+from app.seed_data.questions_catalog import QUESTIONS, question_kind
 from app.repositories.social_repo import ordered_pair
 
 logger = get_logger(__name__)
@@ -199,7 +199,14 @@ async def _seed_catalogs(session: AsyncSession) -> dict:
     questions: list[TestQuestion] = []
     if q_count == 0:
         for position, (category, trait, text, options) in enumerate(QUESTIONS):
-            q = TestQuestion(category=category, trait=trait, text=text, position=position, is_active=True)
+            q = TestQuestion(
+                category=category,
+                trait=trait,
+                text=text,
+                kind=question_kind(category, trait),
+                position=position,
+                is_active=True,
+            )
             session.add(q)
             await session.flush()
             for opos, (otext, ovalue) in enumerate(options):

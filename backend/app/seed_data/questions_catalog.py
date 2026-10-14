@@ -147,3 +147,34 @@ QUESTIONS: list[QuestionSpec] = [
         ("Движение и драйв", 0.0),
     ]),
 ]
+
+CHOICE = "choice"
+SCALE = "scale"
+
+# Axes this catalogue asks on a scale instead of a stack of cards. The stops are the options the
+# catalogue already ships for the axis, in their own order: what changes is how the person sets
+# the answer — a thumb over four ticks rather than four taps — not which values the engine reads
+# back. Declaring it here rather than converting a question into more rows is what keeps a stored
+# answer intact: `test_answers.option_id` still points at the same option row, so a database that
+# has been answering these questions for months is asked the next one differently and nothing in
+# its own past answers is re-read as something else.
+#
+# One axis per section at minimum, because a section that only ever shows cards is the monotony
+# this is here to break. Only intensity gradations are listed: an option set that names four
+# different places or four different plans (`extraversion`, `planning`, `social_leisure`) is not
+# one line with two ends, and a slider over it would say the person is standing somewhere on a
+# scale they are not.
+SCALE_AXES: frozenset[tuple[str, str]] = frozenset({
+    ("values", "family"),
+    ("values", "growth"),
+    ("personality", "openness"),
+    ("communication", "frequency"),
+    ("lifestyle", "activity_level"),
+    ("leisure", "intellectual"),
+})
+
+
+def question_kind(category: str, trait: str) -> str:
+    """How this catalogue puts one axis to the person."""
+    return SCALE if (category, trait) in SCALE_AXES else CHOICE
+

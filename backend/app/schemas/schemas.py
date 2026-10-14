@@ -141,6 +141,11 @@ class QuestionOut(ORMModel):
     category: str
     trait: str
     text: str
+    # How this question is put to the person: `choice` is the stack of cards below, `scale` says
+    # the same ordered options are better set with a thumb. A client that does not know the field
+    # keeps working — it renders the cards it has always rendered, and the answer it posts is the
+    # same option row either way.
+    kind: str = "choice"
     position: int
     options: list[OptionOut] = []
     # The option this person's stored answer stands on, or null where the server holds none.
