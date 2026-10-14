@@ -250,6 +250,9 @@ class UniverseOut(BaseModel):
     a_user_id: str
     b_user_id: str
     layers: list[UniverseLayerOut]
+    # The same map retold in aggregate-only sentences, so "Our Story" and the share sheet send the
+    # pair's shape rather than either person's answers. Built by the engine, never by the client.
+    story: list[str] = []
 
 
 # ---------- Discovery ----------
