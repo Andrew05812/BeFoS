@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 
-from sqlalchemy import Boolean, Float, ForeignKey, Integer, String, Text, UniqueConstraint, Index
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, Index
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -58,6 +59,19 @@ class ActivityPreference(TimestampMixin, Base):
     # `proposed` defaults to true because every row written before this column existed was one.
     proposed: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     declined: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # The pair has an idea and a chat and still no moment to meet at, which is the last verb §81
+    # asks for. Two instants, kept apart for the same reason `proposed` and `declined` are apart:
+    # each of them belongs to the person whose row carries it. `meeting_time` is when this person
+    # would meet for this idea; `accepted_time` is the moment this person agreed to, which can only
+    # ever be the other half's proposal. A plan exists for the pair when one row's `accepted_time`
+    # is the other row's `meeting_time` — so an idea the pair re-litigates needs no cleanup: the
+    # second proposal simply leaves the old agreement matching nothing.
+    meeting_time: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    accepted_time: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     __table_args__ = (
         UniqueConstraint("user_id", "activity_id", "match_id", name="uq_activity_pref"),

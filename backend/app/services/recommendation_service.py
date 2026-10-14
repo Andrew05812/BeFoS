@@ -1,16 +1,66 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics.tracker import Event, tracker
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import ConflictError, NotFoundError, ValidationError
 from app.models import Match
+from app.models.base import utcnow
 from app.recommendations.engine import ActivitySignal, UserSignal, recommend
 from app.repositories.activity_repo import ActivityRepository
 from app.repositories.social_repo import SocialRepository
 from app.repositories.user_repo import UserRepository
+
+# A meeting is arranged for a moment that has not passed and is not a rumor about next year. The
+# tolerance is a clock allowance, not a policy: a phone whose clock runs a minute behind should be
+# able to say «сейчас», and a card forty years ahead would render as a plan nobody made.
+MIN_LEAD = timedelta(minutes=15)
+MAX_LEAD = timedelta(days=400)
+
+
+def _iso(value: datetime | None) -> str | None:
+    return None if value is None else value.isoformat()
+
+
+def _agreed_instant(
+    mine: tuple[datetime | None, datetime | None],
+    theirs: tuple[datetime | None, datetime | None],
+) -> datetime | None:
+    """The moment both halves of the pair have landed on, or nothing when they have not.
+
+    A plan is one instant named by one of them and agreed to by the other. Two different instants
+    each satisfying that rule is a trade — one named 19:00 and the other agreed, the second named
+    20:00 and the first agreed — and a pair that traded has not agreed on a moment, it has talked
+    past one. The card then shows both proposals and no plan line, which is what the two rows
+    actually say; folding the trade into the earlier of the two would print a promise nobody holds.
+    """
+    my_time, my_accept = mine
+    their_time, their_accept = theirs
+    candidates: set[datetime] = set()
+    if my_time is not None and my_time == their_accept:
+        candidates.add(my_time)
+    if their_time is not None and their_time == my_accept:
+        candidates.add(their_time)
+    if len(candidates) != 1:
+        return None
+    return candidates.pop()
+
+
+def _validate_meeting_time(when: datetime) -> None:
+    """Reject an instant the pair cannot meet at, before it becomes a card both halves read."""
+    if when.tzinfo is None:
+        raise ValidationError(
+            "Meeting time must carry a UTC offset: the pair is often in two cities, and a "
+            "wall clock with no zone names a moment in one of them at random."
+        )
+    lead = when.astimezone(timezone.utc) - utcnow()
+    if lead < -MIN_LEAD:
+        raise ValidationError("This moment has already passed.")
+    if lead > MAX_LEAD:
+        raise ValidationError("A meeting is arranged within the next year, not beyond it.")
 
 
 class RecommendationService:
@@ -109,7 +159,7 @@ class RecommendationService:
         await self.activities.replace_recommendations(match_id, recs)
         await self.session.commit()
         tracker.track(Event.RECOMMENDATION_VIEWED, str(user_id), match=str(match_id), count=len(recs))
-        chosen, partner_chosen, declined = await self._decisions(
+        chosen, partner_chosen, declined, times = await self._decisions(
             user_id, partner_id, match_id, [item["activity_id"] for item in recs]
         )
         # The page was just written by this session, with `position` equal to the enumerate order
@@ -127,6 +177,9 @@ class RecommendationService:
             chosen,
             partner_chosen,
             declined,
+            user_id,
+            partner_id,
+            times,
         )
 
     async def _decisions(
@@ -135,8 +188,13 @@ class RecommendationService:
         partner_id: uuid.UUID,
         match_id: uuid.UUID,
         activity_ids: list[int],
-    ) -> tuple[set[int], set[int], set[int]]:
-        """What each half proposed, and what the person asking pushed away.
+    ) -> tuple[
+        set[int],
+        set[int],
+        set[int],
+        dict[uuid.UUID, dict[int, tuple[datetime | None, datetime | None]]],
+    ]:
+        """What each half proposed, what the person asking pushed away, and the times they named.
 
         One read answers for both people, so the page keeps the round trip the tap-invariant
         measures. Split here rather than in the repository: the three sets mean different things
@@ -146,13 +204,16 @@ class RecommendationService:
         The partner's refusals are read out of the row and dropped here on purpose. A proposal is
         a message the pair already received, so naming it back says nothing new; a refusal never
         left the person's own page, and reporting it would turn a private edit of a list into a
-        statement about them that no conversation carries.
+        statement about them that no conversation carries. A named time is not dropped: it is a
+        question the other half has to answer, and the card that hides it leaves the pair with no
+        way to agree on one.
         """
-        proposed, declined = await self.activities.decisions_by_pair(match_id, activity_ids)
+        proposed, declined, times = await self.activities.decisions_by_pair(match_id, activity_ids)
         return (
             proposed.get(user_id, set()),
             proposed.get(partner_id, set()),
             declined.get(user_id, set()),
+            times,
         )
 
     def _render(
@@ -162,6 +223,9 @@ class RecommendationService:
         chosen: set[int],
         partner_chosen: set[int],
         declined: set[int],
+        user_id: uuid.UUID,
+        partner_id: uuid.UUID,
+        times: dict[uuid.UUID, dict[int, tuple[datetime | None, datetime | None]]],
     ) -> list[dict]:
         out: list[dict] = []
         for activity_id, score, position, explanation in rows:
@@ -169,6 +233,8 @@ class RecommendationService:
             if act is None:
                 continue
             reasons = explanation.get("reasons", []) if isinstance(explanation, dict) else []
+            my_time, my_accept = times.get(user_id, {}).get(activity_id, (None, None))
+            partner_time, partner_accept = times.get(partner_id, {}).get(activity_id, (None, None))
             out.append(
                 {
                     "activity": {
@@ -190,6 +256,12 @@ class RecommendationService:
                     # away still has to be able to take it back, and a list that hid it would leave
                     # that decision unreversible.
                     "declined": activity_id in declined,
+                    "my_meeting_time": _iso(my_time),
+                    "partner_meeting_time": _iso(partner_time),
+                    "i_accepted_time": _iso(my_accept),
+                    "agreed_time": _iso(_agreed_instant(
+                        (my_time, my_accept), (partner_time, partner_accept)
+                    )),
                 }
             )
         out.sort(key=lambda r: r["position"])
@@ -205,7 +277,7 @@ class RecommendationService:
         # The catalogue rows are read once for the whole page: one round trip per card
         # made opening the tab cost eight queries to fetch eight rows of the same table.
         by_id = await self.activities.get_by_ids([rec.activity_id for rec in stored])
-        chosen, partner_chosen, declined = await self._decisions(
+        chosen, partner_chosen, declined, times = await self._decisions(
             user_id, partner_id, match_id, [rec.activity_id for rec in stored]
         )
         return self._render(
@@ -214,6 +286,9 @@ class RecommendationService:
             chosen,
             partner_chosen,
             declined,
+            user_id,
+            partner_id,
+            times,
         )
 
     async def mark_selected(self, match_id: uuid.UUID, user_id: uuid.UUID, activity_id: int) -> None:
@@ -254,5 +329,73 @@ class RecommendationService:
         if not await self.social.match_still_present(match_id):
             raise NotFoundError("Match not found.")
         await self.activities.set_declined(user_id, activity_id, match_id, declined)
+        await self.session.commit()
+
+    async def _require_writable(
+        self, match_id: uuid.UUID, user_id: uuid.UUID, activity_id: int
+    ) -> Match:
+        """The guards every tap on a card of this pair's page pays: membership, a real activity
+        id, and the pair lock that keeps a dissolve from deleting the parent mid-write.
+
+        Stated once because the time taps below are the third copy of this sequence, and the first
+        two (`mark_selected`, `set_declined`) learned it the way their comments tell it — a 500
+        where the route should answer 404.
+        """
+        match = await self._require_match(match_id, user_id)
+        known = await self.activities.get_by_ids([activity_id])
+        if activity_id not in known:
+            raise NotFoundError("Activity not found.")
+        await self.social.lock_pair(match.user_a_id, match.user_b_id)
+        if not await self.social.match_still_present(match_id):
+            raise NotFoundError("Match not found.")
+        return match
+
+    @staticmethod
+    def _partner_id(match: Match, user_id: uuid.UUID) -> uuid.UUID:
+        return match.user_b_id if match.user_a_id == user_id else match.user_a_id
+
+    async def propose_time(
+        self, match_id: uuid.UUID, user_id: uuid.UUID, activity_id: int, when: datetime
+    ) -> None:
+        """Name the moment this person would meet for this idea, or move the one they named.
+
+        A time belongs to an idea the pair is already talking about, so the card has to have gone
+        into this pair's chat first: naming a moment for an idea the other half has never seen
+        would let the page claim a plan out of a message nobody received. The check reads the same
+        rows the page reads, so it costs the tap no extra round trip.
+        """
+        match = await self._require_writable(match_id, user_id, activity_id)
+        _validate_meeting_time(when)
+        proposed, _declined, _times = await self.activities.decisions_by_pair(
+            match_id, [activity_id]
+        )
+        if activity_id not in proposed.get(user_id, set()):
+            raise ConflictError("Send this idea to the chat before arranging a time for it.")
+        await self.activities.set_meeting_time(user_id, activity_id, match_id, when)
+        await self.session.commit()
+
+    async def accept_time(
+        self, match_id: uuid.UUID, user_id: uuid.UUID, activity_id: int, when: datetime
+    ) -> None:
+        """Agree to the moment the other half named.
+
+        The instant arrives from the client rather than being read off the partner's row here, and
+        that is the point: it is the value the person saw when they tapped. If the partner has
+        moved it in the meantime the answer is a conflict, not a silent agreement to something
+        nobody offered — the same reason the chat refuses a message built on a pair that dissolved.
+        """
+        match = await self._require_writable(match_id, user_id, activity_id)
+        _validate_meeting_time(when)
+        _proposed, _declined, times = await self.activities.decisions_by_pair(
+            match_id, [activity_id]
+        )
+        partner_time, _ = times.get(self._partner_id(match, user_id), {}).get(
+            activity_id, (None, None)
+        )
+        if partner_time is None:
+            raise ConflictError("The other half has not named a time for this idea yet.")
+        if partner_time != when:
+            raise ConflictError("That time is no longer the one being offered.")
+        await self.activities.set_accepted_time(user_id, activity_id, match_id, when)
         await self.session.commit()
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Generic, TypeVar
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, EmailStr, Field
 
 T = TypeVar("T")
 
@@ -360,6 +360,23 @@ class RecommendationOut(BaseModel):
     # deliberately never answered for the other half: a proposal is a message the pair received,
     # a refusal is one person editing their own list.
     declined: bool
+    # The last verb of a plan: when. Each half names the moment they would meet, and answers the
+    # other half's name — so all four are per viewer, like `selected`, and the same instant read
+    # from the other side of the pair swaps `my_…` with `partner_…`. They are instants with an
+    # offset, not wall clocks: a pair in Казань and Новосибирск has to meet at one moment, and each
+    # of them reads it on their own clock.
+    my_meeting_time: str | None = None
+    partner_meeting_time: str | None = None
+    i_accepted_time: str | None = None
+    # Filled only when one instant is one half's name and the other's answer. Two of them, each
+    # agreed to by the other side, is a pair that talked past itself, and this stays empty.
+    agreed_time: str | None = None
+
+
+class MeetingTimeIn(BaseModel):
+    """The moment a person names for a card, or the one they agree to."""
+
+    when: AwareDatetime
 
 
 class RecommendationListResponse(BaseModel):

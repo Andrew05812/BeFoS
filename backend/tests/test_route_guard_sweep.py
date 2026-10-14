@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import re
 import uuid
+from datetime import datetime, timedelta, timezone
 
 from fastapi.routing import APIRoute
 from httpx import AsyncClient
@@ -33,6 +34,13 @@ _UNKNOWN_VALUES = {
 }
 
 _HTTP_METHODS = ("GET", "POST", "PATCH", "PUT", "DELETE")
+
+
+def _a_future_instant() -> str:
+    """A moment the route would accept on its merits, so the refusal it gives is about the row."""
+    return (datetime.now(timezone.utc) + timedelta(days=2)).replace(
+        minute=0, second=0, microsecond=0
+    ).isoformat()
 
 
 def _identifier_calls() -> list[tuple[str, str]]:
@@ -67,8 +75,8 @@ def test_the_sweep_walks_the_whole_identifier_surface() -> None:
     The floor is not a target — it fails when a route drops out of the table (a rename, a
     removal, a parameter the mapping no longer knows), which is how a hand-written list goes
     quietly stale and how an automated one would too if nobody read the set it produced.
-    Measured on this tree: 12 calls — 5 routes under ``/users/{user_id}`` and 7 under
-    ``/matches/{match_id}``, one of which also names an ``activity_id``.
+    Measured on this tree: 17 calls — 5 routes under ``/users/{user_id}`` and 12 under
+    ``/matches/{match_id}``, five of which also name an ``activity_id``.
     """
     calls = _identifier_calls()
     paths = {path for _, path in calls}
@@ -76,7 +84,7 @@ def test_the_sweep_walks_the_whole_identifier_surface() -> None:
 
     for fragment in (
         "/like", "/pass", "/block", "/report", "/messages", "/read",
-        "/compatibility", "/recommendations", "/select",
+        "/compatibility", "/recommendations", "/select", "/time", "/time/accept",
     ):
         assert any(fragment in path for path in paths), f"{fragment} is not in the swept set"
 
@@ -136,6 +144,19 @@ async def test_every_route_naming_a_match_refuses_an_outsider_the_same_way(
         # and neither may answer an outsider differently from the route beside it.
         ("POST", f"/api/v1/matches/{match_id}/recommendations/1/decline", {}),
         ("DELETE", f"/api/v1/matches/{match_id}/recommendations/1/decline", {}),
+        # Both time taps carry a well-formed instant for the same reason as the message body:
+        # the request model is checked before the service, and a 422 from an empty body says
+        # nothing about the row. A named moment is a write into this pair's card.
+        (
+            "PUT",
+            f"/api/v1/matches/{match_id}/recommendations/1/time",
+            {"when": _a_future_instant()},
+        ),
+        (
+            "POST",
+            f"/api/v1/matches/{match_id}/recommendations/1/time/accept",
+            {"when": _a_future_instant()},
+        ),
         ("GET", f"/api/v1/matches/{match_id}/messages", {}),
         # A well-formed body here, because the request model is checked before the service
         # is entered: an empty one is refused as invalid input, and that answer says nothing

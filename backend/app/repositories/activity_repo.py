@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 
 from sqlalchemy import delete, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -72,10 +73,64 @@ class ActivityRepository:
             .on_conflict_do_update(constraint="uq_activity_pref", set_={"declined": declined})
         )
 
+    async def set_meeting_time(
+        self, user_id: uuid.UUID, activity_id: int, match_id: uuid.UUID, when: datetime
+    ) -> None:
+        """Name the moment this person would meet for this idea, or move the one they named.
+
+        `proposed` is left out of the update: a time is an answer about when, and writing one must
+        not mark an idea as sent to the pair's chat. `declined` is cleared, because the two cannot
+        both stand — naming a moment to meet for an idea is engaging with it, and a card left
+        marked «вы отклонили» beside «вы предложили 19:00» would make the page report a person who
+        both refused a plan and arranged it.
+        """
+        await self.session.execute(
+            pg_insert(ActivityPreference)
+            .values(
+                user_id=user_id,
+                activity_id=activity_id,
+                match_id=match_id,
+                proposed=True,
+                meeting_time=when,
+            )
+            .on_conflict_do_update(
+                constraint="uq_activity_pref", set_={"meeting_time": when, "declined": False}
+            )
+        )
+
+    async def set_accepted_time(
+        self, user_id: uuid.UUID, activity_id: int, match_id: uuid.UUID, when: datetime
+    ) -> None:
+        """Agree to the moment the other half named.
+
+        The insert branch carries `proposed=False`: the person accepting a time has not thereby
+        proposed the idea into the chat, and a row that claimed both would hand the other half a
+        «выбрали эту идею» mark nobody tapped — the defect stage 63 was opened to close.
+        `declined` is cleared for the reason `set_meeting_time` gives.
+        """
+        await self.session.execute(
+            pg_insert(ActivityPreference)
+            .values(
+                user_id=user_id,
+                activity_id=activity_id,
+                match_id=match_id,
+                proposed=False,
+                accepted_time=when,
+            )
+            .on_conflict_do_update(
+                constraint="uq_activity_pref", set_={"accepted_time": when, "declined": False}
+            )
+        )
+
     async def decisions_by_pair(
         self, match_id: uuid.UUID, activity_ids: list[int]
-    ) -> tuple[dict[uuid.UUID, set[int]], dict[uuid.UUID, set[int]]]:
-        """Which of these cards each half of the pair proposed, and which this person pushed away.
+    ) -> tuple[
+        dict[uuid.UUID, set[int]],
+        dict[uuid.UUID, set[int]],
+        dict[uuid.UUID, dict[int, tuple[datetime | None, datetime | None]]],
+    ]:
+        """Which of these cards each half of the pair proposed, which this person pushed away, and
+        what each of them named as the moment to meet.
 
         One statement answers for both people: the questions are the same shape — whose decisions
         does this table record for this pair — and asking them twice, once per person, would cost
@@ -83,15 +138,21 @@ class ActivityRepository:
         keyed by the person who acted, because a card one half proposed is not a card the other
         half has used: the page still answers per viewer, it just also names the other half's
         proposal. A refusal is keyed too and deliberately not sent out — see the service.
+
+        The times ride along for the same reason: the card has to say «вы договорились на …» and
+        «собеседник предлагает …» from the rows this read already fetched, and a second statement
+        per card would cost the page the round trip its tap-invariant measures keep count of.
         """
         if not activity_ids:
-            return {}, {}
+            return {}, {}, {}
         stmt = (
             select(
                 ActivityPreference.user_id,
                 ActivityPreference.activity_id,
                 ActivityPreference.proposed,
                 ActivityPreference.declined,
+                ActivityPreference.meeting_time,
+                ActivityPreference.accepted_time,
             )
             .where(
                 ActivityPreference.match_id == match_id,
@@ -100,14 +161,22 @@ class ActivityRepository:
         )
         proposed: dict[uuid.UUID, set[int]] = {}
         declined: dict[uuid.UUID, set[int]] = {}
-        for user_id, activity_id, was_proposed, was_declined in (
-            await self.session.execute(stmt)
-        ).all():
+        times: dict[uuid.UUID, dict[int, tuple[datetime | None, datetime | None]]] = {}
+        for (
+            user_id,
+            activity_id,
+            was_proposed,
+            was_declined,
+            meeting_time,
+            accepted_time,
+        ) in (await self.session.execute(stmt)).all():
             if was_proposed:
                 proposed.setdefault(user_id, set()).add(activity_id)
             if was_declined:
                 declined.setdefault(user_id, set()).add(activity_id)
-        return proposed, declined
+            if meeting_time is not None or accepted_time is not None:
+                times.setdefault(user_id, {})[activity_id] = (meeting_time, accepted_time)
+        return proposed, declined, times
 
     async def replace_recommendations(
         self, match_id: uuid.UUID, recs: list[dict]
