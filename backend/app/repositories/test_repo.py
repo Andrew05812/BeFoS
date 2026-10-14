@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import select, func, delete
+from sqlalchemy import select, delete
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -28,9 +28,20 @@ class TestRepository:
         )
         return list((await self.session.execute(stmt)).scalars().all())
 
-    async def count_active_questions(self) -> int:
-        stmt = select(func.count(TestQuestion.id)).where(TestQuestion.is_active.is_(True))
-        return int((await self.session.execute(stmt)).scalar_one())
+    async def list_active_question_axes(self) -> list:
+        """The active catalogue as ``(id, category)`` rows, with no options carried.
+
+        A screen that only counts sections does not need the option texts the catalogue route
+        loads, and it does not need two COUNTs either: the same two reads that route pays return
+        both the section sizes and the person's own marks, so the two answers cannot disagree
+        about what a section holds.
+        """
+        stmt = (
+            select(TestQuestion.id, TestQuestion.category)
+            .where(TestQuestion.is_active.is_(True))
+            .order_by(TestQuestion.position, TestQuestion.id)
+        )
+        return list((await self.session.execute(stmt)).all())
 
     async def get_active_questions(self, question_ids: set[int]) -> list[TestQuestion]:
         """The catalog rows a batch of answers names, in one read.
@@ -85,10 +96,6 @@ class TestRepository:
                 set_={"option_id": stmt.excluded.option_id},
             )
         )
-
-    async def count_answered(self, user_id: uuid.UUID) -> int:
-        stmt = select(func.count(TestAnswer.id)).where(TestAnswer.user_id == user_id)
-        return int((await self.session.execute(stmt)).scalar_one())
 
     async def list_answer_choices(self, user_id: uuid.UUID) -> dict[int, int]:
         """Which option this person stands on per question, in one read of their own rows.
