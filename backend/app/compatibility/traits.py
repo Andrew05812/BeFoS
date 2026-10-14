@@ -24,6 +24,10 @@ from dataclasses import dataclass, field
 
 HIGH_SIDE = 0.66
 LOW_SIDE = 0.33
+# The word `describe_side` answers when an estimate falls between the two named sides. Named here
+# because a caller that wants to claim "you are both on this side" has to be able to tell a side
+# from the absence of one without repeating the wording it is quoting.
+NEUTRAL_SIDE = "умеренно"
 
 
 def describe_side(value: float, low_label: str, high_label: str) -> str:

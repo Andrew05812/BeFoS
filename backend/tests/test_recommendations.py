@@ -161,11 +161,13 @@ async def test_recommendations_follow_a_partner_who_changed_their_interests(
         f"/api/v1/matches/{match_id}/recommendations", headers=auth_headers(a["token"])
     )
     assert first.status_code == 200, first.text
+    # Read by their labels, not by the noun: the interest band prints two sentences, and only one
+    # of them claims the tag belongs to both halves.
     shared = [
         r
         for card in first.json()["recommendations"]
         for r in card["reasons"]
-        if "нтерес" in r
+        if r.startswith("Общ")
     ]
     assert shared, "the fixture pair shares interests, so a card should say so"
 
@@ -182,7 +184,18 @@ async def test_recommendations_follow_a_partner_who_changed_their_interests(
         r
         for card in second.json()["recommendations"]
         for r in card["reasons"]
-        if "нтерес" in r
+        if r.startswith("Общ")
     ]
     assert stale == [], f"nobody shares interests any more, but the page still says: {stale}"
+    # The other sentence is expected now, and named here rather than tolerated: 0.4 of the interest
+    # band is charged to tags either half chose, so one person's list still moves the number after
+    # the other cleared theirs. A card that hid that fact under no bullet at all was the defect;
+    # a card that hides it under «общий» would be worse.
+    one_sided = [
+        r
+        for card in second.json()["recommendations"]
+        for r in card["reasons"]
+        if r.startswith("Интерес одного из вас") or r.startswith("Интересы одного из вас")
+    ]
+    assert one_sided, "the partner still chose these tags, and the cards still pay for them"
 
