@@ -17,7 +17,12 @@ recommendation carries human-readable reasons derived from the actual data.
 
 from dataclasses import dataclass, field
 
-from app.compatibility.traits import TRAIT_CATEGORIES_BY_KEY, goal_compatibility
+from app.compatibility.traits import (
+    NEUTRAL_SIDE,
+    TRAIT_CATEGORIES_BY_KEY,
+    describe_side,
+    goal_compatibility,
+)
 
 # The five numbers the score adds up, keyed by the components the docstring lists, in the order
 # `score_activity` multiplies them. Written in one place only: a weight edited where the score does
@@ -94,6 +99,22 @@ def _trait_similarity(vec_a: dict[str, float], vec_b: dict[str, float]) -> float
     return _clamp01(total / len(shared))
 
 
+def _shared_side(values: list[float], low_label: str, high_label: str) -> str | None:
+    """The one named side all of the numbers sit on, or nothing when they do not.
+
+    A bullet may say "this is your side" only when every value behind the claim answers the same
+    word. `describe_side` is the app's single rendering of that word (stage 75 removed a second
+    one), so the comparison reads its answer instead of re-deriving the thresholds here, and the
+    neutral answer counts as no side at all: "умеренно" says nothing about which way a person
+    leans, and a card would claim a preference nobody named.
+    """
+    sides = {describe_side(_clamp01(v), low_label, high_label) for v in values}
+    if len(sides) != 1:
+        return None
+    side = sides.pop()
+    return None if side == NEUTRAL_SIDE else side
+
+
 def _interest_match(act: ActivitySignal, a: UserSignal, b: UserSignal) -> tuple[float, list[str]]:
     if not act.interests:
         return 0.5, []
@@ -107,6 +128,18 @@ def _interest_match(act: ActivitySignal, a: UserSignal, b: UserSignal) -> tuple[
     if titles:
         label = "Общий интерес" if len(titles) == 1 else "Общие интересы"
         reasons.append(f"{label} — {', '.join(titles)}")
+    # The other half of the arithmetic went unexplained: the score reads `shared_any` at 0.4, so a
+    # tag only one of the two chose already moved the number, while the card said nothing about it
+    # and the pair could not tell a shared taste from somebody's own one. Which of the two is not
+    # named on purpose — the page is the same text for both halves, and a name would be a statement
+    # about one of them that the other never asked for.
+    alone = sorted(shared_any - shared_both)[:3]
+    if alone:
+        alone_label = "Интерес одного из вас" if len(alone) == 1 else "Интересы одного из вас"
+        alone_titles = ", ".join(
+            a.interest_titles.get(s, b.interest_titles.get(s, s)) for s in alone
+        )
+        reasons.append(f"{alone_label} — {alone_titles}")
     return score, reasons
 
 
@@ -119,16 +152,65 @@ def _leisure_match(act: ActivitySignal, a: UserSignal, b: UserSignal) -> tuple[f
     sim_a = _trait_similarity(act_traits, a.vector.get("leisure", {}))
     sim_b = _trait_similarity(act_traits, b.vector.get("leisure", {}))
     score = _clamp01((sim_a + sim_b) / 2)
+    # The bullet names the axis instead of the category, and it is spoken only when both halves and
+    # the idea answer the same side of it. The number above is the mean of two similarities and can
+    # pass 0.7 on one person who is exactly this idea and one who is not, so the line the card used
+    # to print over it — «Подходит вашему стилю досуга» — claimed a taste to a pair that does not
+    # share it. Measured on the working database before this change: it was the only bullet on 7 of
+    # the 8 cards of one real pair, and the same sentence on 15 of the 16 cards both pairs had.
+    vec_a = a.vector.get("leisure", {})
+    vec_b = b.vector.get("leisure", {})
+    candidates: list[tuple[float, str, str]] = []
+    for trait in leisure.traits:
+        if trait.key not in act_traits or trait.key not in vec_a or trait.key not in vec_b:
+            continue
+        side = _shared_side(
+            [act_traits[trait.key], float(vec_a[trait.key]), float(vec_b[trait.key])],
+            trait.low_label,
+            trait.high_label,
+        )
+        if side is None:
+            continue
+        # One axis per card: the idea's own sharpest answer, so the bullet says what the card is
+        # about rather than whichever axis the taxonomy happens to list first.
+        candidates.append(
+            (
+                abs(act_traits[trait.key] - 0.5),
+                trait.key,
+                f"{trait.label}: и вы, и идея — {side}",
+            )
+        )
     reasons = []
-    if score >= 0.7:
-        reasons.append("Подходит вашему стилю досуга")
+    if candidates:
+        candidates.sort(key=lambda c: (-c[0], c[1]))
+        reasons.append(candidates[0][2])
     return score, reasons
 
 
 def _lifestyle_match(a: UserSignal, b: UserSignal) -> tuple[float, list[str]]:
-    sim = _trait_similarity(a.vector.get("lifestyle", {}), b.vector.get("lifestyle", {}))
-    reasons = ["У вас близкий ритм жизни"] if sim >= 0.7 else []
-    return sim, reasons
+    vec_a = a.vector.get("lifestyle", {})
+    vec_b = b.vector.get("lifestyle", {})
+    sim = _trait_similarity(vec_a, vec_b)
+    if sim < 0.7:
+        return sim, []
+    # "У вас близкий ритм жизни" without a noun behind it is a claim about four answers at once,
+    # and the mean says nothing about which of them carried it. Name the axis the pair is closest
+    # on, in the words the taxonomy gives that axis; when no pair of answers lands on a named side
+    # the mean still says the two rhythms are alike, and the plain sentence stays true.
+    lifestyle = TRAIT_CATEGORIES_BY_KEY["lifestyle"]
+    named: list[tuple[float, str, str]] = []
+    for trait in lifestyle.traits:
+        if trait.key not in vec_a or trait.key not in vec_b:
+            continue
+        va = _clamp01(float(vec_a[trait.key]))
+        vb = _clamp01(float(vec_b[trait.key]))
+        side = _shared_side([va, vb], trait.low_label, trait.high_label)
+        if side:
+            named.append((1.0 - abs(va - vb), trait.key, f"{trait.label.lower()} ({side})"))
+    if not named:
+        return sim, ["У вас близкий ритм жизни"]
+    named.sort(key=lambda c: (-c[0], c[1]))
+    return sim, [f"Близкий ритм жизни: {named[0][2]}"]
 
 
 def _location_match(act: ActivitySignal, a: UserSignal, b: UserSignal) -> tuple[float, list[str]]:
@@ -141,7 +223,20 @@ def _location_match(act: ActivitySignal, a: UserSignal, b: UserSignal) -> tuple[
     a_ok = a.city.lower() in cities
     b_ok = b.city.lower() in cities
     score = 1.0 if (a_ok and b_ok) else (0.4 if (a_ok or b_ok) else 0.0)
-    reasons = ["Проходит в вашем городе"] if (a_ok and b_ok) else []
+    reasons = []
+    if a_ok and b_ok:
+        # The sentence has to agree with how many cities the pair actually has: two people living in
+        # two of the listed ones were told the idea runs "in your city", which is a city neither of
+        # them shares with the other.
+        reasons.append(
+            "Проходит в вашем городе"
+            if a.city.lower() == b.city.lower()
+            else "Проходит в ваших городах"
+        )
+    elif a_ok or b_ok:
+        # The 0.4 this half-match costs the card went unexplained: the page looked as though the
+        # idea were available to the pair, while it is available to one of them.
+        reasons.append("Проходит в городе одного из вас")
     return score, reasons
 
 
@@ -156,8 +251,16 @@ def _goal_match(a: UserSignal, b: UserSignal) -> tuple[float, list[str]]:
     if not a.dating_goal or not b.dating_goal:
         return 0.5, []
     score = goal_compatibility(a.dating_goal, b.dating_goal)
-    reasons = ["Цели знакомства совпадают"] if score >= 0.8 else []
-    return score, reasons
+    # Two different facts used to print the same sentence. `goal_compatibility` answers 1.0 for two
+    # halves that named the same goal and 0.85 for a pair the matrix calls complementary
+    # (`marriage` beside `relationship`), and both got "Цели знакомства совпадают" — which is a
+    # statement one of those pairs never made. The goal itself is not spelled out: the words a
+    # person chose live on the client's option list, and a second rendering of the same answer is
+    # what stage 75 removed for percents.
+    if score < 0.8:
+        return score, []
+    same = a.dating_goal == b.dating_goal
+    return score, ["Цель знакомства у вас одна" if same else "Цели знакомства не расходятся"]
 
 
 def score_activity(act: ActivitySignal, a: UserSignal, b: UserSignal) -> ScoredActivity:
