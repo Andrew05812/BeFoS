@@ -132,6 +132,10 @@ async def test_every_route_naming_a_match_refuses_an_outsider_the_same_way(
         ("GET", f"/api/v1/matches/{match_id}/compatibility", {}),
         ("GET", f"/api/v1/matches/{match_id}/recommendations", {}),
         ("POST", f"/api/v1/matches/{match_id}/recommendations/1/select", {}),
+        # Both halves of one decision the pair owns: a refusal writes a row and takes it back,
+        # and neither may answer an outsider differently from the route beside it.
+        ("POST", f"/api/v1/matches/{match_id}/recommendations/1/decline", {}),
+        ("DELETE", f"/api/v1/matches/{match_id}/recommendations/1/decline", {}),
         ("GET", f"/api/v1/matches/{match_id}/messages", {}),
         # A well-formed body here, because the request model is checked before the service
         # is entered: an empty one is refused as invalid input, and that answer says nothing

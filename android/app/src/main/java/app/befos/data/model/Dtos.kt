@@ -369,6 +369,9 @@ data class RecommendationDto(
     // Whether the other half of the pair did. The idea it marks is already readable in the pair's
     // chat, so naming it to this reader reveals nothing the pair does not already have.
     @SerialName("partner_selected") val partnerSelected: Boolean = false,
+    // Whether this person pushed the card away. Never answered for the other half: a proposal is a
+    // message the pair received, a refusal is one person editing their own list.
+    val declined: Boolean = false,
 )
 
 @Serializable

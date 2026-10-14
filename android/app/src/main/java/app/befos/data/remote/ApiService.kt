@@ -229,6 +229,18 @@ class ApiService(private val client: HttpClient) {
             url(endpoint("matches/$matchId/recommendations/$activityId/select"))
         }
 
+    suspend fun declineRecommendation(matchId: String, activityId: Int): ApiResult<Unit> =
+        client.apiCallUnit {
+            method = HttpMethod.Post
+            url(endpoint("matches/$matchId/recommendations/$activityId/decline"))
+        }
+
+    suspend fun restoreRecommendation(matchId: String, activityId: Int): ApiResult<Unit> =
+        client.apiCallUnit {
+            method = HttpMethod.Delete
+            url(endpoint("matches/$matchId/recommendations/$activityId/decline"))
+        }
+
     // ---------- Chat ----------
     suspend fun getMessages(matchId: String, limit: Int = 50, beforeId: String? = null): ApiResult<MessagePageDto> =
         client.apiCall {

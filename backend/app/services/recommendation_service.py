@@ -109,7 +109,7 @@ class RecommendationService:
         await self.activities.replace_recommendations(match_id, recs)
         await self.session.commit()
         tracker.track(Event.RECOMMENDATION_VIEWED, str(user_id), match=str(match_id), count=len(recs))
-        chosen, partner_chosen = await self._choices(
+        chosen, partner_chosen, declined = await self._decisions(
             user_id, partner_id, match_id, [item["activity_id"] for item in recs]
         )
         # The page was just written by this session, with `position` equal to the enumerate order
@@ -126,24 +126,34 @@ class RecommendationService:
             {act.id: act for act in catalogue},
             chosen,
             partner_chosen,
+            declined,
         )
 
-    async def _choices(
+    async def _decisions(
         self,
         user_id: uuid.UUID,
         partner_id: uuid.UUID,
         match_id: uuid.UUID,
         activity_ids: list[int],
-    ) -> tuple[set[int], set[int]]:
-        """What each half of the pair has already chosen, out of these cards.
+    ) -> tuple[set[int], set[int], set[int]]:
+        """What each half proposed, and what the person asking pushed away.
 
         One read answers for both people, so the page keeps the round trip the tap-invariant
-        measures. Split here rather than in the repository: the two sets mean different things to
-        the card — one is the viewer's own state, the other is the other half's — and the service
-        is the place that knows which of the pair is asking.
+        measures. Split here rather than in the repository: the three sets mean different things
+        to the card — one is the viewer's own state, the other is the other half's, the third is
+        the viewer's refusal — and the service is the place that knows which of the pair is asking.
+
+        The partner's refusals are read out of the row and dropped here on purpose. A proposal is
+        a message the pair already received, so naming it back says nothing new; a refusal never
+        left the person's own page, and reporting it would turn a private edit of a list into a
+        statement about them that no conversation carries.
         """
-        by_person = await self.activities.chosen_by_pair(match_id, activity_ids)
-        return by_person.get(user_id, set()), by_person.get(partner_id, set())
+        proposed, declined = await self.activities.decisions_by_pair(match_id, activity_ids)
+        return (
+            proposed.get(user_id, set()),
+            proposed.get(partner_id, set()),
+            declined.get(user_id, set()),
+        )
 
     def _render(
         self,
@@ -151,6 +161,7 @@ class RecommendationService:
         by_id: dict,
         chosen: set[int],
         partner_chosen: set[int],
+        declined: set[int],
     ) -> list[dict]:
         out: list[dict] = []
         for activity_id, score, position, explanation in rows:
@@ -175,6 +186,10 @@ class RecommendationService:
                     "reasons": reasons,
                     "selected": activity_id in chosen,
                     "partner_selected": activity_id in partner_chosen,
+                    # Kept in the page rather than filtered out of it: the person who pushed a card
+                    # away still has to be able to take it back, and a list that hid it would leave
+                    # that decision unreversible.
+                    "declined": activity_id in declined,
                 }
             )
         out.sort(key=lambda r: r["position"])
@@ -190,7 +205,7 @@ class RecommendationService:
         # The catalogue rows are read once for the whole page: one round trip per card
         # made opening the tab cost eight queries to fetch eight rows of the same table.
         by_id = await self.activities.get_by_ids([rec.activity_id for rec in stored])
-        chosen, partner_chosen = await self._choices(
+        chosen, partner_chosen, declined = await self._decisions(
             user_id, partner_id, match_id, [rec.activity_id for rec in stored]
         )
         return self._render(
@@ -198,6 +213,7 @@ class RecommendationService:
             by_id,
             chosen,
             partner_chosen,
+            declined,
         )
 
     async def mark_selected(self, match_id: uuid.UUID, user_id: uuid.UUID, activity_id: int) -> None:
@@ -220,4 +236,23 @@ class RecommendationService:
         await self.activities.set_preference(user_id, activity_id, 1.0, match_id)
         await self.session.commit()
         tracker.track(Event.RECOMMENDATION_SELECTED, str(user_id), match=str(match_id), activity=activity_id)
+
+    async def set_declined(
+        self, match_id: uuid.UUID, user_id: uuid.UUID, activity_id: int, declined: bool
+    ) -> None:
+        """Push an idea out of this person's page, or bring it back.
+
+        Guarded the same way a proposal is: the id is a claim about the catalogue, and the row is
+        a child of the match, so an un-checked id reached a foreign key and a dissolve racing the
+        write produced a 500 rather than the 404 this pair route already answers elsewhere.
+        """
+        match = await self._require_match(match_id, user_id)
+        known = await self.activities.get_by_ids([activity_id])
+        if activity_id not in known:
+            raise NotFoundError("Activity not found.")
+        await self.social.lock_pair(match.user_a_id, match.user_b_id)
+        if not await self.social.match_still_present(match_id):
+            raise NotFoundError("Match not found.")
+        await self.activities.set_declined(user_id, activity_id, match_id, declined)
+        await self.session.commit()
 

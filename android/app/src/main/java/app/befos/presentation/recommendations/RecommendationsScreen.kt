@@ -19,10 +19,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -58,6 +60,11 @@ fun RecommendationsScreen(matchId: String, onBack: () -> Unit) {
     val vm: RecommendationsViewModel =
         beFosViewModel { RecommendationsViewModel(it.matchRepository, it.chatRepository, matchId) }
     val state by vm.uiState.collectAsState()
+    // Refused ideas stay on the page rather than vanishing from it: what is hidden is the card's
+    // place in the list, not its record, so the same data carries both sections.
+    val (refused, ideas) = remember(state.items, state.declined) {
+        state.items.partition { state.declined.contains(it.activity.id) }
+    }
     // Reasons carried by every idea in the list are facts about the pair, not about
     // the idea; they are shown once above the list instead of eight times inside it.
     val shared = remember(state.items) {
@@ -99,6 +106,12 @@ fun RecommendationsScreen(matchId: String, onBack: () -> Unit) {
                             onAction = if (canRetry) vm::retryRecords else null,
                         )
                     }
+                }
+                if (state.declineError != null) {
+                    // No «Повторить» beside this one: the card came back to the list, so the tap
+                    // that failed is its own retry, and a second button would offer one decision
+                    // under two names.
+                    item { InlineNotice(text = state.declineError.orEmpty()) }
                 }
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
@@ -145,13 +158,55 @@ fun RecommendationsScreen(matchId: String, onBack: () -> Unit) {
                         }
                     }
                 }
-                items(state.items, key = { it.activity.id }) { rec ->
+                if (ideas.isEmpty()) {
+                    item {
+                        Text(
+                            "Здесь не осталось идей — все с этой страницы вы отклонили.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                items(ideas, key = { it.activity.id }) { rec ->
                     RecommendationCard(
                         rec = rec,
                         hidden = shared,
                         selected = state.selected.contains(rec.activity.id),
+                        declined = false,
                         onSelect = { vm.select(rec.activity.id, rec.activity.title) },
+                        onDecline = { vm.decline(rec.activity.id) },
+                        onRestore = null,
                     )
+                }
+                if (refused.isNotEmpty()) {
+                    item {
+                        Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                            Text(
+                                "ВЫ ОТКЛОНИЛИ (${refused.size})",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            // Says whose list this is, because it is the whole point of the section:
+                            // the partner keeps seeing the idea, and nothing about the refusal
+                            // reaches them.
+                            Text(
+                                "Эти идеи скрыты только у вас: партнёр видит их в своей подборке и не узнаёт об отказе. Любую можно вернуть.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    items(refused, key = { it.activity.id }) { rec ->
+                        RecommendationCard(
+                            rec = rec,
+                            hidden = shared,
+                            selected = state.selected.contains(rec.activity.id),
+                            declined = true,
+                            onSelect = { vm.select(rec.activity.id, rec.activity.title) },
+                            onDecline = null,
+                            onRestore = { vm.restore(rec.activity.id) },
+                        )
+                    }
                 }
             }
         }
@@ -163,7 +218,10 @@ private fun RecommendationCard(
     rec: Recommendation,
     hidden: Set<String>,
     selected: Boolean,
+    declined: Boolean,
     onSelect: () -> Unit,
+    onDecline: (() -> Unit)?,
+    onRestore: (() -> Unit)?,
 ) {
     val accent = scoreColor(rec.score)
     // Never empty a card of its explanation: when the pair-level fact above is the only
@@ -232,6 +290,26 @@ private fun RecommendationCard(
                 }
             }
             when {
+                declined -> {
+                    // Kept readable instead of deleted: the reason this idea was chosen for the
+                    // pair is the text that explains what «Вернуть» would put back.
+                    ChoiceChip(
+                        "Идея осталась в чате, но вы её отклонили".takeIf { selected }
+                            ?: "Вы отклонили эту идею",
+                        Icons.Filled.Close,
+                        MaterialTheme.colorScheme.surfaceVariant,
+                        MaterialTheme.colorScheme.onSurfaceVariant,
+                        MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    onRestore?.let { action ->
+                        AppButton(
+                            text = "Вернуть в подборку",
+                            onClick = action,
+                            variant = AppButtonVariant.Ghost,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
                 selected -> ChoiceChip(
                     "Эту идею выбрали вы оба".takeIf { rec.partnerSelected } ?: "Отправлено в чат",
                     Icons.Filled.CheckCircle,
@@ -256,6 +334,18 @@ private fun RecommendationCard(
                         onClick = onSelect,
                         variant = AppButtonVariant.Tonal,
                         modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+            onDecline?.let { action ->
+                // Quiet and beside the CTA rather than instead of it: an idea can go into the chat
+                // and still be pushed away later, and the two taps mean different things to the
+                // pair — one writes into the conversation, the other edits only this list.
+                TextButton(onClick = action, modifier = Modifier.align(Alignment.End)) {
+                    Text(
+                        "Не подходит",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
