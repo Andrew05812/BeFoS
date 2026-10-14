@@ -52,6 +52,26 @@ data class TestUiState(
         get() = current?.let { question -> categories.firstOrNull { it.key == question.category } }
     val progress: Float get() = if (questions.isEmpty()) 0f else (index + 1) / questions.size.toFloat()
 
+    /**
+     * What the sections the server itself counted say about the questionnaire: every band it
+     * reported holds an answer for all of its questions.
+     *
+     * The counts arrive only with writes that landed, and a band can never be counted above its own
+     * questions, so a closed set of bands leaves no card empty — the route that refuses to score a
+     * short questionnaire has nothing left to refuse. The position in the catalogue says nothing of
+     * the sort: a person who was sent into one section walks it and stands in the middle of a test
+     * they have in fact finished. Without counts the screen keeps its old rule (no band can be
+     * named closed, so nothing is promised that the server has not confirmed).
+     */
+    val questionnaireClosed: Boolean
+        get() = categories.isNotEmpty() && categories.all { it.answered >= it.total }
+
+    /** What the forward press asks for: the profile, or the next card. */
+    val finishesOnNext: Boolean get() = questionnaireClosed || index >= questions.lastIndex
+
+    /** Whether the finishing button stands before the end of the catalogue, where its appearing needs saying. */
+    val explainsEarlyFinish: Boolean get() = questionnaireClosed && index < questions.lastIndex
+
     // Driven by the taps that are still waiting, not by the flag a failed write left behind: a
     // person who is holding an answer the catalogue does not have deserves to be told so, whether
     // or not this session has already seen the refusal.
@@ -86,9 +106,19 @@ internal fun startIndex(questions: List<Question>, section: String?): Int {
  * section label can move on the tap that landed instead of waiting for a reload. A response from
  * before the sections were reported carries none, and then the arrived counts stay — the line would
  * otherwise disappear under the person's own answers.
+ *
+ * The invitation to go back into a short section is re-read from the same counts, because it is a
+ * reading of them and not a place the person was sent to: the section whose gap the last write
+ * filled would otherwise keep its old numbers on screen next to the new ones, and an invitation
+ * naming no gap left would keep offering a walk that has nothing to walk into.
  */
 private fun TestUiState.withCounts(progress: TestProgress): TestUiState =
-    if (progress.categories.isEmpty()) this else copy(categories = progress.categories)
+    if (progress.categories.isEmpty()) this
+    else copy(
+        categories = progress.categories,
+        openSections = if (openSections.isEmpty()) emptyList()
+        else progress.categories.filter { it.answered < it.total },
+    )
 
 class TestViewModel(
     private val testRepository: TestRepository,
@@ -179,13 +209,18 @@ class TestViewModel(
      * changed, so moving on is asked for. Asked before any stop is held, it moves nothing and
      * writes nothing: there is no answer to carry forward, and inventing one would put words the
      * person never chose into their profile.
+     *
+     * Once the counts say no section is short, the same press asks for the profile instead of the
+     * next card. The person who came in through one section has filled the gap that sent them there
+     * and is standing in the middle of the catalogue; making them page to its end to be scored would
+     * charge a walk their own answers already finished.
      */
     fun next() {
         val state = _uiState.value
         if (state.submitting) return
         val q = state.current ?: return
         if (state.answers[q.id] == null) return
-        if (state.index >= state.questions.lastIndex) finish(state.answers)
+        if (state.finishesOnNext) finish(state.answers)
         else _uiState.update { it.copy(index = it.index + 1) }
     }
 

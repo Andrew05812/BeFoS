@@ -236,22 +236,24 @@ class FinishWithOpenSectionsTest {
         vm.goToFirstOpenSection()
         advance()
 
-        // The invitation put the person on the first empty values card; answering the section brings
-        // them back over the leisure cards they set a minute ago. Passing those cannot choose them
-        // again, so the way past is asked for rather than paid for with a re-tap.
+        // The invitation put the person on the first empty values card.
         vm.select(11)
         advance()
-        vm.select(21)
-        advance()
-        assertEquals(2, vm.uiState.value.index)
+        assertEquals(1, vm.uiState.value.index)
 
+        // Back over the card tapped a moment ago and past it again. The section the server still
+        // counts short is this one, so the press moves on rather than asking for a profile — and
+        // passing one's own answer reads it, it does not choose it a second time.
+        vm.back()
+        advance()
+        assertEquals(0, vm.uiState.value.index)
         vm.next()
         advance()
+        assertEquals(1, vm.uiState.value.index)
 
-        assertEquals(3, vm.uiState.value.index)
         assertEquals(mapOf(3 to 31, 4 to 41), vm.uiState.value.answers.filterKeys { it >= 3 })
         assertEquals(
-            listOf(mapOf(3 to 31), mapOf(3 to 31, 4 to 41), mapOf(1 to 11), mapOf(2 to 21)),
+            listOf(mapOf(3 to 31), mapOf(3 to 31, 4 to 41), mapOf(1 to 11)),
             server.writes,
         )
     }
