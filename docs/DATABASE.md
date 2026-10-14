@@ -8,7 +8,11 @@ PostgreSQL 16, SQLAlchemy 2.0 (async) + asyncpg. Миграции — Alembic (`
 `f3a07c2d5b18`, `7c4f2a91be36` схему не тронула; счёт снят тем же запросом — `select count(*) from pg_indexes where schemaname =
 'public'` — и с базы, развёрнутой `alembic upgrade head` до этой ревизии, и с рабочей базы, которая после
 пересобранного образа стадии 63 сама стоит на `b4d8f1c07a52`: `select version_num from alembic_version`
-даёт этот хэш). Одиночный индекс
+даёт этот хэш). Счёт переснят и на хэде стадии 84: пустая база, поднятая `alembic upgrade head` до
+`d7a3f2b81c64` (прогон 17:21:37…17:21:45 UTC 2026-10-14, артефакт `s84r_schema_counts.log`, база после
+съёма удалена), даёт те же 23 таблицы и 64 индекса — миграция несёт один `add_column` в
+`test_questions` и ни `create_table`, ни `create_index`, — и тот же прогон отвечает `alembic check`
+как «No new upgrade operations detected». Одиночный индекс
 по внешней колонке здесь
 есть там, где с этой колонки не начинается более длинный ключ: свайп — это `INSERT` в `passes`, и
 каждый лишний btree на этой таблице оплачивается при каждом свайпе. Замерено: 100 000 строк
@@ -172,7 +176,14 @@ onboarding_completed_at IS NOT NULL` добавлен миграцией `f3a07c
 ## Тест и профиль совместимости
 
 ### `test_questions`
-`id` (Int PK), `category`, `trait`, `text`, `position`, `is_active`. Чтение категорий идёт индексом `ix_question_category_position (category, position)`; одиночный индекс по `category` удалён `e6b28c4a13d0` — он был префиксом этого же ключа.
+`id` (Int PK), `category`, `trait`, `text`, `position`, `is_active`, `kind`. Чтение категорий идёт индексом `ix_question_category_position (category, position)`; одиночный индекс по `category` удалён `e6b28c4a13d0` — он был префиксом этого же ключа.
+
+`kind` (`choice` / `scale`, `NOT NULL DEFAULT 'choice'`, добавлен `d7a3f2b81c64`) меняет только
+показ: шкала рисуется бегунком по тем же строкам `test_options`, поэтому ответ по-прежнему лежит на
+варианте, `test_answers.option_id` остаётся `NOT NULL`, и ни `answered`, ни полосы анкеты, ни вектор
+совместимости этой колонки не читают. Осевым наборам её выдаёт сид через `question_kind()`
+(`backend/app/seed_data/questions_catalog.py`), а не позицией ряда, поэтому порядок каталога можно
+менять, не перекрашивая вопросы.
 
 `category` и `trait` — свободные строки, поэтому на уровне схемы ряд может назвать ось, которой нет
 в таксономии трейонов, и ничто этому не противится. Граница держит это выше, на записи ответа:
