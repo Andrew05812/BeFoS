@@ -2,10 +2,11 @@
 
 The numbers in `docs/SCALE_PLAN.md` come from this script. It creates a throwaway database
 (`befos_scale`), brings it to the current schema with Alembic, fills it with a generated
-population, and then drives the *real* service objects — the same classes the API calls — while
-timing each call. The first call of a path is published as its own number and stays out of the
-median and the maximum: it pays a warming that no repeat of the same path pays again. Every SELECT
-the path sent is then replayed under
+population, and then drives the *real* service objects — the same classes the API calls, and for the
+screens whose price lives in the route layer the handlers themselves — while timing each call. The
+first call of a path is published as its own number and stays out of the median and the maximum: it
+pays a warming that no repeat of the same path pays again. Every statement the path sent — reads and
+writes alike — is counted into the row, and the reads among them are then replayed under
 `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)`, so a latency number arrives with the plan behind it.
 
 Run from `backend/`, with the Docker Postgres of `docker-compose.yml` reachable:
@@ -485,10 +486,17 @@ async def _session_rows(asyncpg, database: str) -> dict:
 
 
 def _build_paths():
-    """One wrapper per screen: each calls the same service object the API route calls."""
+    """One wrapper per screen: each sends exactly what the mounted route sends.
+
+    Where the route only hands the work to a service, the wrapper calls that service with the route's
+    own arguments. Where the route body does something of its own — proves a membership, titles a
+    slug, mints a session — the wrapper calls the handler, because stage 76 and stage 77 each found a
+    re-assembled copy of a route publishing yesterday's call as today's price. The auth dependency's
+    read of `users` is outside every window: the handler is what is being priced, and `ctx` carries
+    the viewer the way `get_current_user` would hand it over.
+    """
     from app.services.auth_service import AuthService
     from app.services.chat_service import ChatService
-    from app.services.compatibility_service import CompatibilityService
     from app.services.discovery_service import DiscoveryService
     from app.services.matches_service import MatchesService
 
@@ -505,9 +513,12 @@ def _build_paths():
         await DiscoveryService(session).get_public_profile(ctx["viewer_id"], ctx["peer_id"])
 
     async def discovery_rebuild(session, ctx):
-        from app.repositories.social_repo import DiscoveryRepository
-
-        await DiscoveryRepository(session).deck_invalidate(ctx["viewer_id"])
+        # `GET /discover` on a deck that holds nothing ready — the request that follows a profile
+        # edit or a completed test. The edit's own `DELETE FROM discovery_queue` is not this
+        # route's statement (`deck_invalidate` is called by `ProfileService` and by
+        # `TestService.recompute_profile`), so it no longer sits in this window; the queue is
+        # emptied between the repeats by `_empty_deck`, outside the timer, because a deck that
+        # refilled on the first call would leave the second one timing a warm page.
         page = await DiscoveryService(session).feed(ctx["viewer_id"], limit=DECK_SIZE)
         ctx["cursor"] = page.get("next_cursor")
 
@@ -518,15 +529,24 @@ def _build_paths():
         await MatchesService(session).list_matches(ctx["viewer_id"])
 
     async def match_detail(session, ctx):
-        # The pair's own page: the peer's card and the percent the pair carries. `public_profile`
-        # above asks the same service with the deck's rule; this one asks it as an established
-        # match, which is a different read of the same two people.
-        await DiscoveryService(session).get_public_profile(
-            ctx["viewer_id"], ctx["peer_id"], for_match_member=True
-        )
+        # The pair's own page, priced by the handler the route dispatches rather than by the two
+        # service calls somebody believed it takes: `GET /matches/{id}` proves membership against
+        # the `matches` row and derives the partner from that row, and only then asks for the card
+        # `for_match_member`. Asking the deck's first letter instead published a screen of a
+        # different person, in fewer statements than the screen pays.
+        from app.api.v1.matches import get_match
+
+        return await get_match(ctx["match_id"], current_user=ctx["viewer_user"], session=session)
 
     async def compatibility(session, ctx):
-        await CompatibilityService(session).explain_pair(ctx["viewer_id"], ctx["peer_id"])
+        # `GET /matches/{id}/compatibility`: the same membership proof, then the engine's answer,
+        # then — only when the pair shares an interest — the read that puts Russian names on the
+        # slugs the explanation carries. `explain_pair` alone leaves the last of those three out.
+        from app.api.v1.matches import match_compatibility
+
+        return await match_compatibility(
+            ctx["match_id"], current_user=ctx["viewer_user"], session=session
+        )
 
     async def chat_history(session, ctx):
         await ChatService(session).history(ctx["match_id"], ctx["viewer_id"], limit=50)
@@ -577,12 +597,14 @@ def _build_paths():
         # The pair's map is the one screen that recomputes the whole engine on every open, and it is
         # priced here by calling the handler the API dispatches rather than by re-assembling the steps
         # someone believed it takes: stage 75 changed the body of this route, and a copied harness
-        # would have gone on publishing yesterday's call as today's number.
+        # would have gone on publishing yesterday's call as today's number. The viewer comes from the
+        # context, the way the auth dependency hands it over before the handler runs — reading it
+        # here priced the token's owner as part of the map.
         from app.api.v1.matches import match_universe
-        from app.models import User
 
-        current_user = await session.get(User, ctx["viewer_id"])
-        return await match_universe(ctx["match_id"], current_user=current_user, session=session)
+        return await match_universe(
+            ctx["match_id"], current_user=ctx["viewer_user"], session=session
+        )
 
     async def session_refresh(session, ctx):
         # The call a client makes when its access token died: redeem the stored refresh token and
@@ -647,6 +669,31 @@ def _build_setups():
         "session_refresh": _prime_session,
         "session_logout": _prime_sessions,
     }
+
+
+async def _empty_deck(session, ctx) -> None:
+    """Put the viewer back into the state a profile edit leaves: nothing ready in the deck.
+
+    This is the statement `PATCH /users/me` and `POST /tests/complete` pay, not the page's. It used
+    to sit inside the rebuild's window, which is how the row for `GET /discover` came to carry a
+    DELETE the route never sends.
+    """
+    from app.repositories.social_repo import DiscoveryRepository
+
+    await DiscoveryRepository(session).deck_invalidate(ctx["viewer_id"])
+    await session.commit()
+
+
+def _build_resets():
+    """The state a path's *repeat* needs, restored between the timed calls of that path.
+
+    The setups above run once, before the first call, and are guarded by the context. A path that
+    consumes the state it is priced on has to have that state put back before every call, or the
+    second repeat times the answer the first one left behind — for the rebuild, a deck that just
+    filled itself with 150 ranked candidates, which is a warm page and not a rebuild. Restoring it
+    belongs to the screen that comes before, so it runs outside the timer and outside the capture.
+    """
+    return {"discovery_rebuild": _empty_deck}
 
 
 async def _seed_catalog(engine) -> None:
@@ -714,12 +761,19 @@ async def _context(engine) -> dict:
     from sqlalchemy import text
     from sqlalchemy.ext.asyncio import AsyncSession
 
+    from app.models import User
+
     async with AsyncSession(bind=engine) as session:
         viewer = await session.scalar(text("SELECT id FROM users WHERE email = :e"), {"e": VIEWER_EMAIL})
         peer = await session.scalar(
             text("SELECT u.id FROM users u JOIN profiles p ON p.user_id = u.id "
                  "WHERE u.email ~ '^scale_[0-9]+@befos.test$' ORDER BY u.email LIMIT 1")
         )
+        # The person the auth dependency hands to every handler of an authenticated route. Loaded
+        # once here, outside every measured window, because the dependency resolves it before the
+        # handler runs: a wrapper that read `users` inside its own window would count the token's
+        # owner as part of the screen's price, and the screen it is pricing does not pay it.
+        viewer_user = await session.get(User, viewer)
         match_id = await session.scalar(
             text("SELECT id FROM matches WHERE user_a_id = :v ORDER BY created_at DESC LIMIT 1"),
             {"v": viewer},
@@ -747,6 +801,7 @@ async def _context(engine) -> dict:
     return {
         "viewer_email": VIEWER_EMAIL,
         "viewer_id": viewer,
+        "viewer_user": viewer_user,
         "peer_id": peer,
         "match_id": match_id,
         "like_peers": like_peers,
@@ -755,6 +810,27 @@ async def _context(engine) -> dict:
 
 
 _WRITING = re.compile(r"\b(insert|update|delete)\b", re.IGNORECASE)
+
+# The verbs a request pays a statement for: reading rows and writing rows.
+_PAID_VERBS = ("select", "with", "insert", "update", "delete")
+_FIRST_WORD = re.compile(r"[a-z]+")
+
+
+def _captured_by_harness(statement: str) -> bool:
+    """Does this statement belong to the count of statements the measured call paid?
+
+    The window used to answer by first letter — `s` or `w` — and that answer was written for the
+    EXPLAIN replay, where a write must never run a second time (`_read_only`). Applied to the count
+    it dropped every `INSERT`, `UPDATE` and `DELETE` the call sent: the stage-77 artifact publishes
+    `login` at one statement per call although the wrapper demonstrably sends the profile read and
+    the session `INSERT`, and `session_logout` at zero for a route whose whole answer is one
+    `UPDATE`. Naming the rule is what makes the next change to it visible to a test.
+
+    DDL and connection plumbing stay out: `CREATE INDEX` is the stand's own work, and `SET`, `SHOW`
+    and `SAVEPOINT` are not statements a screen charges the reader for.
+    """
+    head = _FIRST_WORD.match(statement.lstrip().lower())
+    return head is not None and head.group() in _PAID_VERBS
 
 
 def _walk(node: dict):
@@ -766,9 +842,11 @@ def _walk(node: dict):
 def _read_only(sql: str) -> bool:
     """EXPLAIN ANALYZE runs the statement, so a write must never be replayed.
 
-    The capture filter takes anything starting with S or W, and `W` also matches the
-    `WITH … INSERT` the discovery queue is written with. Column names like `updated_at`
-    are one word, so the boundary in `\\bupdate\\b` does not catch them.
+    This is the replay guard, and it is stricter than the count: the capture keeps writes, because
+    the call paid them (`_captured_by_harness`), and only reads are replayed, because a second write
+    would not be the same call. `W` in the old filter also matched the `WITH … INSERT` the discovery
+    queue is written with. Column names like `updated_at` are one word, so the boundary in
+    `\\bupdate\\b` does not catch them.
     """
     return _WRITING.search(sql) is None
 
@@ -875,7 +953,7 @@ async def _plans(asyncpg, dsn: str, captured: dict[str, list[tuple[str, tuple]]]
     return out
 
 
-def _row(name: str, timings: list[float], statements: int, runs: int) -> dict:
+def _row(name: str, timings: list[float], statements_per_run: list[int]) -> dict:
     """Turn the timed calls of one path into a row, keeping the first call out of the page.
 
     The calls of a path are not one sample. Measured 2026-10-09 on the same stand the same path was
@@ -886,20 +964,33 @@ def _row(name: str, timings: list[float], statements: int, runs: int) -> dict:
     warming of a connection's plans and of pages the stand had not been read from yet is not a page
     that got slower. So the first call gets its own column and the median and the maximum are taken
     over the repeats that came after it.
+
+    The same split belongs to the statement count, and it only became visible once writes were
+    counted (`_captured_by_harness`): a path whose first call takes a branch its repeats do not —
+    `answers_submit` writes rows that the seeding had already put there — averaged a cold call into
+    a column meant to describe the page. Both halves are published, and the per-repeat list travels
+    in the artifact so a fractional cell is re-derivable rather than explained away.
     """
     if len(timings) < 2:
         raise ValueError(
             f"путь {name} замерен одним вызовом: медиана берётся по прогретому повтору, "
             "нужен --runs не меньше двух"
         )
+    if len(statements_per_run) != len(timings):
+        raise ValueError(
+            f"путь {name}: замеров {len(timings)}, а обращений записано {len(statements_per_run)} — "
+            "ряд обращений не соответствует ряду замеров"
+        )
     cold, *warm = timings
+    warm_statements = statements_per_run[1:]
     return {
         "path": name,
         "first_ms": round(cold, 1),
         "median_ms": round(statistics.median(warm), 1),
         "max_ms": round(max(warm), 1),
-        # captured accumulates across the runs of this path; the reader wants one pass.
-        "statements_per_call": round(statements / runs, 1),
+        "statements_per_call": round(sum(warm_statements) / len(warm_statements), 1),
+        "statements_first": statements_per_run[0],
+        "statements_per_run": list(statements_per_run),
         # The row stays readable against the run it came from, so a published number can be
         # re-derived by whoever repeats the command.
         "timings": [round(value, 1) for value in timings],
@@ -911,6 +1002,7 @@ def _format_row(row: dict) -> str:
         f"  {row['path']:<20} первый {row['first_ms']:>9.1f} мс"
         f"   медиана {row['median_ms']:>8.1f} мс   max {row['max_ms']:>8.1f} мс"
         f"   запросов за вызов {row['statements_per_call']}"
+        f" (первый {row['statements_first']}, по повторам {row['statements_per_run']})"
     )
 
 
@@ -1002,11 +1094,11 @@ async def _measure_size(asyncpg, database: str, size: int, acted: int, runs: int
     active = {"path": None}
 
     def before(conn, cursor, statement, parameters, context, executemany):
-        if active["path"] and statement.lstrip()[:1].lower() in ("s", "w"):
+        if active["path"] and _captured_by_harness(statement):
             captured.setdefault(active["path"], []).append((statement, tuple(parameters)))
 
     event.listen(engine.sync_engine, "before_cursor_execute", before)
-    paths, setups = _build_paths(), _build_setups()
+    paths, setups, resets = _build_paths(), _build_setups(), _build_resets()
     ctx = await _context(engine)
     rows = []
     try:
@@ -1033,8 +1125,21 @@ async def _measure_size(asyncpg, database: str, size: int, acted: int, runs: int
             # queue the statistics call empty — see `_settle_statistics`.
             await _settle_statistics(asyncpg, database)
             timings = []
+            per_run: list[int] = []
             failure = None
             for _ in range(runs):
+                reset = resets.get(name)
+                if reset is not None:
+                    # Between the repeats, outside the timer and outside the capture: the state the
+                    # screen before this one leaves behind, put back so that the second call prices
+                    # the same request as the first.
+                    async with AsyncSession(bind=engine, expire_on_commit=False) as prep:
+                        await reset(prep, ctx)
+                    # The reset is the last thing that moved the rows this path is planned against,
+                    # so the estimates are retaken after it — the same reason the call above the loop
+                    # exists at all (see `_settle_statistics`).
+                    await _settle_statistics(asyncpg, database)
+                sent_before = len(captured.get(name, []))
                 async with AsyncSession(bind=engine, expire_on_commit=False) as session:
                     active["path"] = name
                     started = time.perf_counter()
@@ -1046,10 +1151,11 @@ async def _measure_size(asyncpg, database: str, size: int, acted: int, runs: int
                         failure = f"{type(error).__name__}: {str(error)[:200]}"
                     timings.append((time.perf_counter() - started) * 1000)
                     active["path"] = None
+                per_run.append(len(captured.get(name, [])) - sent_before)
             if failure:
                 rows.append({"path": name, "error": failure})
                 continue
-            rows.append(_row(name, timings, len(captured.get(name, [])), runs))
+            rows.append(_row(name, timings, per_run))
     finally:
         event.remove(engine.sync_engine, "before_cursor_execute", before)
 
