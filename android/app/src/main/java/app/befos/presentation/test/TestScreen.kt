@@ -310,6 +310,21 @@ private fun TestQuestionView(state: TestUiState, vm: TestViewModel) {
             }
         }
 
+        // The section counts that came back with the person's own writes closed the last short
+        // section, so the button below scores from a card which is not the end of the catalogue.
+        // Said out loud: «Завершить» on question 3 of 5 would otherwise read as a broken flow, and
+        // the numbers it rests on are the ones the server gave, not the position on screen.
+        if (state.explainsEarlyFinish) {
+            Text(
+                closedQuestionnaireWord(
+                    answered = state.categories.sumOf { it.answered },
+                    total = state.categories.sumOf { it.total },
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = EmberDeep,
+            )
+        }
+
         // Moving on is asked for, not assumed: a released thumb can still be a level about to be
         // changed, and a card that already holds an answer can be read again without being chosen
         // again. The ask is dimmed while the question holds nothing, because there is nothing to
@@ -317,7 +332,7 @@ private fun TestQuestionView(state: TestUiState, vm: TestViewModel) {
         val holdsAnswer = state.answers[question.id] != null
         if (holdsAnswer || (question.isScale && question.options.size > 1)) {
             AppButton(
-                text = if (state.index == state.questions.lastIndex) "Завершить" else "Далее",
+                text = if (state.finishesOnNext) "Завершить" else "Далее",
                 onClick = vm::next,
                 enabled = holdsAnswer,
                 loading = state.submitting,
@@ -417,6 +432,16 @@ internal fun unfinishedWord(answered: Int, total: Int, open: List<CategoryProgre
 
 /** What the button next to that line asks for: the section the person is being sent into. */
 internal fun continueSectionWord(band: CategoryProgress): String = "Продолжить «${band.label}»"
+
+/**
+ * The line printed when the sections the server counted hold an answer for every question of the
+ * questionnaire, while the person is standing before its last card. It says what the counts say and
+ * what the button below therefore does; it promises no partner and no percentage, because the route
+ * handed back neither.
+ */
+internal fun closedQuestionnaireWord(answered: Int, total: Int): String =
+    "Анкета закрыта: у вас $answered ${answersWord(answered)} из $total, пустых разделов не осталось. " +
+        "Кнопка «Завершить» считает профиль прямо отсюда — до последней карточки долистывать не нужно."
 
 /**
  * One gradation, set with a thumb instead of tapped as cards.
