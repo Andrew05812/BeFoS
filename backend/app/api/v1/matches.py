@@ -172,6 +172,7 @@ async def match_recommendations(
                 position=r["position"],
                 reasons=r["reasons"],
                 selected=r["selected"],
+                partner_selected=r["partner_selected"],
             )
             for r in recs
         ],

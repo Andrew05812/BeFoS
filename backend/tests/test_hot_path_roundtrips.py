@@ -312,7 +312,8 @@ async def test_a_cold_recommendation_page_is_written_once(client: AsyncClient) -
         r["activity"]["id"] for r in recs
     ]
     # The four of stage 24 — account, pair, page, catalogue — plus the one read that answers
-    # which cards this person has already chosen. A second read per card would fail here.
+    # which of these cards each half of the pair has already chosen. A second read per person,
+    # or per card, would fail here.
     assert len(cached_seen) == 5, f"{len(cached_seen)} trips to the database to read a stored page"
     assert _statements(cached_seen, "select activity_preferences.") == 1
 
@@ -370,9 +371,9 @@ async def test_a_recomputed_page_answers_from_the_rows_it_just_wrote(
     assert _statements(seen, "select activities.") == 1, (
         "the catalogue was read twice for one page"
     )
-    # One more than the eleven of stage 24: the page now answers which of its cards this person
-    # already chose, and that is one read of `activity_preferences` for the whole page — not one
-    # per card, which is what a per-card question would have cost.
+    # One more than the eleven of stage 24: the page now answers which of its cards the viewer and
+    # the other half already chose, and that is one read of `activity_preferences` for the whole
+    # page — not one per person and not one per card, which is what the narrower questions cost.
     assert _statements(seen, "select activity_preferences.") == 1, (
         "the chosen-cards read ran per card instead of once for the page"
     )

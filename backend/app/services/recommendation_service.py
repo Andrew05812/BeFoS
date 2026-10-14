@@ -57,11 +57,12 @@ class RecommendationService:
 
     async def for_match(self, match_id: uuid.UUID, user_id: uuid.UUID, *, force: bool = False) -> list[dict]:
         match = await self._require_match(match_id, user_id)
+        partner_id = match.user_b_id if match.user_a_id == user_id else match.user_a_id
 
         existing = await self.activities.list_recommendations(match_id)
         if existing and not force:
             tracker.track(Event.RECOMMENDATION_VIEWED, str(user_id), match=str(match_id))
-            return await self._hydrate(existing, user_id, match_id)
+            return await self._hydrate(existing, user_id, partner_id, match_id)
 
         a, b = await self._signals([match.user_a_id, match.user_b_id])
 
@@ -108,8 +109,8 @@ class RecommendationService:
         await self.activities.replace_recommendations(match_id, recs)
         await self.session.commit()
         tracker.track(Event.RECOMMENDATION_VIEWED, str(user_id), match=str(match_id), count=len(recs))
-        chosen = await self.activities.chosen_activity_ids(
-            user_id, match_id, [item["activity_id"] for item in recs]
+        chosen, partner_chosen = await self._choices(
+            user_id, partner_id, match_id, [item["activity_id"] for item in recs]
         )
         # The page was just written by this session, with `position` equal to the enumerate order
         # below, and the catalogue rows behind it are the ones `list_for_cities` returned. Asking
@@ -124,9 +125,33 @@ class RecommendationService:
             ],
             {act.id: act for act in catalogue},
             chosen,
+            partner_chosen,
         )
 
-    def _render(self, rows: list, by_id: dict, chosen: set[int]) -> list[dict]:
+    async def _choices(
+        self,
+        user_id: uuid.UUID,
+        partner_id: uuid.UUID,
+        match_id: uuid.UUID,
+        activity_ids: list[int],
+    ) -> tuple[set[int], set[int]]:
+        """What each half of the pair has already chosen, out of these cards.
+
+        One read answers for both people, so the page keeps the round trip the tap-invariant
+        measures. Split here rather than in the repository: the two sets mean different things to
+        the card — one is the viewer's own state, the other is the other half's — and the service
+        is the place that knows which of the pair is asking.
+        """
+        by_person = await self.activities.chosen_by_pair(match_id, activity_ids)
+        return by_person.get(user_id, set()), by_person.get(partner_id, set())
+
+    def _render(
+        self,
+        rows: list,
+        by_id: dict,
+        chosen: set[int],
+        partner_chosen: set[int],
+    ) -> list[dict]:
         out: list[dict] = []
         for activity_id, score, position, explanation in rows:
             act = by_id.get(activity_id)
@@ -149,22 +174,30 @@ class RecommendationService:
                     "position": position,
                     "reasons": reasons,
                     "selected": activity_id in chosen,
+                    "partner_selected": activity_id in partner_chosen,
                 }
             )
         out.sort(key=lambda r: r["position"])
         return out
 
-    async def _hydrate(self, stored: list, user_id: uuid.UUID, match_id: uuid.UUID) -> list[dict]:
+    async def _hydrate(
+        self,
+        stored: list,
+        user_id: uuid.UUID,
+        partner_id: uuid.UUID,
+        match_id: uuid.UUID,
+    ) -> list[dict]:
         # The catalogue rows are read once for the whole page: one round trip per card
         # made opening the tab cost eight queries to fetch eight rows of the same table.
         by_id = await self.activities.get_by_ids([rec.activity_id for rec in stored])
-        chosen = await self.activities.chosen_activity_ids(
-            user_id, match_id, [rec.activity_id for rec in stored]
+        chosen, partner_chosen = await self._choices(
+            user_id, partner_id, match_id, [rec.activity_id for rec in stored]
         )
         return self._render(
             [(rec.activity_id, rec.score, rec.position, rec.explanation) for rec in stored],
             by_id,
             chosen,
+            partner_chosen,
         )
 
     async def mark_selected(self, match_id: uuid.UUID, user_id: uuid.UUID, activity_id: int) -> None:

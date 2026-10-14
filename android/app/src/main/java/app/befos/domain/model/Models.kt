@@ -201,6 +201,9 @@ data class Recommendation(
     val position: Int,
     val reasons: List<String>,
     val selected: Boolean,
+    // What the other half of the pair chose. The stored page is shared by both of them, so without
+    // this the pair's screen can only ever show one voice.
+    val partnerSelected: Boolean,
 )
 
 data class LikeOutcome(

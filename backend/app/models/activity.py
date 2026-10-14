@@ -45,8 +45,9 @@ class ActivityPreference(TimestampMixin, Base):
         ForeignKey("activities.id", ondelete="CASCADE"), nullable=False, index=True
     )
     # Nullable because the tap was recorded without its pair until stage 63; those rows name no
-    # pair and are never read — the only question the page can answer from this table is whether
-    # THIS person proposed THIS idea to THIS pair, and a row without a pair cannot answer it.
+    # pair and are never read — the questions this table answers are all about a pair: did THIS
+    # person propose THIS idea to THIS pair, and did the other half, and a row without a pair
+    # can answer neither.
     match_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("matches.id", ondelete="CASCADE"), nullable=True, index=True
     )

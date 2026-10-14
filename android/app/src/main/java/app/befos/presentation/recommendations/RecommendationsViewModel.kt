@@ -89,7 +89,12 @@ class RecommendationsViewModel(
         }
         viewModelScope.launch {
             // Titles are noun phrases ("Вечер настольных игр"), so the frame must not add a verb.
-            val body = "Идея для нас: $title. Что скажете?"
+            // Whose idea this is second decides the sentence: the page says whether the partner has
+            // already put this card into the chat, and a tap on a card they proposed is an answer to
+            // it, not a copy of it.
+            val partnerProposed = _uiState.value.items
+                .any { it.activity.id == activityId && it.partnerSelected }
+            val body = if (partnerProposed) "Я тоже за: $title." else "Идея для нас: $title. Что скажете?"
             when (val result = chatRepository.send(matchId, body, clientMsgId)) {
                 is ApiResult.Error -> _uiState.update {
                     it.copy(
