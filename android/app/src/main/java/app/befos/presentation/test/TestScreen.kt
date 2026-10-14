@@ -57,8 +57,8 @@ import app.befos.core.di.beFosViewModel
 import app.befos.presentation.common.CategoryScoreList
 
 @Composable
-fun TestScreen(onFinished: () -> Unit) {
-    val vm: TestViewModel = beFosViewModel { TestViewModel(it.testRepository) }
+fun TestScreen(startSection: String? = null, onFinished: () -> Unit) {
+    val vm: TestViewModel = beFosViewModel { TestViewModel(it.testRepository, startSection) }
     val state by vm.uiState.collectAsState()
 
     when {
@@ -163,6 +163,16 @@ private fun TestQuestionView(state: TestUiState, vm: TestViewModel) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+        }
+
+        // Opened from a compatibility band rather than from the profile: the screen has to say why
+        // it is not on question one, or the person reads a mid-test position as a lost place.
+        state.openedCategory?.let { band ->
+            Text(
+                sectionOpeningWord(band.label, band.answered, band.total),
+                style = MaterialTheme.typography.bodySmall,
+                color = EmberDeep,
+            )
         }
 
         // A test that came back with answers says so: without this line the person cannot tell
@@ -318,4 +328,23 @@ private fun TestResultView(state: TestUiState, onFinished: () -> Unit) {
                 .padding(top = Spacing.sm),
         )
     }
+}
+
+/**
+ * The line a section opened from a compatibility band prints, so that a position which is not
+ * question one reads as a place the person was sent to rather than a place they lost. It quotes
+ * only the counts the catalogue itself came back with. A section with every card marked has
+ * nothing left to continue into, so it is described as opened for reading rather than as resumed.
+ */
+internal fun sectionOpeningWord(label: String, answered: Int, total: Int): String = when {
+    total == 0 -> "Раздела «$label» в анкете сейчас нет — открываем с того места, где вы остановились."
+    answered >= total ->
+        "Раздел «$label» пройден: $total из $total. Открываем его первый вопрос — отсюда можно " +
+            "перечитать ответы и поправить их."
+    answered == 0 ->
+        "Раздел «$label» вы ещё не начинали: в нём $total ${answersWord(total)}. " +
+            "Открываем с его первого вопроса."
+    else ->
+        "Открыли раздел «$label»: у вас $answered ${answersWord(answered)} из $total. " +
+            "Продолжаем с первой карточки раздела без ответа."
 }

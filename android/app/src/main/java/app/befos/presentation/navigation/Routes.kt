@@ -4,10 +4,18 @@ object Routes {
     const val SPLASH = "splash"
     const val AUTH = "auth"
     const val ONBOARDING = "onboarding"
-    const val TEST = "test"
     const val MAIN = "main"
     const val EDIT_PROFILE = "editProfile"
     const val SETTINGS = "settings"
+
+    const val SECTION_ARG = "section"
+    // The band the person came from, when the test was opened from a compatibility screen rather
+    // than from the profile. Optional, so the plain «test» route still matches the same screen.
+    const val TEST = "test?${SECTION_ARG}={$SECTION_ARG}"
+
+    /** `section` is a catalogue key like `values`; a route built without one opens the whole test. */
+    fun test(section: String? = null): String =
+        if (section == null) "test?" else "test?$SECTION_ARG=$section"
 
     const val CHAT_ARG = "matchId"
     // A question the map hands to the composer. Optional, so a route built without one still matches

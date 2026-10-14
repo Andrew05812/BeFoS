@@ -84,15 +84,27 @@ fun BeFosNavHost(navController: NavHostController) {
         composable(Routes.ONBOARDING) {
             OnboardingScreen(
                 onDone = {
-                    navController.navigate(Routes.TEST) {
+                    navController.navigate(Routes.test()) {
                         popUpTo(Routes.ONBOARDING) { inclusive = true }
                     }
                 },
             )
         }
 
-        composable(Routes.TEST) {
+        composable(
+            route = Routes.TEST,
+            arguments = listOf(
+                // The band a compatibility screen sent the person in for. Nullable with no default,
+                // so a route built without one opens the test where they stopped, as it did before.
+                navArgument(Routes.SECTION_ARG) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+            ),
+        ) { entry ->
             TestScreen(
+                startSection = entry.arguments?.getString(Routes.SECTION_ARG),
                 onFinished = {
                     // Re-test from Profile: return to the existing MAIN instead of stacking a second one.
                     if (!navController.popBackStack(Routes.MAIN, false)) {
@@ -110,7 +122,7 @@ fun BeFosNavHost(navController: NavHostController) {
                 onOpenProfile = { userId -> navController.navigate(Routes.publicProfile(userId)) { launchSingleTop = true } },
                 onEditProfile = { navController.navigate(Routes.EDIT_PROFILE) { launchSingleTop = true } },
                 onOpenSettings = { navController.navigate(Routes.SETTINGS) { launchSingleTop = true } },
-                onOpenTest = { navController.navigate(Routes.TEST) { launchSingleTop = true } },
+                onOpenTest = { navController.navigate(Routes.test()) { launchSingleTop = true } },
                 onLoggedOut = {
                     navController.navigate(Routes.AUTH) {
                         popUpTo(Routes.MAIN) { inclusive = true }
@@ -197,6 +209,12 @@ fun BeFosNavHost(navController: NavHostController) {
                 matchId = matchId,
                 onBack = { navController.popBackStack() },
                 onOpenUniverse = { navController.navigate(Routes.universe(matchId)) { launchSingleTop = true } },
+                // The band names the section of the questionnaire that would have filled it, and the
+                // tap opens the test at that section instead of at its beginning.
+                onOpenSection = { section ->
+                    navController.navigate(Routes.test(section)) { launchSingleTop = true }
+                },
+                onEditProfile = { navController.navigate(Routes.EDIT_PROFILE) { launchSingleTop = true } },
             )
         }
 

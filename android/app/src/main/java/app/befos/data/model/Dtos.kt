@@ -169,6 +169,10 @@ data class ProgressDto(
     val percent: Int = 0,
     val remaining: Int = 0,
     val completed: Boolean = false,
+    // The sections behind those totals. A screen that has to name the empty part of the test asks
+    // this route rather than the catalogue, because the answer costs one row per section instead of
+    // every question text and every option.
+    val categories: List<CategoryProgressDto> = emptyList(),
 )
 
 @Serializable

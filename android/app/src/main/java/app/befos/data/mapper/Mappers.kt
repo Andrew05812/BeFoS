@@ -74,7 +74,14 @@ fun QuestionDto.toDomain() = Question(
 
 fun CategoryProgressDto.toDomain() = CategoryProgress(key, label, total, answered)
 
-fun ProgressDto.toDomain() = TestProgress(answered, total, percent, remaining, completed)
+fun ProgressDto.toDomain() = TestProgress(
+    answered = answered,
+    total = total,
+    percent = percent,
+    remaining = remaining,
+    completed = completed,
+    categories = categories.map { it.toDomain() },
+)
 
 fun CategoryScoreDto.toDomain() = CategoryScore(category, label, score, weight, hasData)
 

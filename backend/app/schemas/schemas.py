@@ -190,6 +190,10 @@ class ProgressOut(BaseModel):
     percent: int
     remaining: int
     completed: bool
+    # The same sections `GET /api/v1/tests` prints, with the same counts. A screen that has to say
+    # which part of the questionnaire is still empty asks this route, not the catalogue one, and it
+    # gets the answer without carrying twenty-one question texts and their options over the wire.
+    categories: list[CategoryProgressOut] = []
 
 
 class CategoryScoreOut(BaseModel):

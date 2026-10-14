@@ -31,7 +31,11 @@ class TestService:
 
     @staticmethod
     def category_summary(questions: list, choices: dict[int, int]) -> list[dict]:
-        """Counts per category of the catalogue being sent, in the order its sections appear.
+        """Counts per category of the catalogue it is handed, in the order its sections appear.
+
+        Rows or ORM objects — the count only reads ``id`` and ``category``, so the route sending
+        the whole questionnaire and the route just counting it derive the sections from the same
+        two reads and cannot hand the screens two different lists.
 
         A category nobody answered keeps its row with ``answered=0`` instead of dropping out: the
         screen uses this list to name the part of the profile that is still empty, and a missing
@@ -54,8 +58,17 @@ class TestService:
         ]
 
     async def progress(self, user_id: uuid.UUID) -> dict:
-        total = await self.repo.count_active_questions()
-        answered = await self.repo.count_answered(user_id)
+        """How far the person has come, and how far each section of the catalogue has come.
+
+        Two reads, and they are the two the catalogue route already pays: the active questions as
+        ``(id, section)`` rows and the person's own answers as ``(question, option)`` pairs. Two
+        ``COUNT``s cost the same and could not name a section, so a screen asking «what is still
+        empty here» had to fetch the whole questionnaire to answer it.
+        """
+        questions = await self.repo.list_active_question_axes()
+        choices = await self.repo.list_answer_choices(user_id)
+        total = len(questions)
+        answered = len(choices)
         percent = int(round((answered / total) * 100)) if total else 0
         return {
             "answered": answered,
@@ -63,6 +76,7 @@ class TestService:
             "percent": min(100, percent),
             "remaining": max(0, total - answered),
             "completed": total > 0 and answered >= total,
+            "categories": self.category_summary(questions, choices),
         }
 
     async def save_answers(self, user_id: uuid.UUID, answers: list[dict]) -> dict:

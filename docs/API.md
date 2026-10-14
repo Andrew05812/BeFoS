@@ -348,7 +348,7 @@ app scores: casual, friendship, marriage, networking, relationship.` Клиен�
 | Метод | Путь | Тело | Ответ |
 |-------|------|------|-------|
 | GET | `/tests` | — | `{questions: [...], total, answered, categories: [{key, label, total, answered}]}` |
-| GET | `/tests/progress` | — | `{answered, total, percent, remaining, completed}` |
+| GET | `/tests/progress` | — | `{answered, total, percent, remaining, completed, categories: [{key, label, total, answered}]}` |
 | POST | `/tests/answers` | `{answers: [{question_id, option_id}]}` | прогресс |
 | POST | `/tests/complete` | — (без тела) | `{categories: [...], completed_at}` |
 
@@ -367,8 +367,17 @@ app scores: casual, friendship, marriage, networking, relationship.` Клиен�
 чтения тех же строк. Ворота «тест закрыт» — те же два счёта, что считает `/tests/progress`, и отказ
 случается до любых писем: в отказанном запросе не появляется ни строка `compatibility_profiles`, ни
 строка `test_results`. `GET /tests` считает поле `total` по тому каталогу, который отдаёт, —
-отдельного запроса-счётчика у него нет; у `/tests/progress` он остаётся, потому что этот ответ строк
-каталога не несёт и сравнивать ему нечего.
+отдельного запроса-счётчика у него нет. У `/tests/progress` его тоже нет: маршрут поднимает
+активные вопросы двумя колонками (`id`, `category`) и ответы этого человека двумя колонками — тот
+же состав строк, что читает `GET /tests`, но без текстов вопросов и вариантов, — поэтому `total`,
+`answered` и `categories[]` этого ответа выводятся из одних и тех же двух чтений и не могут
+разойтись с `GET /tests`.
+
+`categories[]` в `/tests/progress` — те же полосы, что называет `GET /tests` (`key`, русское
+`label`, `total`, `answered`), и служит он экрану пары: полоса совместимости без данных спрашивает,
+какой раздел анкеты её наполняет и сколько в нём уже отвечено, — отвечать это по всему каталогу с
+текстами вопросов значило бы платить экрану пары чтением чужого маршрута. Экран пары спрашивает
+этот маршрут только когда пустая полоса на экране есть.
 
 Вопрос:
 
