@@ -202,6 +202,39 @@ class BackendErrorTextTest {
     }
 
     @Test
+    fun `a refused hour is answered in hours, not in statuses`() {
+        // A pair arranges a meeting in days and hours, so every one of these has to say something the
+        // person can act on. The generic «Проверьте введённые данные.» would leave them naming the
+        // same hour again, and «Это уже сделано.» would call a refused offer a success.
+        val cases = mapOf(
+            "Send this idea to the chat before arranging a time for it." to
+                "Договариваться о времени можно для идеи, которая уже отправлена в чат.",
+            "The other half has not named a time for this idea yet." to
+                "Партнёр ещё не предложил время для этой идеи.",
+            "That time is no longer the one being offered." to
+                "Партнёр уже предложил другое время. Обновите карточку и согласуйте его заново.",
+            "This moment has already passed." to "Это время уже прошло. Выберите час позже.",
+            "A meeting is arranged within the next year, not beyond it." to
+                "Договориться можно только о встрече в ближайший год.",
+        )
+        cases.forEach { (backend, expected) ->
+            assertEquals(expected, localizeBackendError(backend, "conflict", 422))
+            assertEquals(expected, localizeBackendError(backend, "conflict", 409))
+        }
+        // The zone rule is stated by the server as a whole sentence about two cities, so its key can
+        // only be the opening; the screen keeps its own short line.
+        assertEquals(
+            "Не удалось понять, в каком поясе этот час.",
+            localizeBackendError(
+                "Meeting time must carry a UTC offset: the pair is often in two cities, and a wall " +
+                    "clock with no zone names a moment in one of them at random.",
+                "validation_error",
+                422,
+            ),
+        )
+    }
+
+    @Test
     fun `transport status copy stays untouched`() {
         assertEquals(defaultHttpMessage(401), localizeBackendError("", "", 401))
         assertEquals(defaultHttpMessage(429), localizeBackendError("", "", 429))

@@ -71,6 +71,12 @@ interface MatchRepository {
     suspend fun selectRecommendation(matchId: String, activityId: Int): ApiResult<Unit>
     suspend fun declineRecommendation(matchId: String, activityId: Int): ApiResult<Unit>
     suspend fun restoreRecommendation(matchId: String, activityId: Int): ApiResult<Unit>
+
+    /** Name — or move — the hour this person would meet at for an idea the pair already has in chat. */
+    suspend fun proposeMeetingTime(matchId: String, activityId: Int, whenIso: String): ApiResult<Unit>
+
+    /** Agree to the hour the other half named, sending back exactly the instant that was read. */
+    suspend fun acceptMeetingTime(matchId: String, activityId: Int, whenIso: String): ApiResult<Unit>
 }
 
 interface ChatRepository {

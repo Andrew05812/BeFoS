@@ -14,6 +14,7 @@ import app.befos.data.model.LikeResponseDto
 import app.befos.data.model.LoginRequest
 import app.befos.data.model.MatchDetailDto
 import app.befos.data.model.MatchListDto
+import app.befos.data.model.MeetingTimeRequest
 import app.befos.data.model.MessageDto
 import app.befos.data.model.MessagePageDto
 import app.befos.data.model.MessageRequest
@@ -239,6 +240,26 @@ class ApiService(private val client: HttpClient) {
         client.apiCallUnit {
             method = HttpMethod.Delete
             url(endpoint("matches/$matchId/recommendations/$activityId/decline"))
+        }
+
+    /**
+     * A PUT rather than a POST: the pair holds one row per person per card, so naming a second
+     * hour replaces this person's offer instead of leaving the partner two moments to choose
+     * between.
+     */
+    suspend fun proposeMeetingTime(matchId: String, activityId: Int, whenIso: String): ApiResult<Unit> =
+        client.apiCallUnit {
+            method = HttpMethod.Put
+            url(endpoint("matches/$matchId/recommendations/$activityId/time"))
+            setBody(MeetingTimeRequest(whenIso))
+        }
+
+    /** The instant travels back as it was read, so an offer that moved in between is refused. */
+    suspend fun acceptMeetingTime(matchId: String, activityId: Int, whenIso: String): ApiResult<Unit> =
+        client.apiCallUnit {
+            method = HttpMethod.Post
+            url(endpoint("matches/$matchId/recommendations/$activityId/time/accept"))
+            setBody(MeetingTimeRequest(whenIso))
         }
 
     // ---------- Chat ----------

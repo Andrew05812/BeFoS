@@ -372,12 +372,27 @@ data class RecommendationDto(
     // Whether this person pushed the card away. Never answered for the other half: a proposal is a
     // message the pair received, a refusal is one person editing their own list.
     val declined: Boolean = false,
+    // The hours of this card, as ISO text with an offset. Kept as text rather than parsed here:
+    // agreeing to an offer sends back exactly the string the person read, and a value parsed and
+    // re-printed on the way could answer a moment nobody offered.
+    @SerialName("my_meeting_time") val myMeetingTime: String? = null,
+    @SerialName("partner_meeting_time") val partnerMeetingTime: String? = null,
+    @SerialName("i_accepted_time") val iAcceptedTime: String? = null,
+    @SerialName("agreed_time") val agreedTime: String? = null,
 )
 
 @Serializable
 data class RecommendationListDto(
     @SerialName("match_id") val matchId: String = "",
     val recommendations: List<RecommendationDto> = emptyList(),
+)
+
+/** The moment this person names for a card, or agrees to. One field because one question is asked. */
+@Serializable
+data class MeetingTimeRequest(
+    // The API calls this `when`, which is a Kotlin keyword, so the property is named for what it
+    // holds and the wire name is pinned instead.
+    @SerialName("when") val whenIso: String,
 )
 
 // ---------- Safety ----------

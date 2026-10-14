@@ -81,6 +81,18 @@ private val translated: Map<String, String> = mapOf(
     "profile not found." to "Анкета не найдена.",
     "user not found." to "Пользователь не найден.",
 
+    // recommendations + meeting time. The pair's plan is arranged in minutes and hours, so an
+    // refusal about a moment is answered with the moment's own words, not with «проверьте данные».
+    "send this idea to the chat before arranging a time for it." to
+        "Договариваться о времени можно для идеи, которая уже отправлена в чат.",
+    "the other half has not named a time for this idea yet." to
+        "Партнёр ещё не предложил время для этой идеи.",
+    "that time is no longer the one being offered." to
+        "Партнёр уже предложил другое время. Обновите карточку и согласуйте его заново.",
+    "this moment has already passed." to "Это время уже прошло. Выберите час позже.",
+    "a meeting is arranged within the next year, not beyond it." to
+        "Договориться можно только о встрече в ближайший год.",
+
     // safety
     "you cannot block yourself." to "Нельзя применить это к себе.",
     "you cannot report yourself." to "Нельзя применить это к себе.",
@@ -124,6 +136,8 @@ private val translatedPrefixes: List<Pair<String, String>> = listOf(
     // The goal refusal names the value it refused and lists the goals the server actually scores,
     // so its constant part is only the opening; the screen keeps its own advice-shaped copy.
     "Invalid dating goal" to "Выберите цель знакомства.",
+    // The server names the whole rule in one sentence about two cities; the screen says what to do.
+    "Meeting time must carry a UTC offset" to "Не удалось понять, в каком поясе этот час.",
 )
 
 /** Second layer: the envelope's machine code covers messages this file has never seen. */

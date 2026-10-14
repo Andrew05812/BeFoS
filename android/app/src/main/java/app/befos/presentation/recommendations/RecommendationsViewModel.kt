@@ -17,6 +17,10 @@ private const val SEND_SENTENCE = "Не удалось отправить пре
 private const val RECORD_SENTENCE = "Идея отправлена в чат, но отметить её в паре не удалось."
 private const val DECLINE_SENTENCE = "Не удалось отклонить идею."
 private const val RESTORE_SENTENCE = "Не удалось вернуть идею в подборку."
+// Two sentences rather than one: naming an hour and agreeing to one are different answers to the
+// pair, and a refusal of the second one did not go near the first.
+private const val OFFER_SENTENCE = "Не удалось предложить время."
+private const val ACCEPT_SENTENCE = "Не удалось подтвердить время."
 
 private fun reasonSentence(sentence: String, reason: String?) =
     if (reason == null) sentence else "$sentence $reason"
@@ -35,6 +39,15 @@ data class RecommendationsUiState(
     // Ideas the pair can already read in chat whose mark the server refused. They are the
     // ones a repeated visit would offer a second time, so the tab has to keep them named.
     val unsavedChoices: Set<Int> = emptySet(),
+    // Hours this person named and the page has not reported back yet, and the plan the pair has
+    // once one half agreed to the other's. Keyed by the card, because a time belongs to one idea:
+    // a card that lost its own hour must not go on showing another one's plan.
+    val myOffers: Map<Int, String> = emptyMap(),
+    val agreedMoments: Map<Int, String> = emptyMap(),
+    // Why this card's last time tap did not land. One line per card rather than one above the
+    // list: an hour the server refused for кино says nothing about настольные игры, and a shared
+    // notice would have to name the card it belongs to anyway.
+    val timeErrors: Map<Int, String> = emptyMap(),
 )
 
 class RecommendationsViewModel(
@@ -69,6 +82,10 @@ class RecommendationsViewModel(
                     val refused = cards.filter { it.declined }.map { it.activity.id }.toSet()
                     val pushedAway = pendingRefusals.filterValues { push -> push }.keys
                     val takingBack = pendingRefusals.filterValues { push -> !push }.keys
+                    // The hours the page carries. A read that landed mid-write has no hour yet, so
+                    // what the person named locally is kept instead of being cleared by the page.
+                    val reportedOffers = cards.mapNotNull { r -> r.myMeetingTime?.let { r.activity.id to it } }.toMap()
+                    val reportedPlans = cards.mapNotNull { r -> r.agreedTime?.let { r.activity.id to it } }.toMap()
                     state.copy(
                         loading = false,
                         items = cards,
@@ -78,6 +95,11 @@ class RecommendationsViewModel(
                         selectError = state.selectError.takeUnless {
                             left.isEmpty() && it?.startsWith(RECORD_SENTENCE) == true
                         },
+                        myOffers = reportedOffers + state.myOffers,
+                        agreedMoments = reportedPlans + state.agreedMoments,
+                        // A page that shows the plan ends the doubt about it; the agreement is on the
+                        // pair now, so there is nothing left for the person to retry.
+                        timeErrors = state.timeErrors - reportedPlans.keys,
                     )
                 }
                 is ApiResult.Error -> _uiState.update { it.copy(loading = false, error = result.message) }
@@ -187,6 +209,64 @@ class RecommendationsViewModel(
                 is ApiResult.Success -> Unit
             }
             pendingRefusals.remove(activityId)
+        }
+    }
+
+    /**
+     * Name — or move — the hour this person would meet at for this idea.
+     *
+     * No idempotency key, unlike a chat send: the pair holds one row per person per card and this
+     * route replaces the hour on it, so a tap whose answer never arrived is repeated as the same
+     * hour rather than as a second offer the partner would have to choose between.
+     */
+    fun proposeTime(activityId: Int, whenIso: String) {
+        val previous = _uiState.value.myOffers[activityId]
+        _uiState.update {
+            it.copy(
+                myOffers = it.myOffers + (activityId to whenIso),
+                timeErrors = it.timeErrors - activityId,
+            )
+        }
+        viewModelScope.launch {
+            when (val result = matchRepository.proposeMeetingTime(matchId, activityId, whenIso)) {
+                is ApiResult.Error -> _uiState.update {
+                    it.copy(
+                        // Back to the hour this person had named before this tap, not to nothing: an
+                        // offer that was moved and refused still stands where it stood.
+                        myOffers = previous?.let { was -> it.myOffers + (activityId to was) }
+                            ?: (it.myOffers - activityId),
+                        timeErrors = it.timeErrors + (activityId to reasonSentence(OFFER_SENTENCE, result.message)),
+                    )
+                }
+                is ApiResult.Success -> Unit
+            }
+        }
+    }
+
+    /**
+     * Agree to the hour the other half named. The instant goes back as this card read it, so an
+     * offer that moved in the meantime is refused by the server instead of being agreed to silently.
+     */
+    fun acceptTime(activityId: Int, whenIso: String) {
+        if (_uiState.value.agreedMoments.containsKey(activityId)) return
+        _uiState.update {
+            it.copy(
+                agreedMoments = it.agreedMoments + (activityId to whenIso),
+                timeErrors = it.timeErrors - activityId,
+            )
+        }
+        viewModelScope.launch {
+            when (val result = matchRepository.acceptMeetingTime(matchId, activityId, whenIso)) {
+                is ApiResult.Error -> _uiState.update {
+                    it.copy(
+                        agreedMoments = it.agreedMoments - activityId,
+                        timeErrors = it.timeErrors + (activityId to reasonSentence(ACCEPT_SENTENCE, result.message)),
+                    )
+                }
+                // The pair has a plan from this answer, so the card shows the plan; an hour this
+                // person named earlier stays on the row as its own fact, not as a rival offer.
+                is ApiResult.Success -> Unit
+            }
         }
     }
 
