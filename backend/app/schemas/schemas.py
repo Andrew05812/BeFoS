@@ -221,6 +221,14 @@ class UniverseNodeOut(BaseModel):
     has_data: bool
     connection: str = Field(pattern=r"^(harmony|complementarity|discussion|unknown)$")
     evidence: str
+    # How far this node's similarity sits from the band boundary that decided `connection`. Bounded
+    # like every other number on the wire: a node that reported 140 % assurance would be a bug, not
+    # a confident answer.
+    confidence: int = Field(ge=0, le=100)
+    suggestion: str
+    # The questionnaire items that measure this axis. Empty for an interest or a goal, which the
+    # test does not score — a node with an invented question would claim a basis it does not have.
+    questions: list[str] = []
 
 
 class UniverseLayerOut(BaseModel):
@@ -230,6 +238,9 @@ class UniverseLayerOut(BaseModel):
     weight: float
     has_data: bool
     coverage: float = Field(ge=0, le=1)
+    # Mean assurance over the nodes that were actually compared, so a band cannot be confident
+    # about answers nobody gave.
+    confidence: int = Field(ge=0, le=100)
     nodes: list[UniverseNodeOut] = []
 
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from app.compatibility.engine import CompatibilityInput, CompatibilityResult
-from app.compatibility.traits import CATEGORY_BY_KEY, TRAIT_CATEGORIES_BY_KEY
+from app.compatibility.traits import CATEGORY_BY_KEY, TRAIT_CATEGORIES_BY_KEY, describe_side
 
 # Thresholds that decide whether a trait/category counts as a strength,
 # a difference, or neither. Tunable, deterministic.
@@ -43,14 +43,6 @@ def _trait_label(category_key: str, trait_key: str) -> tuple[str, str, str]:
     if not trait:
         return (trait_key, trait_key, trait_key)
     return (trait.label, trait.low_label, trait.high_label)
-
-
-def _describe_side(value: float, low_label: str, high_label: str) -> str:
-    if value >= 0.66:
-        return high_label
-    if value <= 0.33:
-        return low_label
-    return "умеренно"
 
 
 def _one_per_category(items: list[ExplanationItem]) -> list[ExplanationItem]:
@@ -95,7 +87,7 @@ def build_explanation(
                 sim = 1.0 - abs(va - vb)
                 t_label, low_label, high_label = _trait_label(key, trait_key)
                 if sim >= STRENGTH_THRESHOLD:
-                    side = _describe_side((va + vb) / 2, low_label, high_label)
+                    side = describe_side((va + vb) / 2, low_label, high_label)
                     strengths.append(
                         ExplanationItem(
                             category=key,
@@ -109,7 +101,7 @@ def build_explanation(
                         ExplanationItem(
                             category=key,
                             label=label,
-                            text=f"Разное отношение: {t_label.lower()} — {_describe_side(va, low_label, high_label)} vs {_describe_side(vb, low_label, high_label)}",
+                            text=f"Разное отношение: {t_label.lower()} — {describe_side(va, low_label, high_label)} vs {describe_side(vb, low_label, high_label)}",
                             score=round(sim, 3),
                         )
                     )

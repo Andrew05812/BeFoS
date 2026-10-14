@@ -114,17 +114,20 @@ async def match_universe(
     if match is None or current_user.id not in (match.user_a_id, match.user_b_id):
         raise NotFoundError("Match not found.")
 
-    # The pair's own order, not requester-first: both people open one map of two worlds.
+    # The pair's own order, not requester-first: both partners open one map of two worlds.
     service = CompatibilityService(session)
     a, b = await service.pair_inputs(match.user_a_id, match.user_b_id)
-    result = service.score_inputs(a, b)
-    universe = build_universe(a, b, result)
 
+    # Titles are resolved before the map is built, so an interest carries its catalogue name into
+    # its own label and into its suggestion sentence instead of leaving the slug inside the text.
+    slugs = a.interests | b.interests
     titles: dict[str, str] = {}
-    slugs = {n.key for layer in universe.layers if layer.key == "interests" for n in layer.nodes}
     if slugs:
         rows = (await session.execute(select(Interest).where(Interest.slug.in_(slugs)))).scalars().all()
         titles = {i.slug: i.name for i in rows}
+
+    result = service.score_inputs(a, b)
+    universe = build_universe(a, b, result, titles)
 
     return UniverseOut(
         overall=universe.overall_percent,
@@ -139,8 +142,9 @@ async def match_universe(
                 weight=layer.weight,
                 has_data=layer.has_data,
                 coverage=layer.coverage,
+                confidence=layer.confidence,
                 nodes=[
-                    UniverseNodeOut(**{**vars(node), "label": titles.get(node.key, node.label)})
+                    UniverseNodeOut(**{**vars(node), "questions": list(node.questions)})
                     for node in layer.nodes
                 ],
             )

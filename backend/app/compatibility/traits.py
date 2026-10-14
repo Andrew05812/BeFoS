@@ -22,6 +22,24 @@ explainable.
 from dataclasses import dataclass, field
 
 
+HIGH_SIDE = 0.66
+LOW_SIDE = 0.33
+
+
+def describe_side(value: float, low_label: str, high_label: str) -> str:
+    """The word a person's own answer maps to on this axis.
+
+    One definition, because two screens print it: the compatibility explanation writes it into its
+    strength and difference lines, and the universe map writes it into the suggestion a tap opens.
+    Two renderings of the same answer in the same app is exactly what stage 75 removed for percents.
+    """
+    if value >= HIGH_SIDE:
+        return high_label
+    if value <= LOW_SIDE:
+        return low_label
+    return "умеренно"
+
+
 @dataclass(frozen=True)
 class Trait:
     key: str

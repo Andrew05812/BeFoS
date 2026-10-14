@@ -91,6 +91,9 @@ fun UniverseNodeDto.toDomain() = UniverseNode(
     hasData = hasData,
     connection = Connection.fromJson(connection),
     evidence = evidence,
+    confidence = confidence,
+    suggestion = suggestion,
+    questions = questions,
 )
 
 fun UniverseLayerDto.toDomain() = UniverseLayer(
@@ -100,6 +103,7 @@ fun UniverseLayerDto.toDomain() = UniverseLayer(
     weight = weight,
     hasData = hasData,
     coverage = coverage,
+    confidence = confidence,
     nodes = nodes.map { it.toDomain() },
 )
 
