@@ -120,8 +120,12 @@ fun RecommendationsScreen(matchId: String, onBack: () -> Unit) {
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        // «под каждой указано, почему она подходит» was a promise the engine could not
+                        // always keep: a bullet is printed only where the pair's own answers support
+                        // one, so an idea can honestly arrive without a note. This wording says what
+                        // the list holds instead of counting the lines on each card.
                         Text(
-                            "Идеи выросли из ваших анкет и ответов в тесте — под каждой указано, почему она подходит.",
+                            "Идеи выросли из ваших анкет и ответов в тесте. Под карточкой — только то, что правда для вас двоих.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
