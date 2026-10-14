@@ -1,6 +1,7 @@
 package app.befos.data.mapper
 
 import app.befos.core.network.ApiConfig
+import app.befos.data.model.CategoryProgressDto
 import app.befos.data.model.CategoryScoreDto
 import app.befos.data.model.CompatibilityDto
 import app.befos.data.model.DiscoveryCardDto
@@ -19,6 +20,7 @@ import app.befos.data.model.RecommendationDto
 import app.befos.data.model.UniverseDto
 import app.befos.data.model.UniverseLayerDto
 import app.befos.data.model.UniverseNodeDto
+import app.befos.domain.model.CategoryProgress
 import app.befos.domain.model.CategoryScore
 import app.befos.domain.model.Compatibility
 import app.befos.domain.model.Connection
@@ -67,7 +69,10 @@ fun QuestionDto.toDomain() = Question(
     trait = trait,
     text = text,
     options = options.map { it.toDomain() },
+    selectedOptionId = selectedOptionId,
 )
+
+fun CategoryProgressDto.toDomain() = CategoryProgress(key, label, total, answered)
 
 fun ProgressDto.toDomain() = TestProgress(answered, total, percent, remaining, completed)
 

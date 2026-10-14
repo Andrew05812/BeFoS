@@ -6,7 +6,7 @@ from collections import defaultdict
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics.tracker import Event, tracker
-from app.compatibility.traits import TRAIT_CATEGORIES_BY_KEY
+from app.compatibility.traits import CATEGORY_BY_KEY, TRAIT_CATEGORIES_BY_KEY
 from app.compatibility.weights import ENGINE_VERSION
 from app.core.exceptions import NotFoundError, ValidationError
 from app.models import TestAnswer
@@ -24,8 +24,34 @@ class TestService:
     async def list_questions(self) -> list:
         return await self.repo.list_active_questions()
 
-    async def count_answered(self, user_id: uuid.UUID) -> int:
-        return await self.repo.count_answered(user_id)
+    async def answer_choices(self, user_id: uuid.UUID) -> dict[int, int]:
+        """Which option this person stands on, per question — the read that lets the catalogue
+        mark its own cards instead of asking the person to remember what they tapped."""
+        return await self.repo.list_answer_choices(user_id)
+
+    @staticmethod
+    def category_summary(questions: list, choices: dict[int, int]) -> list[dict]:
+        """Counts per category of the catalogue being sent, in the order its sections appear.
+
+        A category nobody answered keeps its row with ``answered=0`` instead of dropping out: the
+        screen uses this list to name the part of the profile that is still empty, and a missing
+        row cannot be told from a finished one.
+        """
+        totals: dict[str, int] = {}
+        answered: dict[str, int] = {}
+        for question in questions:
+            totals[question.category] = totals.get(question.category, 0) + 1
+            if question.id in choices:
+                answered[question.category] = answered.get(question.category, 0) + 1
+        return [
+            {
+                "key": key,
+                "label": CATEGORY_BY_KEY.get(key).label if key in CATEGORY_BY_KEY else key,
+                "total": total,
+                "answered": answered.get(key, 0),
+            }
+            for key, total in totals.items()
+        ]
 
     async def progress(self, user_id: uuid.UUID) -> dict:
         total = await self.repo.count_active_questions()

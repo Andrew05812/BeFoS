@@ -130,6 +130,17 @@ data class QuestionDto(
     val text: String,
     val position: Int = 0,
     val options: List<OptionDto> = emptyList(),
+    // The option this person's stored answer stands on, null where the server holds none. A
+    // response from before the field simply carries no marks, which is what it actually said.
+    @SerialName("selected_option_id") val selectedOptionId: Int? = null,
+)
+
+@Serializable
+data class CategoryProgressDto(
+    val key: String,
+    val label: String,
+    val total: Int,
+    val answered: Int,
 )
 
 @Serializable
@@ -137,6 +148,7 @@ data class TestListDto(
     val questions: List<QuestionDto> = emptyList(),
     val total: Int = 0,
     val answered: Int = 0,
+    val categories: List<CategoryProgressDto> = emptyList(),
 )
 
 @Serializable

@@ -31,6 +31,25 @@ data class Question(
     val trait: String,
     val text: String,
     val options: List<Option>,
+    // The option the server's stored answer stands on, null where it holds none. The screen marks
+    // that card and the flow starts on the first question that has no mark.
+    val selectedOptionId: Int? = null,
+)
+
+data class CategoryProgress(
+    val key: String,
+    val label: String,
+    val total: Int,
+    val answered: Int,
+)
+
+// What the test route answers in one call: the catalogue with the person's own marks on it, and
+// how far each of its categories has come. Kept together because the screen needs both to say
+// where the person is — the question they stopped on comes from the marks, the section it belongs
+// to comes from the counts.
+data class TestCatalog(
+    val questions: List<Question>,
+    val categories: List<CategoryProgress>,
 )
 
 data class Option(
