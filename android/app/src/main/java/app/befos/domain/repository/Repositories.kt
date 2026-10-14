@@ -69,6 +69,8 @@ interface MatchRepository {
     suspend fun universe(matchId: String): ApiResult<Universe>
     suspend fun recommendations(matchId: String): ApiResult<List<Recommendation>>
     suspend fun selectRecommendation(matchId: String, activityId: Int): ApiResult<Unit>
+    suspend fun declineRecommendation(matchId: String, activityId: Int): ApiResult<Unit>
+    suspend fun restoreRecommendation(matchId: String, activityId: Int): ApiResult<Unit>
 }
 
 interface ChatRepository {

@@ -356,6 +356,10 @@ class RecommendationOut(BaseModel):
     # by one side only, and the page has to say which — the stored row is not secret, it is the
     # proposal that already went into the pair's chat.
     partner_selected: bool
+    # Whether the person reading this page pushed the card away. Per viewer, like `selected`, and
+    # deliberately never answered for the other half: a proposal is a message the pair received,
+    # a refusal is one person editing their own list.
+    declined: bool
 
 
 class RecommendationListResponse(BaseModel):

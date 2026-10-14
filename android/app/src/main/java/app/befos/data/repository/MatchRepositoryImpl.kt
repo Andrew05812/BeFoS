@@ -30,4 +30,10 @@ class MatchRepositoryImpl(private val api: ApiService) : MatchRepository {
 
     override suspend fun selectRecommendation(matchId: String, activityId: Int): ApiResult<Unit> =
         api.selectRecommendation(matchId, activityId)
+
+    override suspend fun declineRecommendation(matchId: String, activityId: Int): ApiResult<Unit> =
+        api.declineRecommendation(matchId, activityId)
+
+    override suspend fun restoreRecommendation(matchId: String, activityId: Int): ApiResult<Unit> =
+        api.restoreRecommendation(matchId, activityId)
 }

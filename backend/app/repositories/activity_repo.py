@@ -45,33 +45,69 @@ class ActivityRepository:
             .values(
                 user_id=user_id, activity_id=activity_id, score=score, match_id=match_id
             )
-            .on_conflict_do_update(constraint="uq_activity_pref", set_={"score": score})
+            .on_conflict_do_update(
+                constraint="uq_activity_pref",
+                set_={"score": score, "proposed": True},
+            )
         )
 
-    async def chosen_by_pair(
-        self, match_id: uuid.UUID, activity_ids: list[int]
-    ) -> dict[uuid.UUID, set[int]]:
-        """Which of these cards each half of the pair already chose, in one read.
+    async def set_declined(
+        self, user_id: uuid.UUID, activity_id: int, match_id: uuid.UUID, declined: bool
+    ) -> None:
+        """Record that this person pushed the card away — or took that back.
 
-        One statement answers for both people: the question is the same shape — whose taps does
-        this table record for this pair — and asking it twice, once per person, would cost the page
-        a second round trip to say what one row of the answer already says. Keyed by the person who
-        tapped, because a card one half proposed is not a card the other half has used: the page
-        still answers per viewer, it just also names the other half's choice.
+        The row is the same one a proposal writes, and `proposed` is left alone by the update:
+        an idea that already went into the pair's chat stays an idea that went into the chat,
+        whatever the person decides about it afterwards.
+        """
+        await self.session.execute(
+            pg_insert(ActivityPreference)
+            .values(
+                user_id=user_id,
+                activity_id=activity_id,
+                match_id=match_id,
+                proposed=False,
+                declined=declined,
+            )
+            .on_conflict_do_update(constraint="uq_activity_pref", set_={"declined": declined})
+        )
+
+    async def decisions_by_pair(
+        self, match_id: uuid.UUID, activity_ids: list[int]
+    ) -> tuple[dict[uuid.UUID, set[int]], dict[uuid.UUID, set[int]]]:
+        """Which of these cards each half of the pair proposed, and which this person pushed away.
+
+        One statement answers for both people: the questions are the same shape — whose decisions
+        does this table record for this pair — and asking them twice, once per person, would cost
+        the page a second round trip to say what one row of the answer already says. Both are
+        keyed by the person who acted, because a card one half proposed is not a card the other
+        half has used: the page still answers per viewer, it just also names the other half's
+        proposal. A refusal is keyed too and deliberately not sent out — see the service.
         """
         if not activity_ids:
-            return {}
+            return {}, {}
         stmt = (
-            select(ActivityPreference.user_id, ActivityPreference.activity_id)
+            select(
+                ActivityPreference.user_id,
+                ActivityPreference.activity_id,
+                ActivityPreference.proposed,
+                ActivityPreference.declined,
+            )
             .where(
                 ActivityPreference.match_id == match_id,
                 ActivityPreference.activity_id.in_(activity_ids),
             )
         )
-        chosen: dict[uuid.UUID, set[int]] = {}
-        for user_id, activity_id in (await self.session.execute(stmt)).all():
-            chosen.setdefault(user_id, set()).add(activity_id)
-        return chosen
+        proposed: dict[uuid.UUID, set[int]] = {}
+        declined: dict[uuid.UUID, set[int]] = {}
+        for user_id, activity_id, was_proposed, was_declined in (
+            await self.session.execute(stmt)
+        ).all():
+            if was_proposed:
+                proposed.setdefault(user_id, set()).add(activity_id)
+            if was_declined:
+                declined.setdefault(user_id, set()).add(activity_id)
+        return proposed, declined
 
     async def replace_recommendations(
         self, match_id: uuid.UUID, recs: list[dict]

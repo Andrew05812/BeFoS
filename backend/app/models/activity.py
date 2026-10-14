@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import Float, ForeignKey, Integer, String, Text, UniqueConstraint, Index
+from sqlalchemy import Boolean, Float, ForeignKey, Integer, String, Text, UniqueConstraint, Index
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -32,7 +32,7 @@ class Activity(TimestampMixin, Base):
 
 
 class ActivityPreference(TimestampMixin, Base):
-    """A card of a pair's page this person chose, kept for the pair that offered it."""
+    """One person's decision about a card of a pair's page: they took it, or they pushed it away."""
 
     __tablename__ = "activity_preferences"
 
@@ -52,6 +52,12 @@ class ActivityPreference(TimestampMixin, Base):
         ForeignKey("matches.id", ondelete="CASCADE"), nullable=True, index=True
     )
     score: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    # Two answers a person can give the same card, kept apart because both can be true at once:
+    # the idea did go into the pair's chat, and the person has since pushed it away. Folding them
+    # into one flag is how a card would come back offering a second copy of a message already sent.
+    # `proposed` defaults to true because every row written before this column existed was one.
+    proposed: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    declined: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     __table_args__ = (
         UniqueConstraint("user_id", "activity_id", "match_id", name="uq_activity_pref"),

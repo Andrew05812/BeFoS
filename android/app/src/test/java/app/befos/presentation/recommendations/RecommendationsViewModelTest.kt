@@ -11,6 +11,7 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -28,14 +29,14 @@ class RecommendationsViewModelTest {
     private val cinema = Activity(id = 7, slug = "cinema", title = "Поход в кино", description = null, category = "culture")
     private val rec = Recommendation(
         activity = cinema, score = 63, position = 1, reasons = emptyList(), selected = false,
-        partnerSelected = false,
+        partnerSelected = false, declined = false,
     )
     private val boardGames = Activity(
         id = 8, slug = "board_games", title = "Вечер настольных игр", description = null, category = "leisure",
     )
     private val recBoard = Recommendation(
         activity = boardGames, score = 58, position = 2, reasons = emptyList(), selected = false,
-        partnerSelected = false,
+        partnerSelected = false, declined = false,
     )
 
     private val proposal = Message(
@@ -287,5 +288,162 @@ class RecommendationsViewModelTest {
         assertEquals(setOf(7), vm.uiState.value.unsavedChoices)
         assertTrue(vm.uiState.value.selectError!!.startsWith("Идея отправлена в чат"))
         assertTrue(vm.uiState.value.selected.containsAll(setOf(7, 8)))
+    }
+
+    @Test
+    fun `pushing an idea away hides it without deleting it`() = runTest {
+        val match = mockk<MatchRepository> {
+            coEvery { recommendations("m1") } returns ApiResult.Success(listOf(rec, recBoard))
+            coEvery { declineRecommendation("m1", 7) } returns ApiResult.Success(Unit)
+        }
+        val chat = chatRepo()
+        val vm = viewModel(match, chat)
+
+        vm.decline(7)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(setOf(7), vm.uiState.value.declined)
+        // The idea stays on the page with its score and its reason: what a refusal edits is this
+        // person's list, not the record, so the screen can offer it back.
+        assertEquals(2, vm.uiState.value.items.size)
+        assertNull(vm.uiState.value.declineError)
+        coVerify(exactly = 0) { chat.send(any(), any(), any()) }
+    }
+
+    @Test
+    fun `a refusal the server refused puts the card back and says so`() = runTest {
+        val match = mockk<MatchRepository> {
+            coEvery { recommendations("m1") } returns ApiResult.Success(listOf(rec))
+            coEvery { declineRecommendation("m1", 7) } returns ApiResult.Error(0, "Нет соединения")
+        }
+        val vm = viewModel(match, chatRepo())
+
+        vm.decline(7)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        assertTrue(vm.uiState.value.declined.isEmpty())
+        // Nothing half-succeeded here: no message went to the chat, so there is no debt to retry —
+        // the card is back in the list and the tap can simply be made again.
+        assertEquals("Не удалось отклонить идею. Нет соединения", vm.uiState.value.declineError)
+    }
+
+    @Test
+    fun `taking an idea back puts it in the list`() = runTest {
+        val match = mockk<MatchRepository> {
+            coEvery { recommendations("m1") } returns ApiResult.Success(listOf(rec, recBoard))
+            coEvery { declineRecommendation("m1", 7) } returns ApiResult.Success(Unit)
+            coEvery { restoreRecommendation("m1", 7) } returns ApiResult.Success(Unit)
+        }
+        val vm = viewModel(match, chatRepo())
+
+        vm.decline(7)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(setOf(7), vm.uiState.value.declined)
+
+        vm.restore(7)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        assertTrue(vm.uiState.value.declined.isEmpty())
+        coVerify(exactly = 1) { match.restoreRecommendation("m1", 7) }
+    }
+
+    @Test
+    fun `a restore that failed leaves the idea where the person left it`() = runTest {
+        val match = mockk<MatchRepository> {
+            coEvery { recommendations("m1") } returns ApiResult.Success(listOf(rec.copy(declined = true)))
+            coEvery { restoreRecommendation("m1", 7) } returns ApiResult.Error(0, "Нет соединения")
+        }
+        val vm = viewModel(match, chatRepo())
+
+        assertEquals(setOf(7), vm.uiState.value.declined)
+
+        vm.restore(7)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(setOf(7), vm.uiState.value.declined)
+        assertEquals("Не удалось вернуть идею в подборку. Нет соединения", vm.uiState.value.declineError)
+    }
+
+    @Test
+    fun `pushing away an idea that went to chat keeps its mark`() = runTest {
+        // The two answers a person can give the same card, both true at once: the idea did reach
+        // the pair's chat, and they have since decided they do not want it. Neither erases the
+        // other, so the refused card still says the chat holds it.
+        val match = mockk<MatchRepository> {
+            coEvery { recommendations("m1") } returns ApiResult.Success(listOf(rec.copy(selected = true)))
+            coEvery { declineRecommendation("m1", 7) } returns ApiResult.Success(Unit)
+        }
+        val vm = viewModel(match, chatRepo())
+
+        vm.decline(7)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(setOf(7), vm.uiState.value.declined)
+        assertEquals(setOf(7), vm.uiState.value.selected)
+    }
+
+    @Test
+    fun `a page that reports the refusal carries it over to the next visit`() = runTest {
+        val match = mockk<MatchRepository> {
+            coEvery { recommendations("m1") } returnsMany listOf(
+                ApiResult.Success(listOf(rec)),
+                ApiResult.Success(listOf(rec.copy(declined = true))),
+            )
+        }
+        val vm = viewModel(match, chatRepo())
+
+        assertTrue(vm.uiState.value.declined.isEmpty())
+
+        vm.load()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(setOf(7), vm.uiState.value.declined)
+    }
+
+    @Test
+    fun `a page that lands mid-refusal does not undo the tap`() = runTest {
+        // The page was read before the write landed, so it cannot know the refusal. Left to its
+        // own answer the reload would put the card back into the list and stay there, because a
+        // successful write has nothing further to say.
+        val match = mockk<MatchRepository> {
+            coEvery { recommendations("m1") } coAnswers {
+                delay(50)
+                ApiResult.Success(listOf(rec))
+            }
+            coEvery { declineRecommendation("m1", 7) } coAnswers {
+                delay(200)
+                ApiResult.Success(Unit)
+            }
+        }
+        val vm = viewModel(match, chatRepo())
+
+        vm.decline(7)
+        vm.load()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(setOf(7), vm.uiState.value.declined)
+    }
+
+    @Test
+    fun `a page that lands mid-restore does not bury the idea again`() = runTest {
+        val match = mockk<MatchRepository> {
+            coEvery { recommendations("m1") } coAnswers {
+                delay(50)
+                ApiResult.Success(listOf(rec.copy(declined = true)))
+            }
+            coEvery { restoreRecommendation("m1", 7) } coAnswers {
+                delay(200)
+                ApiResult.Success(Unit)
+            }
+        }
+        val vm = viewModel(match, chatRepo())
+
+        assertEquals(setOf(7), vm.uiState.value.declined)
+
+        vm.restore(7)
+        vm.load()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        assertTrue(vm.uiState.value.declined.isEmpty())
     }
 }

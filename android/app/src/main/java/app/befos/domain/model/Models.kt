@@ -204,6 +204,9 @@ data class Recommendation(
     // What the other half of the pair chose. The stored page is shared by both of them, so without
     // this the pair's screen can only ever show one voice.
     val partnerSelected: Boolean,
+    // Whether this person pushed the card away. Never answered for the other half: a proposal is a
+    // message the pair received, a refusal is one person editing their own list.
+    val declined: Boolean,
 )
 
 data class LikeOutcome(

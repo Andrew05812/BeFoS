@@ -173,6 +173,7 @@ async def match_recommendations(
                 reasons=r["reasons"],
                 selected=r["selected"],
                 partner_selected=r["partner_selected"],
+                declined=r["declined"],
             )
             for r in recs
         ],
@@ -191,4 +192,35 @@ async def select_recommendation(
 ):
     service = RecommendationService(session)
     await service.mark_selected(match_id, current_user.id, activity_id)
+    return None
+
+
+@router.post("/{match_id}/recommendations/{activity_id}/decline", status_code=204)
+async def decline_recommendation(
+    match_id: uuid.UUID,
+    activity_id: int = Path(le=2**31 - 1),
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Push one idea out of the page of the person asking. Nothing goes into the chat.
+
+    Named by two routes rather than by a flag on the select route because the two taps mean
+    opposite things to the pair: one puts a message in front of the other half, the other edits
+    only this person's own list.
+    """
+    service = RecommendationService(session)
+    await service.set_declined(match_id, current_user.id, activity_id, True)
+    return None
+
+
+@router.delete("/{match_id}/recommendations/{activity_id}/decline", status_code=204)
+async def restore_recommendation(
+    match_id: uuid.UUID,
+    activity_id: int = Path(le=2**31 - 1),
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Take a refusal back, which puts the card where this person's page shows it again."""
+    service = RecommendationService(session)
+    await service.set_declined(match_id, current_user.id, activity_id, False)
     return None
