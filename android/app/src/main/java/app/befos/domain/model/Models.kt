@@ -63,6 +63,9 @@ data class TestProgress(
     val percent: Int,
     val remaining: Int,
     val completed: Boolean,
+    // The same sections the catalogue route prints, so a screen can name the part of the test that
+    // is still empty without carrying the question texts to find out.
+    val categories: List<CategoryProgress> = emptyList(),
 )
 
 data class CategoryScore(

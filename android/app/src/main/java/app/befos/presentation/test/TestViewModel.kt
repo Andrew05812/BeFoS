@@ -33,6 +33,9 @@ data class TestUiState(
     // How many answers the person came back with, so the screen can say it is continuing rather
     // than starting, and can say it without counting the marks the person cannot see.
     val storedOnArrival: Int = 0,
+    // The band the person was sent in for, kept after the catalogue arrives so the screen can name
+    // the reason it did not open on question one. Null when the test was opened on its own.
+    val openedSection: String? = null,
     val submitting: Boolean = false,
     val result: List<CategoryScore>? = null,
     val error: String? = null,
@@ -41,6 +44,8 @@ data class TestUiState(
     val current: Question? get() = questions.getOrNull(index)
     val currentCategory: CategoryProgress?
         get() = current?.let { question -> categories.firstOrNull { it.key == question.category } }
+    val openedCategory: CategoryProgress?
+        get() = openedSection?.let { key -> categories.firstOrNull { it.key == key } }
     val progress: Float get() = if (questions.isEmpty()) 0f else (index + 1) / questions.size.toFloat()
 
     // Driven by the taps that are still waiting, not by the flag a failed write left behind: a
@@ -49,7 +54,31 @@ data class TestUiState(
     val pendingNotice: String? get() = if (unsaved.isEmpty()) null else (saveError ?: NOT_SAVED)
 }
 
-class TestViewModel(private val testRepository: TestRepository) : ViewModel() {
+/**
+ * Where the screen opens: the first card of [section] this person has not marked, so a band of the
+ * compatibility screen sends them to the work that is actually left in that section rather than to
+ * question one of a test they are halfway through.
+ *
+ * A section nobody has left unanswered opens on its first question — going back over one's own
+ * answers is what «Назад» is for. A section the catalogue does not ask about at all (a band the
+ * test does not measure) falls back to the whole-test rule instead of dead-ending on an empty list.
+ */
+internal fun startIndex(questions: List<Question>, section: String?): Int {
+    if (section.isNullOrEmpty()) {
+        return questions.indexOfFirst { it.selectedOptionId == null }.coerceAtLeast(0)
+    }
+    val ofSection = questions.withIndex().filter { (_, q) -> q.category == section }
+    if (ofSection.isEmpty()) {
+        return questions.indexOfFirst { it.selectedOptionId == null }.coerceAtLeast(0)
+    }
+    return ofSection.firstOrNull { (_, q) -> q.selectedOptionId == null }?.index
+        ?: ofSection.first().index
+}
+
+class TestViewModel(
+    private val testRepository: TestRepository,
+    private val startSection: String? = null,
+) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TestUiState())
     val uiState: StateFlow<TestUiState> = _uiState.asStateFlow()
@@ -69,7 +98,7 @@ class TestViewModel(private val testRepository: TestRepository) : ViewModel() {
                     // the questions they had answered to reach the one they had not — and a re-tap
                     // overwrites their own earlier answer. The first card the catalogue hands back
                     // unmarked is where they stopped.
-                    val resumeAt = questions.indexOfFirst { it.selectedOptionId == null }.coerceAtLeast(0)
+                    val resumeAt = startIndex(questions, startSection)
                     _uiState.update {
                         it.copy(
                             loading = false,
@@ -78,6 +107,7 @@ class TestViewModel(private val testRepository: TestRepository) : ViewModel() {
                             answers = stored,
                             storedOnArrival = stored.size,
                             index = resumeAt,
+                            openedSection = startSection,
                             unsaved = emptyMap(),
                             saveError = null,
                         )
