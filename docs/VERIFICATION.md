@@ -956,6 +956,6 @@ docker exec befos_backend python -m pip freeze | python backend/ops/check_adviso
 ```
 
 Скрипт спрашивает аудит-базу GitHub про *разрешённый* граф и возвращает 1 при любом попадании;
-[`docs/DEPENDENCIES.md`](docs/DEPENDENCIES.md) содержит команду для Gradle-стороны и замер
+[`docs/DEPENDENCIES.md`](DEPENDENCIES.md) содержит команду для Gradle-стороны и замер
 2026-10-06.
 
