@@ -38,6 +38,24 @@ internal fun categoryReadout(hasData: Boolean, score: Int): String =
     if (hasData) "$score%" else "нет данных"
 
 /**
+ * What the percents of a pair's list measure — the sentence every screen that draws [CategoryScoreList]
+ * prints under it.
+ *
+ * The list is shared, and so is the reading its numbers invite. On the pair screen a percent can only
+ * be read as a similarity, because both people are on screen. On another person's profile the same
+ * digits sit under her name, and «важность 80%» in the row above them is the engine's contribution
+ * weight, not a trait of the person in the photo — so that screen has to say the number is built from
+ * the reader's answers as much as from hers. Written once because two wordings for one list drift the
+ * moment either screen is edited, and it carries no digit of its own: a caption with a percent in it
+ * competes with the percents it stands under.
+ */
+internal fun pairBandsCaption(): String =
+    "Эти проценты — сходство двух анкет, а не черта одного человека: для другой пары то же число " +
+        "будет другим. Слово «важность» над полосой — сколько категория добавила в итог. " +
+        "Итог — сумма категорий, каждая со своим весом: сильнее влияет то, что важнее для " +
+        "знакомства, а категория, где сравнивать было нечего, помечена «нет данных» и осталась пустой."
+
+/**
  * Compatibility category breakdown: animated gradient bars that fill on
  * appear — the signature visualization of the engine output.
  */

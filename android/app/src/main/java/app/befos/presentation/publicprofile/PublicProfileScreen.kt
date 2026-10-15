@@ -72,6 +72,7 @@ import app.befos.domain.model.PublicProfile
 import app.befos.presentation.common.CategoryScoreList
 import app.befos.presentation.common.ReportReasonLabels
 import app.befos.presentation.common.identityLine
+import app.befos.presentation.common.pairBandsCaption
 import app.befos.presentation.compatibility.prettifySlug
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -180,8 +181,20 @@ fun PublicProfileScreen(
                             Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
                                 SectionHeader("Совместимость по категориям")
                                 AppCard(modifier = Modifier.fillMaxWidth()) {
-                                    Column(modifier = Modifier.padding(Spacing.xl)) {
+                                    Column(
+                                        modifier = Modifier.padding(Spacing.xl),
+                                        verticalArrangement = Arrangement.spacedBy(Spacing.lg),
+                                    ) {
                                         CategoryScoreList(p.categories)
+                                        // The same sentence the pair screen puts under this list, read
+                                        // from the same function: these are her answers against mine,
+                                        // and a reader who came from a Discovery card has nothing else
+                                        // on screen saying that her own half of every percent is here.
+                                        Text(
+                                            pairBandsCaption(),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
                                     }
                                 }
                             }

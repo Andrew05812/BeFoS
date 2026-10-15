@@ -48,6 +48,8 @@ import app.befos.domain.model.CategoryProgress
 import app.befos.domain.model.CategoryScore
 import app.befos.domain.model.Explanation
 import app.befos.presentation.common.CategoryScoreList
+import app.befos.presentation.common.myProfileEntryWord
+import app.befos.presentation.common.pairBandsCaption
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -57,6 +59,7 @@ fun CompatibilityScreen(
     onOpenUniverse: () -> Unit,
     onOpenSection: (String) -> Unit,
     onEditProfile: () -> Unit,
+    onOpenMyProfile: () -> Unit,
 ) {
     val vm: CompatibilityViewModel =
         beFosViewModel { CompatibilityViewModel(it.matchRepository, it.testRepository, matchId) }
@@ -146,9 +149,7 @@ fun CompatibilityScreen(
                             ) {
                                 CategoryScoreList(data.categories)
                                 Text(
-                                    "Итог — сумма категорий, каждая со своим весом: сильнее влияет то, " +
-                                        "что важнее для знакомства. Категория, где сравнивать было нечего, " +
-                                        "помечена «нет данных» и осталась пустой.",
+                                    pairBandsCaption(),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
@@ -164,6 +165,16 @@ fun CompatibilityScreen(
                                             onEditProfile = onEditProfile,
                                         )
                                     }
+                                }
+                                // The caption above says these percents are not one person's trait.
+                                // Saying it without a way to the reading that is would leave the person
+                                // with a claim and no place to check it — the same screen the profile
+                                // tab and the questionnaire result open, under the same word.
+                                TextButton(
+                                    onClick = onOpenMyProfile,
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Text(myProfileEntryWord())
                                 }
                             }
                         }
