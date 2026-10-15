@@ -13,6 +13,7 @@ from app.schemas.schemas import (
     QuestionOut,
     TestListResponse,
     TestResultOut,
+    TraitAxisOut,
 )
 from app.services.test_service import TestService
 
@@ -77,7 +78,7 @@ async def complete_tests(
 ):
     service = TestService(session)
     result = await service.complete(current_user.id)
-    from app.compatibility.traits import CATEGORY_BY_KEY
+    from app.compatibility.traits import CATEGORY_BY_KEY, TRAIT_CATEGORIES, describe_side
 
     categories = [
         CategoryScoreOut(
@@ -92,4 +93,20 @@ async def complete_tests(
         )
         for key, value in sorted(result["categories"].items())
     ]
-    return TestResultOut(categories=categories, completed_at=None)
+    vector = result["vector"]
+    axes = [
+        TraitAxisOut(
+            category=category.key,
+            trait=trait.key,
+            label=trait.label,
+            value=value,
+            side=describe_side(value, trait.low_label, trait.high_label),
+        )
+        for category in TRAIT_CATEGORIES
+        for trait in category.traits
+        # Only positions the answers actually produced. An axis walked straight out of the
+        # taxonomy would print a measured place for a question nobody answered, and the write
+        # path keeps the vector and the taxonomy in step, so nothing here has to be named twice.
+        if (value := vector.get(category.key, {}).get(trait.key)) is not None
+    ]
+    return TestResultOut(categories=categories, axes=axes, completed_at=None)
