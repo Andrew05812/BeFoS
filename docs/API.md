@@ -351,6 +351,7 @@ app scores: casual, friendship, marriage, networking, relationship.` Клиен�
 | GET | `/tests/progress` | — | `{answered, total, percent, remaining, completed, categories: [{key, label, total, answered}]}` |
 | POST | `/tests/answers` | `{answers: [{question_id, option_id}]}` | прогресс |
 | POST | `/tests/complete` | — (без тела) | `{categories: [...], axes: [{category, trait, label, value, side}], completed_at}` |
+| GET | `/tests/profile` | — | `{categories: [...], axes: [{category, trait, label, value, side}], updated_at}` |
 
 Тело `POST /tests/answers` — карта ответов: приложение отдаёт её целиком, когда закрыт последний
 вопрос, а до того одним элементом на каждое касание, чтобы тест, брошенный на середине, не
@@ -382,6 +383,19 @@ app scores: casual, friendship, marriage, networking, relationship.` Клиен�
 человека нет активного ответа, в `axes[]` не появляется:
 полоса без данных остаётся и без позиций, а не с нулём. Что `categories[].score` — среднее осей,
 лежащих под ним, держит проверка `test_a_band_percent_is_the_average_of_the_axes_listed_under_it`.
+
+`GET /tests/profile` — то же чтение спустя недели. У зачёта тело ответа нельзя попросить обратно:
+`POST /tests/complete` пишет (пересобирает вектор, пересортировывает колоду, обновляет проценты пар,
+печатает `TEST_COMPLETED`) и отказывает, пока анкета не закрыта. Маршрут читает посчитанное:
+полосы из `test_results`, оси из `compatibility_profiles.vector`, и собирает оба списка той же
+`_bands_and_axes`, которой собран ответ зачёта, — экран, открывший профиль через месяц, не может
+показать процент, которого экран завершения не показывал. Идентификатора человека в пути нет:
+`current_user` берётся из токена, поэтому чужой профиль не открывается ни одним параметром.
+`updated_at` — момент последней пересборки вектора из ответов этого человека; у профиля, который
+никогда не считали, маршрут отвечает `categories: []`, `axes: []`, `updated_at: null` — пустой
+профиль, а не нулевой. Сколько разделов анкеты для него не заполнено, маршрут не пересказывает:
+это уже отдаёт `GET /tests/progress`, и экран, которому нужны пропуски, спрашивает их там.
+Проверки — `tests/test_a_finished_profile_can_be_read_back_after_the_evening_it_was_made.py`.
 
 `categories[]` в `/tests/progress` — те же полосы, что называет `GET /tests` (`key`, русское
 `label`, `total`, `answered`), и служит он экрану пары: полоса совместимости без данных спрашивает,
