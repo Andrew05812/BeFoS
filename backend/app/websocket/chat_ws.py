@@ -17,7 +17,7 @@ from app.core.rate_limit import (
 from app.core.security import decode_token
 from app.core.exceptions import NotFoundError
 from app.models import Match, User
-from app.services.chat_service import ChatService
+from app.services.chat_service import ChatService, message_frame
 from app.websocket.manager import manager
 
 logger = get_logger(__name__)
@@ -245,16 +245,7 @@ async def _handle_socket(
                     except NotFoundError:
                         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
                         return
-                    payload = {
-                        "type": "message",
-                        "id": dto["id"],
-                        "client_msg_id": dto["client_msg_id"],
-                        "match_id": str(match_id),
-                        "sender_id": str(user_id),
-                        "body": dto["body"],
-                        "created_at": dto["created_at"].isoformat(),
-                        "is_read": False,
-                    }
+                    payload = message_frame(dto)
                 if created:
                     await manager.broadcast_to_match(match_id, payload)
                 else:

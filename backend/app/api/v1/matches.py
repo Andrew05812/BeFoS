@@ -26,7 +26,9 @@ from app.schemas.schemas import (
 )
 from app.services.compatibility_service import CompatibilityService
 from app.services.matches_service import MatchesService
+from app.services.chat_service import message_frame
 from app.services.recommendation_service import RecommendationService
+from app.websocket.manager import manager
 
 router = APIRouter(prefix="/matches", tags=["matches"])
 
@@ -244,9 +246,16 @@ async def propose_meeting_time(
     A PUT rather than a POST: the pair has one row per person per card, so a second tap on a
     different hour replaces the offer instead of adding a second one for the other half to choose
     between.
+
+    204 stays: the tap answers the card, and the card reloads its own page. What the pair's chat
+    gets is the socket frame below, sent only after the transaction that wrote the line committed —
+    a broadcast of a row that was rolled back would put a plan in front of a pair whose database
+    holds none, and the line would arrive again on the next history read anyway.
     """
     service = RecommendationService(session)
-    await service.propose_time(match_id, current_user.id, activity_id, payload.when)
+    events = await service.propose_time(match_id, current_user.id, activity_id, payload.when)
+    for event in events:
+        await manager.broadcast_to_match(match_id, message_frame(event))
     return None
 
 
@@ -261,7 +270,12 @@ async def accept_meeting_time(
     """Agree to the moment the other half named. The instant is sent back rather than read off the
     row here, because the value the person saw is the value they answered; if it moved since, this
     answers 409 and the page reloads the offer instead of agreeing to an unseen one.
+
+    The agreement belongs to the conversation as much as to the card: an hour the pair landed on is
+    said in their chat, on both screens, without either of them reopening anything.
     """
     service = RecommendationService(session)
-    await service.accept_time(match_id, current_user.id, activity_id, payload.when)
+    events = await service.accept_time(match_id, current_user.id, activity_id, payload.when)
+    for event in events:
+        await manager.broadcast_to_match(match_id, message_frame(event))
     return None

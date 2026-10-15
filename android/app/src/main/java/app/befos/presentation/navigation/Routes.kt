@@ -42,8 +42,15 @@ object Routes {
     const val UNIVERSE = "universe/{$CHAT_ARG}"
     fun universe(matchId: String) = "universe/$matchId"
 
-    const val RECOMMENDATIONS = "recommendations/{$CHAT_ARG}"
-    fun recommendations(matchId: String) = "recommendations/$matchId"
+    // The idea the page is asked to bring into view. A pair that taps its agreement in the chat
+    // arrives at the list of ideas for the same pair, and the card the plan is about has to be the
+    // one under their eyes rather than somewhere down the list. Optional, so a route built without
+    // one opens the page at its top, exactly as it did before this link existed.
+    const val ACTIVITY_ARG = "activity"
+    const val RECOMMENDATIONS = "recommendations/{$CHAT_ARG}?${ACTIVITY_ARG}={$ACTIVITY_ARG}"
+
+    fun recommendations(matchId: String, activityId: Int? = null): String =
+        if (activityId == null) "recommendations/$matchId" else "recommendations/$matchId?$ACTIVITY_ARG=$activityId"
 
     const val USER_ARG = "userId"
     const val PUBLIC_PROFILE = "user/{$USER_ARG}"

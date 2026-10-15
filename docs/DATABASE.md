@@ -12,7 +12,16 @@ PostgreSQL 16, SQLAlchemy 2.0 (async) + asyncpg. Миграции — Alembic (`
 `d7a3f2b81c64` (прогон 17:21:37…17:21:45 UTC 2026-10-14, артефакт `s84r_schema_counts.log`, база после
 съёма удалена), даёт те же 23 таблицы и 64 индекса — миграция несёт один `add_column` в
 `test_questions` и ни `create_table`, ни `create_index`, — и тот же прогон отвечает `alembic check`
-как «No new upgrade operations detected». Одиночный индекс
+как «No new upgrade operations detected». Счёт переснят и на хэде стадии 92: пустая база, поднятая
+`alembic upgrade head` до `e3f6a81c4d90` (прогон 18:16:00…18:16:13 UTC 2026-10-15, артефакт
+`s92_schema_counts.log`, база после съёма удалена), даёт те же 23 таблицы и 64 индекса — ревизия
+несёт три `add_column` в `messages` и ни `create_table`, ни `create_index`, — и `alembic check` на
+ней отвечает тем же «No new upgrade operations detected». `information_schema` на этой базе
+отражает `kind` с default `'text'::character varying`, `plan_when timestamp with time zone` и
+`plan_activity_id integer`; у его внешнего ключа `pg_constraint.confdeltype` = `n`. Тот же круг на
+другой копии (`s92_migration_roundtrip.log`, прогон 18:20:26…18:20:42 UTC) проходит и обратный ход:
+после `downgrade base` в схеме остаётся одна строка таблиц (`alembic_version`), а повторный
+`upgrade head` кладёт три колонки снова и сажает базу на `e3f6a81c4d90`. Одиночный индекс
 по внешней колонке здесь
 есть там, где с этой колонки не начинается более длинный ключ: свайп — это `INSERT` в `passes`, и
 каждый лишний btree на этой таблице оплачивается при каждом свайпе. Замерено: 100 000 строк
@@ -261,6 +270,18 @@ onboarding_completed_at IS NOT NULL` добавлен миграцией `f3a07c
 `uq_message_sender_client_id (match_id, sender_id, client_msg_id) UNIQUE WHERE client_msg_id IS NOT NULL`
 частичный: у сообщений, записанных до этой ревизии, и у отправок без имени ключа нет, и NULL не
 должен сталкиваться с NULL. Миграция `9c1f5b7d2a40`.
+
+`kind` (`text` / `plan_agreed` / `plan_voided`, `NOT NULL DEFAULT 'text'`), `plan_activity_id`
+(Int FK на `activities` с `ON DELETE SET NULL`) и `plan_when` (timestamptz) добавлены
+`e3f6a81c4d90` и заполнены только у строк журнала: час, о котором пара договорилась по карточке,
+пишется в её переписку рядом с предложениями, которые она набрала. Дефолт `'text'` оставляет
+строки, записанные до журнала, обычными сообщениями без backfill, а `SET NULL` держит то, что
+идея может уйти из каталога раньше, чем нитка, которая о ней рассказывает: `body` такой строки
+остаётся фразой с подписью UTC, поэтому карточка теряет название, но не содержание. Отдельного
+индекса под журнал не заведено: строки плана — редкая доля нитки, актуальность договора считается
+одним `DISTINCT ON` по строкам этой же пары, а лишним btree на `messages` оплачивалась бы каждая
+отправленная фраза — 100 000 строк входят в неё за 4 234 мс с индексом и за 3 518 мс без него,
+числа сняты экспериментом `e6b28c4a13d0`, описанным выше.
 
 ### `message_reads`
 `id` (UUID PK), `message_id` (FK messages, cascade), `reader_id` (FK users, cascade), `read_at` (timestamptz). `uq_message_read (message_id, reader_id)`. Индекс `ix_message_reads_reader_message (reader_id, message_id)` — счётчик непрочитанных фильтрует `reader_id` один, а ни один ключ этой таблицы с него не начинался. Непрочитанные = сообщения другого отправителя без записи о прочтении читателем.

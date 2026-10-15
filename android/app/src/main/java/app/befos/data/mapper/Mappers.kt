@@ -33,6 +33,7 @@ import app.befos.domain.model.Explanation
 import app.befos.domain.model.Interest
 import app.befos.domain.model.MatchSummary
 import app.befos.domain.model.Message
+import app.befos.domain.model.MessagePlan
 import app.befos.domain.model.OnboardingData
 import app.befos.domain.model.Option
 import app.befos.domain.model.Profile
@@ -198,6 +199,15 @@ fun MessageDto.toDomain() = Message(
     createdAt = createdAt,
     isRead = isRead,
     isOwn = isOwn,
+    kind = kind,
+    plan = plan?.let {
+        MessagePlan(
+            activityId = it.activityId,
+            activityTitle = it.activityTitle,
+            whenIso = it.whenIso,
+            isLatest = it.isLatest,
+        )
+    },
 )
 
 fun RecommendationDto.toDomain() = Recommendation(

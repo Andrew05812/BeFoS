@@ -6,8 +6,75 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics.tracker import Event, tracker
 from app.core.exceptions import NotFoundError, ValidationError
+from app.models.chat import KIND_TEXT
+from app.repositories.activity_repo import ActivityRepository
 from app.repositories.chat_repo import ChatRepository
 from app.repositories.social_repo import SocialRepository
+
+
+def message_frame(dto: dict) -> dict:
+    """The frame a chat line travels in, so every door that writes one opens it the same way.
+
+    Three routes put a line in front of a pair — a REST send, a socket send and an accepted hour —
+    and a client that has to read three spellings of the same event reads one of them wrong. The
+    instants go out as text here because the frame crosses a wire, while the DTO keeps them objects
+    for the schema that validates the REST body.
+    """
+    plan = dto["plan"]
+    return {
+        "type": "message",
+        "id": dto["id"],
+        "client_msg_id": dto["client_msg_id"],
+        "match_id": dto["match_id"],
+        "sender_id": dto["sender_id"],
+        "body": dto["body"],
+        "created_at": dto["created_at"].isoformat(),
+        "is_read": dto["is_read"],
+        "kind": dto["kind"],
+        "plan": (
+            None
+            if plan is None
+            else {**plan, "when": None if plan["when"] is None else plan["when"].isoformat()}
+        ),
+    }
+
+
+def message_dto(
+    msg, viewer_id: uuid.UUID, *, is_read: bool, activity=None, is_latest: bool = False
+) -> dict:
+    """One chat line as the API answers it, for whoever has the row and the viewer.
+
+    The hour that arranges a plan holds a `Message` it just wrote and needs the same shape the
+    conversation read returns, so the shape lives beside the reader rather than inside it.
+    """
+    return {
+        "id": str(msg.id),
+        "match_id": str(msg.match_id),
+        "sender_id": str(msg.sender_id),
+        "body": msg.body,
+        "created_at": msg.created_at,
+        "is_read": is_read,
+        "is_own": msg.sender_id == viewer_id,
+        "client_msg_id": msg.client_msg_id,
+        "kind": msg.kind,
+        # The plan is the card a client draws; `body` is the sentence the line was born with.
+        # They are both sent because they answer differently: the fields say what the plan is
+        # now — the title comes from the catalogue, so a rename shows — while the body says
+        # what was decided at the moment it was decided, which is all an old build can read.
+        "plan": (
+            None
+            if msg.kind == KIND_TEXT
+            else {
+                "activity_id": msg.plan_activity_id,
+                "activity_title": None if activity is None else activity.title,
+                "when": msg.plan_when,
+                # The newest word the pair wrote about this idea. Not «still true of the moment»:
+                # a cancellation is a newest word too, and the two kinds together are what lets a
+                # card say «договорённость в силе» about one line and «отменена» about the next.
+                "is_latest": is_latest,
+            }
+        ),
+    }
 
 
 class ChatService:
@@ -15,6 +82,7 @@ class ChatService:
         self.session = session
         self.repo = ChatRepository(session)
         self.social = SocialRepository(session)
+        self.activities = ActivityRepository(session)
 
     async def _require_membership(self, match_id: uuid.UUID, user_id: uuid.UUID):
         match = await self.repo.get_match(match_id)
@@ -68,7 +136,7 @@ class ChatService:
             tracker.track(Event.MESSAGE_SENT, str(sender_id), match=str(match_id))
         # A line written a moment ago has been seen by nobody except the one who wrote it, and
         # the receipts it already carries are its author's own.
-        return self._to_dto(msg, sender_id, is_read=False), created
+        return message_dto(msg, sender_id, is_read=False), created
 
     async def history(
         self, match_id: uuid.UUID, user_id: uuid.UUID, *, limit: int = 50, before_id: uuid.UUID | None = None
@@ -77,9 +145,27 @@ class ChatService:
         lines = await self.repo.list_messages(match_id, limit=limit + 1, before_id=before_id)
         has_more = len(lines) > limit
         lines = lines[-limit:]  # ascending window: the extra probe row sits at the front
+        journal = [line for line in lines if line.message.kind != KIND_TEXT]
+        if journal:
+            newest = await self.repo.latest_plan_events(match_id)
+            titles = await self.activities.get_by_ids(
+                sorted({line.message.plan_activity_id for line in journal if line.message.plan_activity_id})
+            )
+        else:
+            # A page of sentences somebody typed pays nothing for a plan it does not carry.
+            newest, titles = {}, {}
         marked = await self.repo.mark_read(match_id, user_id)
         await self.session.commit()
-        page = [self._to_dto(line.message, user_id, is_read=line.is_read) for line in lines]
+        page = [
+            message_dto(
+                line.message,
+                user_id,
+                is_read=line.is_read,
+                activity=titles.get(line.message.plan_activity_id),
+                is_latest=line.message.id == newest.get(line.message.plan_activity_id),
+            )
+            for line in lines
+        ]
         return {
             "messages": page,
             "has_more": has_more,
@@ -94,15 +180,3 @@ class ChatService:
         count = await self.repo.mark_read(match_id, user_id)
         await self.session.commit()
         return count
-
-    def _to_dto(self, msg, viewer_id: uuid.UUID, *, is_read: bool) -> dict:
-        return {
-            "id": str(msg.id),
-            "match_id": str(msg.match_id),
-            "sender_id": str(msg.sender_id),
-            "body": msg.body,
-            "created_at": msg.created_at,
-            "is_read": is_read,
-            "is_own": msg.sender_id == viewer_id,
-            "client_msg_id": msg.client_msg_id,
-        }
