@@ -29,6 +29,7 @@ import app.befos.data.model.RefreshRequest
 import app.befos.data.model.RegisterRequest
 import app.befos.data.model.ReportRequest
 import app.befos.data.model.TestListDto
+import app.befos.data.model.TestProfileDto
 import app.befos.data.model.TestResultDto
 import app.befos.data.model.TokenPairDto
 import app.befos.data.model.VisibilityRequest
@@ -168,6 +169,20 @@ class ApiService(private val client: HttpClient) {
         client.apiCall {
             method = HttpMethod.Post
             url(endpoint("tests/complete"))
+        }
+
+    /**
+     * The person's own profile, read back. Not a second way to finish the test: `completeTest`
+     * writes — it rescores the answers, re-ranks the deck and refreshes the pair percents — and
+     * refuses a questionnaire it still counts short, so it cannot be what a screen asks when it
+     * only wants to show what is already stored. This call answers with the same two lists and the
+     * moment the engine last rebuilt them, and it carries no user identifier: the token says whose
+     * profile it is.
+     */
+    suspend fun getProfile(): ApiResult<TestProfileDto> =
+        client.apiCall {
+            method = HttpMethod.Get
+            url(endpoint("tests/profile"))
         }
 
     // ---------- Discovery ----------

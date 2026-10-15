@@ -31,4 +31,7 @@ class TestRepositoryImpl(private val api: ApiService) : TestRepository {
 
     override suspend fun complete(): ApiResult<TestProfile> =
         api.completeTest().map { it.toDomain() }
+
+    override suspend fun profile(): ApiResult<TestProfile> =
+        api.getProfile().map { it.toDomain() }
 }

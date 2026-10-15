@@ -98,10 +98,19 @@ data class TraitAxis(
     val side: String,
 )
 
-/** What finishing the questionnaire comes back with: the five bands and the axes behind them. */
+/**
+ * The bands and the axes behind them — what the questionnaire says about the person.
+ *
+ * Both routes that hand it over answer with the same two lists, the one that scores the answers on
+ * the finished evening and the one that reads that scoring back weeks later, so this model carries
+ * neither a source flag nor a second shape. `updatedAt` belongs to the reading: a profile opened
+ * long after it was built has to say when it last spoke from, and null is the answer of a profile
+ * the engine has never rebuilt at all.
+ */
 data class TestProfile(
     val categories: List<CategoryScore> = emptyList(),
     val axes: List<TraitAxis> = emptyList(),
+    val updatedAt: String? = null,
 )
 
 data class Explanation(

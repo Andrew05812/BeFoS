@@ -55,6 +55,9 @@ interface TestRepository {
     suspend fun progress(): ApiResult<TestProgress>
     suspend fun submitAnswers(answers: Map<Int, Int>): ApiResult<TestProgress>
     suspend fun complete(): ApiResult<TestProfile>
+
+    /** The stored profile, read without scoring anything: [complete] writes and refuses a short questionnaire. */
+    suspend fun profile(): ApiResult<TestProfile>
 }
 
 interface DiscoveryRepository {
