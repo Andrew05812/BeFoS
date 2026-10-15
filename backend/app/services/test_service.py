@@ -160,6 +160,25 @@ class TestService:
         await self.session.commit()
         return vector, category_scores
 
+    async def stored_profile(self, user_id: uuid.UUID) -> dict | None:
+        """The profile the engine already holds for this person, read back as it was written.
+
+        Two rows one recompute produced together: ``compatibility_profiles.vector`` carries the axis
+        positions and ``test_results`` the band percents averaged from them. Both are quoted, not
+        re-derived, so a screen that shows a person their own profile cannot print a number the
+        engine never stored — and cannot pay for the answers, questions and options a rebuild would
+        read. ``None`` is the person whose answers have never been scored at all.
+        """
+        profile = await self.repo.get_compatibility_profile(user_id)
+        if profile is None:
+            return None
+        scores = {row.category: row.score for row in await self.repo.list_results(user_id)}
+        return {
+            "vector": profile.vector or {},
+            "scores": scores,
+            "updated_at": profile.updated_at,
+        }
+
     async def complete(self, user_id: uuid.UUID) -> dict:
         progress = await self.progress(user_id)
         if not progress["completed"]:

@@ -209,6 +209,21 @@ data class TestResultDto(
     @SerialName("completed_at") val completedAt: String? = null,
 )
 
+/**
+ * The same profile read back from the server long after the evening it was scored.
+ *
+ * `updated_at` is kept as text: the moment belongs to the engine's clock, and turning it into a
+ * date here would put the device's timezone in front of a value the person is being shown as the
+ * server's own. Null is the profile the engine has never rebuilt, and the screen then says nothing
+ * about when it changed rather than guessing a moment it was never given.
+ */
+@Serializable
+data class TestProfileDto(
+    val categories: List<CategoryScoreDto> = emptyList(),
+    val axes: List<TraitAxisDto> = emptyList(),
+    @SerialName("updated_at") val updatedAt: String? = null,
+)
+
 // ---------- Compatibility ----------
 @Serializable
 data class ExplanationItemDto(

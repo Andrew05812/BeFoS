@@ -17,6 +17,11 @@ object Routes {
     fun test(section: String? = null): String =
         if (section == null) "test?" else "test?$SECTION_ARG=$section"
 
+    // The person's own compatibility profile, read back at any time. One route, no identifier: whose
+    // profile it is comes from the session, and the finished questionnaire and the profile tab both
+    // lead here rather than to a second copy of the same reading.
+    const val MY_PROFILE = "myProfile"
+
     const val CHAT_ARG = "matchId"
     // A question the map hands to the composer. Optional, so a route built without one still matches
     // the same screen, and every caller that opens a thread pays the same single read it always did.

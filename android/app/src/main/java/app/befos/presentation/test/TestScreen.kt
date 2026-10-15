@@ -70,9 +70,14 @@ import app.befos.domain.model.Option
 import app.befos.domain.model.TestProfile
 import app.befos.domain.model.TraitAxis
 import app.befos.presentation.common.CategoryScoreRow
+import app.befos.presentation.common.myProfileEntryWord
 
 @Composable
-fun TestScreen(startSection: String? = null, onFinished: () -> Unit) {
+fun TestScreen(
+    startSection: String? = null,
+    onOpenProfile: () -> Unit,
+    onFinished: () -> Unit,
+) {
     val vm: TestViewModel = beFosViewModel { TestViewModel(it.testRepository, startSection) }
     val state by vm.uiState.collectAsState()
 
@@ -83,7 +88,7 @@ fun TestScreen(startSection: String? = null, onFinished: () -> Unit) {
             title = "Не удалось загрузить тест",
             onRetry = vm::load,
         )
-        state.result != null -> TestResultView(state, onFinished)
+        state.result != null -> TestResultView(state, onOpenProfile, onFinished)
         state.questions.isEmpty() -> ErrorState(
             message = "Мы не получили вопросы для теста. Попробуйте обновить — обычно помогает с первого раза.",
             title = "Тест временно недоступен",
@@ -361,7 +366,7 @@ private fun TestQuestionView(state: TestUiState, vm: TestViewModel) {
 }
 
 @Composable
-private fun TestResultView(state: TestUiState, onFinished: () -> Unit) {
+private fun TestResultView(state: TestUiState, onOpenProfile: () -> Unit, onFinished: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -405,8 +410,26 @@ private fun TestResultView(state: TestUiState, onFinished: () -> Unit) {
                 .fillMaxWidth()
                 .padding(top = Spacing.sm),
         )
+        // This card is the profile's birthplace, not its home: it is rebuilt on every saved answer
+        // and lives on as long as the answers do. Saying so without a way to act on it would be a
+        // promise about a screen the person cannot reach, so the same reading opens below.
+        Text(
+            reopenProfileNoteWord(),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        TextButton(
+            onClick = onOpenProfile,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(myProfileEntryWord(), fontWeight = FontWeight.SemiBold)
+        }
     }
 }
+
+/** What the completion card says about how long its numbers stay. */
+internal fun reopenProfileNoteWord(): String =
+    "Этот профиль остаётся с вами: он пересобирается из ваших ответов и доступен в любое время."
 
 /** A band together with the positions of the questionnaire it is the average of. */
 internal data class BandWithAxes(val band: CategoryScore, val axes: List<TraitAxis>)
@@ -441,9 +464,14 @@ internal fun axesToggleWord(open: Boolean): String =
  * Hidden until asked for because the card is five bands deep already on a 320-point screen, and a
  * person who wants the bands alone gets them; the numbers a tap uncovers are the ones the stripe
  * above was averaged from, in the same percent the universe map prints for the same answer.
+ *
+ * Internal rather than private because the personal profile screen shows the same two lists — the
+ * bands and the positions under them — read back from the server instead of handed over by the
+ * scoring, and a person who learned this disclosure on the results evening has to find the same
+ * one, in the same words, on the screen they open months later.
  */
 @Composable
-private fun BandAxes(axes: List<TraitAxis>) {
+internal fun BandAxes(axes: List<TraitAxis>) {
     var open by remember { mutableStateOf(false) }
     TextButton(
         onClick = { open = !open },

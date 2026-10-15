@@ -13,6 +13,7 @@ from app.models import (
     TestQuestion,
     TestResult,
 )
+from app.models.base import utcnow
 
 
 class TestRepository:
@@ -130,7 +131,18 @@ class TestRepository:
             .values(user_id=user_id, vector=vector, version=version)
             .on_conflict_do_update(
                 index_elements=[CompatibilityProfile.user_id],
-                set_={"vector": vector, "version": version},
+                # `updated_at` is stamped here rather than left to the column's `onupdate`: that
+                # hook belongs to the ORM flush, and this is a Core statement whose `set_` clause
+                # names every column it writes. Measured on the live stand on 2026-10-15: a row
+                # created at 03:57:54.337135 still read `updated_at` 03:57:54.337141 — the insert
+                # instant of both columns — after answers were rewritten and the vector rebuilt
+                # ten seconds later. A screen that dates a profile off that row would print the
+                # evening it was started as the moment it last changed.
+                set_={
+                    "vector": vector,
+                    "version": version,
+                    "updated_at": utcnow(),
+                },
             )
         )
 

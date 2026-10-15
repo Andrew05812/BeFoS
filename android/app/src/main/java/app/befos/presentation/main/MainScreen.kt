@@ -59,6 +59,7 @@ fun MainScreen(
     onEditProfile: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenTest: () -> Unit,
+    onOpenMyProfile: () -> Unit,
     onLoggedOut: () -> Unit,
 ) {
     // Saveable, not plain remember: NavHost disposes MAIN when the user opens a chat,
@@ -104,6 +105,7 @@ fun MainScreen(
                     onEdit = onEditProfile,
                     onSettings = onOpenSettings,
                     onTest = onOpenTest,
+                    onOpenMyProfile = onOpenMyProfile,
                     onLoggedOut = onLoggedOut,
                 )
             }

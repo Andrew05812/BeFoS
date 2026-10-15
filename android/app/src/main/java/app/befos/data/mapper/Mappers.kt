@@ -17,6 +17,8 @@ import app.befos.data.model.ProgressDto
 import app.befos.data.model.PublicProfileDto
 import app.befos.data.model.QuestionDto
 import app.befos.data.model.RecommendationDto
+import app.befos.data.model.TestListDto
+import app.befos.data.model.TestProfileDto
 import app.befos.data.model.TestResultDto
 import app.befos.data.model.TraitAxisDto
 import app.befos.data.model.UniverseDto
@@ -95,6 +97,12 @@ fun TraitAxisDto.toDomain() = TraitAxis(category, trait, label, value, side)
 fun TestResultDto.toDomain() = TestProfile(
     categories = categories.map { it.toDomain() },
     axes = axes.map { it.toDomain() },
+)
+
+fun TestProfileDto.toDomain() = TestProfile(
+    categories = categories.map { it.toDomain() },
+    axes = axes.map { it.toDomain() },
+    updatedAt = updatedAt,
 )
 
 fun ExplanationItemDto.toDomain() = Explanation(category, label, text, score)
