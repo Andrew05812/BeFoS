@@ -959,3 +959,15 @@ docker exec befos_backend python -m pip freeze | python backend/ops/check_adviso
 [`docs/DEPENDENCIES.md`](DEPENDENCIES.md) содержит команду для Gradle-стороны и замер
 2026-10-06.
 
+
+### Ограничение: Android-набор на Windows снимается из ASCII-пути
+
+- **Юнит-тесты Android требуют ASCII-пути на Windows.** Из директории с не-ASCII символами
+  Gradle test worker умирает с `ClassNotFoundException` на каждом классе
+  (`sun.jnu.encoding=Cp1251`): argfile воркера пишется в UTF-8, а launcher читает его в
+  кодовой странице консоли. Тот же набор проходит из ASCII-пути — так снята Android-строка
+  таблицы выше, и ни одно публикуемое число набора не снято из не-ASCII пути обычным
+  запуском. Десятая правка стадии сняла его из не-ASCII пути дважды: первая попытка упала на
+  всех классах, а запуск с явным `-Dfile.encoding=Cp1251` дал то же число, что ASCII-прогон;
+  способ назван в строке таблицы, а не здесь, чтобы абзац не держал второго числа. Сборки
+  приложения это не касается.
