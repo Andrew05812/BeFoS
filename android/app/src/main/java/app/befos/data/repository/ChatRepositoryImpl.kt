@@ -12,6 +12,7 @@ import app.befos.core.network.map
 import app.befos.data.mapper.toDomain
 import app.befos.data.remote.ApiService
 import app.befos.domain.model.Message
+import app.befos.domain.model.MessagePlan
 import app.befos.domain.repository.ChatEvent
 import app.befos.domain.repository.ChatRepository
 import io.ktor.client.HttpClient
@@ -37,7 +38,9 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
@@ -185,6 +188,10 @@ class ChatSocket(
                         createdAt = obj["created_at"]?.jsonPrimitive?.content ?: "",
                         isRead = obj["is_read"]?.jsonPrimitive?.boolean ?: false,
                         isOwn = senderId == me,
+                        // A frame from a server that has no journal carries neither key, and the
+                        // defaults are what that server's lines always were: a typed sentence.
+                        kind = obj["kind"]?.jsonPrimitive?.content ?: "text",
+                        plan = (obj["plan"] as? JsonObject)?.let(::planFromFrame),
                     ),
                 )
             }
@@ -206,6 +213,20 @@ class ChatSocket(
         }
     }
 }
+
+/**
+ * The plan a frame announces, read key by key as the rest of this parser reads a frame.
+ *
+ * Nothing here is guessed: a frame that names no activity leaves the id absent rather than
+ * borrowing one from the thread, and a line without a moment stays a line without a moment. The
+ * card the screen draws from these values is only allowed to say what arrived.
+ */
+internal fun planFromFrame(obj: JsonObject) = MessagePlan(
+    activityId = obj["activity_id"]?.jsonPrimitive?.contentOrNull?.toIntOrNull(),
+    activityTitle = obj["activity_title"]?.jsonPrimitive?.contentOrNull,
+    whenIso = obj["when"]?.jsonPrimitive?.contentOrNull,
+    isLatest = obj["is_latest"]?.jsonPrimitive?.booleanOrNull ?: false,
+)
 
 /**
  * The status a websocket handshake was refused with, or null when the dial never got an

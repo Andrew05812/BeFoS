@@ -366,6 +366,23 @@ data class MatchDetailDto(
 )
 
 // ---------- Chat ----------
+/**
+ * What the server names as the plan a conversation line is about.
+ *
+ * Absent on an ordinary sentence, and its members are nullable on purpose: the card has to be able
+ * to say «место не договорилось» rather than invent one, so a missing part arrives as missing
+ * instead of as a placeholder the screen would have to guess the meaning of.
+ */
+@Serializable
+data class MessagePlanDto(
+    @SerialName("activity_id") val activityId: Int? = null,
+    @SerialName("activity_title") val activityTitle: String? = null,
+    // The moment the pair agreed to, in the ISO form the backend stamps — a plan is read as an
+    // instant, not as the server's clock, so the card shows it in the device's own zone.
+    @SerialName("when") val whenIso: String? = null,
+    @SerialName("is_latest") val isLatest: Boolean = false,
+)
+
 @Serializable
 data class MessageDto(
     val id: String,
@@ -375,6 +392,11 @@ data class MessageDto(
     @SerialName("created_at") val createdAt: String = "",
     @SerialName("is_read") val isRead: Boolean = false,
     @SerialName("is_own") val isOwn: Boolean = false,
+    // `text` for a sentence somebody typed; `plan_agreed` / `plan_voided` for what the pair's
+    // agreement did to the conversation. Defaulted, so a build that predates the journal still
+    // reads an older server's answers as the sentences they were.
+    val kind: String = "text",
+    val plan: MessagePlanDto? = null,
 )
 
 @Serializable

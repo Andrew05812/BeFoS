@@ -236,6 +236,35 @@ data class MatchSummary(
     val unread: Int,
 )
 
+/**
+ * The kinds a conversation line arrives with.
+ *
+ * `text` is a sentence somebody typed; the two plan kinds are what the pair's agreement wrote into
+ * the thread. The screen has to tell them apart because a plan is not anybody's bubble, and a kind
+ * this build does not know is drawn as the sentence its `body` holds, so a newer server cannot buy
+ * a blank space on a screen it cannot reach.
+ */
+object MessageKinds {
+    const val TEXT = "text"
+    const val PLAN_AGREED = "plan_agreed"
+    const val PLAN_VOIDED = "plan_voided"
+}
+
+/**
+ * The plan a conversation line reports, as the screen holds it.
+ *
+ * The parts stay nullable: a card that names a moment and an idea says so, and everything it does
+ * not know — a place, an idea the catalogue has since lost — has to stay unknown on screen rather
+ * than be filled in. `isLatest` is the whole conversation's answer, not the line's own, so an
+ * older page can be shown as a promise its pair has already taken back.
+ */
+data class MessagePlan(
+    val activityId: Int?,
+    val activityTitle: String?,
+    val whenIso: String?,
+    val isLatest: Boolean,
+)
+
 data class Message(
     val id: String,
     val matchId: String,
@@ -244,7 +273,12 @@ data class Message(
     val createdAt: String,
     val isRead: Boolean,
     val isOwn: Boolean,
-)
+    val kind: String = MessageKinds.TEXT,
+    val plan: MessagePlan? = null,
+) {
+    /** A line the pair's agreement produced, as opposed to a sentence somebody typed. */
+    val isPlanEvent: Boolean get() = kind != MessageKinds.TEXT
+}
 
 data class Activity(
     val id: Int,
