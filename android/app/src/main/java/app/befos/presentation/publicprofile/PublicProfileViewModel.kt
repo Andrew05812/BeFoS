@@ -3,12 +3,14 @@ package app.befos.presentation.publicprofile
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.befos.core.network.ApiResult
+import app.befos.domain.model.CategoryProgress
 import app.befos.domain.model.LikeOutcome
 import app.befos.domain.model.PublicProfile
 import app.befos.domain.repository.DiscoveryRepository
 import app.befos.domain.repository.MatchRepository
 import app.befos.domain.repository.ProfileRepository
 import app.befos.domain.repository.SafetyRepository
+import app.befos.domain.repository.TestRepository
 import app.befos.domain.safety.AnsweredUsers
 import app.befos.presentation.common.ReportReasonLabels
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,6 +32,10 @@ data class PublicProfileUiState(
     val reportError: String? = null,
     val gone: Boolean = false,
     val partner: Boolean = false,
+    // The reader's own section counts, asked only when a band of this card came out without data.
+    // `null` means they have not arrived; an empty list means they did not arrive at all, and a band
+    // then stays named but unexplained rather than being matched to a section the screen cannot see.
+    val sections: List<CategoryProgress>? = null,
 )
 
 class PublicProfileViewModel(
@@ -38,6 +44,7 @@ class PublicProfileViewModel(
     private val safetyRepository: SafetyRepository,
     private val answeredUsers: AnsweredUsers,
     private val matchRepository: MatchRepository,
+    private val testRepository: TestRepository,
     private val userId: String,
     private val matchId: String? = null,
 ) : ViewModel() {
@@ -67,9 +74,24 @@ class PublicProfileViewModel(
                 is ApiResult.Success -> {
                     peerId = result.data.userId
                     _uiState.update { it.copy(loading = false, profile = result.data) }
+                    readSections(result.data)
                 }
                 is ApiResult.Error -> _uiState.update { it.copy(loading = false, error = result.message) }
             }
+        }
+    }
+
+    /**
+     * The reader's own counts, asked only when this card has a band the engine could not measure.
+     * A card whose every category is measured never pays for the extra read, the same rule the pair
+     * page holds — and here it matters more, because a Discovery card is opened many times in a row
+     * while a pair page is not.
+     */
+    private suspend fun readSections(data: PublicProfile) {
+        if (data.categories.none { !it.hasData }) return
+        when (val result = testRepository.progress()) {
+            is ApiResult.Success -> _uiState.update { it.copy(sections = result.data.categories) }
+            is ApiResult.Error -> _uiState.update { it.copy(sections = emptyList()) }
         }
     }
 

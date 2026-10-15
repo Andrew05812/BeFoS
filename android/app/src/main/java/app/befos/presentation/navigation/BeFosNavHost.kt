@@ -170,6 +170,13 @@ fun BeFosNavHost(navController: NavHostController) {
             PublicProfileScreen(
                 userId = userId,
                 onBack = { navController.popBackStack() },
+                // An empty band on someone else's card is explained by the reader's own counts, so the
+                // card has to reach both places those counts live in: the section of the questionnaire
+                // and the profile fields the interests and the goal come from.
+                onOpenSection = { section ->
+                    navController.navigate(Routes.test(section)) { launchSingleTop = true }
+                },
+                onEditProfile = { navController.navigate(Routes.EDIT_PROFILE) { launchSingleTop = true } },
                 onOpenChat = { matchId ->
                     navController.navigate(Routes.chat(matchId)) { launchSingleTop = true }
                 },
@@ -211,6 +218,13 @@ fun BeFosNavHost(navController: NavHostController) {
                 userId = "",
                 matchId = matchId,
                 onBack = { navController.popBackStack() },
+                // The partner's card opened from a chat is the same pair readout as the card opened
+                // from Discovery, so it explains an empty band with the same words and offers the same
+                // two ways out; a second copy of this screen with only one of them would drift.
+                onOpenSection = { section ->
+                    navController.navigate(Routes.test(section)) { launchSingleTop = true }
+                },
+                onEditProfile = { navController.navigate(Routes.EDIT_PROFILE) { launchSingleTop = true } },
                 onOpenChat = { id -> navController.navigate(Routes.chat(id)) { launchSingleTop = true } },
             )
         }

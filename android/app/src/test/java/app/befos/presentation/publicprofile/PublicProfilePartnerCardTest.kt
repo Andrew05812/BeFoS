@@ -7,6 +7,7 @@ import app.befos.domain.repository.DiscoveryRepository
 import app.befos.domain.repository.MatchRepository
 import app.befos.domain.repository.ProfileRepository
 import app.befos.domain.repository.SafetyRepository
+import app.befos.domain.repository.TestRepository
 import app.befos.domain.safety.AnsweredUsers
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -38,6 +39,7 @@ class PublicProfilePartnerCardTest {
     private val safety: SafetyRepository = mockk()
     private val answered: AnsweredUsers = mockk()
     private val matches: MatchRepository = mockk()
+    private val tests: TestRepository = mockk()
 
     private fun card(id: String) = PublicProfile(
         userId = id, name = "Борис", age = 31, city = "Казань", about = "О себе.",
@@ -51,7 +53,7 @@ class PublicProfilePartnerCardTest {
     private fun partnerVm(matchId: String): PublicProfileViewModel {
         every { answered.publish(any()) } returns Unit
         return PublicProfileViewModel(
-            profiles, discovery, safety, answered, matches, userId = "", matchId = matchId,
+            profiles, discovery, safety, answered, matches, tests, userId = "", matchId = matchId,
         )
     }
 
@@ -112,7 +114,7 @@ class PublicProfilePartnerCardTest {
         every { answered.publish(any()) } returns Unit
 
         val vm = PublicProfileViewModel(
-            profiles, discovery, safety, answered, matches, userId = "u-1",
+            profiles, discovery, safety, answered, matches, tests, userId = "u-1",
         )
         advance()
 
