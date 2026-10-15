@@ -1,4 +1,4 @@
-package app.befos.presentation.compatibility
+package app.befos.presentation.common
 
 import app.befos.domain.model.CategoryProgress
 import app.befos.domain.model.CategoryScore
@@ -8,13 +8,16 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * The line an empty band of the compatibility screen prints, and the action it offers.
+ * The line an empty band prints, and the action it offers.
  *
  * «нет данных» under a bar answers the question «was this measured» and leaves the next one open: a
  * person who wants that band filled has to find out whether the questionnaire or the profile feeds
  * it, and how much of it is already theirs. The counts quoted here come from the test route, so the
  * line is only allowed to say what those counts can prove: a section nobody has started cannot be
- * blamed on the partner, and a section the person has finished cannot be offered to them again.
+ * blamed on the other side, and a section the person has finished cannot be offered to them again.
+ *
+ * The same sentences go to two screens — the pair page and the card of a person from the deck — so
+ * these checks sit beside the function that writes them, not beside either screen.
  */
 class EmptyBandGapTest {
 
@@ -29,8 +32,9 @@ class EmptyBandGapTest {
         assertEquals(GapTarget.SECTION, gap.target)
         assertEquals("Пройти раздел", gap.cta)
         assertTrue(gap.line, gap.line.contains("5 ответов"))
-        // Nothing of this section is the person's yet, so the partner cannot be named as the gap.
+        // Nothing of this section is the person's yet, so the other side cannot be named as the gap.
         assertFalse(gap.line, gap.line.contains("партн"))
+        assertFalse(gap.line, gap.line.contains("этого человека"))
     }
 
     @Test
@@ -48,10 +52,10 @@ class EmptyBandGapTest {
         val gap = bandGap(band("values", "Ценности"), section("values", "Ценности", 5, 5))
         assertEquals(GapTarget.NONE, gap.target)
         assertEquals("", gap.cta)
-        // Every card of the section is answered, so a trait of the partner's could not fail to match:
-        // the missing side is named, because the counts prove it.
+        // Every card of the section is answered, so a trait of the other side could not fail to
+        // match: the missing answers are named, because the counts prove it.
         assertTrue(gap.line, gap.line.contains("5 из 5"))
-        assertTrue(gap.line, gap.line.contains("партнёра"))
+        assertTrue(gap.line, gap.line.contains("нет ответов"))
     }
 
     @Test
@@ -91,5 +95,37 @@ class EmptyBandGapTest {
             assertFalse(gap.line, gap.line.contains("нет данных"))
             assertEquals(gap.cta.isNotEmpty(), gap.target != GapTarget.NONE)
         }
+    }
+
+    @Test
+    fun `a pair names the other side of a gap by the route it arrived on`() {
+        // Two bands are the only ones that speak about the other questionnaire, and both take the
+        // word from the screen: the pair page holds a partner, and saying so is true there.
+        val halves = bandGap(band("leisure", "Досуг"), section("leisure", "Досуг", 2, 5))
+        assertTrue(halves.line, halves.line.contains("ответами партнёра"))
+        val closed = bandGap(band("values", "Ценности"), section("values", "Ценности", 5, 5))
+        assertTrue(closed.line, closed.line.contains("нет ответов партнёра"))
+    }
+
+    @Test
+    fun `a card from the deck does not claim a pair that was never made`() {
+        val peer = "этого человека"
+        val halves = bandGap(band("leisure", "Досуг"), section("leisure", "Досуг", 2, 5), peer)
+        assertTrue(halves.line, halves.line.contains("ответами этого человека"))
+        assertFalse(halves.line, halves.line.contains("партн"))
+
+        val closed = bandGap(band("values", "Ценности"), section("values", "Ценности", 5, 5), peer)
+        assertTrue(closed.line, closed.line.contains("нет ответов этого человека"))
+        assertFalse(closed.line, closed.line.contains("партн"))
+
+        // The other four sentences never named the second questionnaire, so the word changes
+        // nothing about them — the actions and the counts stay the ones the pair screen offers.
+        listOf(
+            bandGap(band("values", "Ценности"), section("values", "Ценности", 0, 5), peer),
+            bandGap(band("interests", "Интересы"), null, peer),
+            bandGap(band("communication", "Общение"), null, peer),
+        ).forEach { gap -> assertFalse(gap.line, gap.line.contains("партн")) }
+        assertEquals("Пройти раздел", bandGap(band("values", "Ценности"), section("values", "Ценности", 0, 5), peer).cta)
+        assertEquals(GapTarget.PROFILE, bandGap(band("interests", "Интересы"), null, peer).target)
     }
 }

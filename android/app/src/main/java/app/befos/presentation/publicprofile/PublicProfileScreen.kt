@@ -69,8 +69,10 @@ import app.befos.core.designsystem.photoScrim
 import app.befos.core.designsystem.rememberHaptics
 import app.befos.core.di.beFosViewModel
 import app.befos.domain.model.PublicProfile
+import app.befos.presentation.common.BandGapRow
 import app.befos.presentation.common.CategoryScoreList
 import app.befos.presentation.common.ReportReasonLabels
+import app.befos.presentation.common.bandGap
 import app.befos.presentation.common.identityLine
 import app.befos.presentation.common.pairBandsCaption
 import app.befos.presentation.compatibility.prettifySlug
@@ -81,6 +83,8 @@ fun PublicProfileScreen(
     userId: String,
     onBack: () -> Unit,
     onOpenChat: (String) -> Unit,
+    onOpenSection: (String) -> Unit,
+    onEditProfile: () -> Unit,
     matchId: String? = null,
 ) {
     val vm: PublicProfileViewModel = beFosViewModel {
@@ -90,6 +94,7 @@ fun PublicProfileScreen(
             it.safetyRepository,
             it.answeredUsers,
             it.matchRepository,
+            it.testRepository,
             userId,
             matchId,
         )
@@ -195,6 +200,24 @@ fun PublicProfileScreen(
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         )
+                                        // A band the engine left empty is the one thing on this card
+                                        // the reader can still change, and the pair screen already
+                                        // says so in one wording: same function, same way out. Only
+                                        // the other side of the comparison is named by the route — a
+                                        // pair holds a partner, a card from the deck holds a person
+                                        // the reader has not matched with.
+                                        state.sections?.let { sections ->
+                                            val peer = if (state.partner) "партнёра" else "этого человека"
+                                            p.categories.filterNot { it.hasData }.forEach { band ->
+                                                val section = sections.firstOrNull { it.key == band.category }
+                                                BandGapRow(
+                                                    band = band,
+                                                    gap = bandGap(band, section, peer),
+                                                    onOpenSection = onOpenSection,
+                                                    onEditProfile = onEditProfile,
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                             }
