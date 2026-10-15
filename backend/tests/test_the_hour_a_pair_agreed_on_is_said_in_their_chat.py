@@ -33,11 +33,12 @@ activity, so the line names the idea and the moment and stays silent about where
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from httpx import AsyncClient
 
+from app.services import recommendation_service
 from .conftest import auth_headers
 from .test_a_pair_can_agree_on_when_to_meet import (
     _accept,
@@ -243,6 +244,41 @@ async def test_an_older_page_of_the_chat_knows_its_agreement_was_cancelled(
     agreed = _plan_lines(older_page)
     assert [line["kind"] for line in agreed] == ["plan_agreed"], older_page
     assert agreed[0]["plan"]["is_latest"] is False
+
+
+async def test_an_agreement_whose_hour_has_passed_is_still_the_agreement(
+    client: AsyncClient, pair_talking_about_one_idea, monkeypatch: pytest.MonkeyPatch
+):
+    """Nothing retires a plan on the server, so a screen may call a spent hour spent.
+
+    The pair may have met, may have missed each other, may never have told anybody — a `plan_voided`
+    written by the clock at the agreed minute would report an event nobody confirmed. So the row keeps
+    its kind and keeps standing as the newest word, and the passing of the hour is read where it is
+    drawn. That holds only because no read path asks the clock, which is what this pins: the taps are
+    made under a clock two days behind the real one, so the hour they name is already behind the real
+    now, and the pair is read back against the real clock after the fake is put away.
+    """
+    a, b, match_id, idea = pair_talking_about_one_idea[:4]
+    monkeypatch.setattr(
+        recommendation_service,
+        "utcnow",
+        lambda: datetime.now(timezone.utc) - timedelta(days=2),
+    )
+    when = _whole_hour(-24)
+    assert (await _offer(client, a["token"], match_id, idea, when))[0] == 204
+    assert (await _accept(client, b["token"], match_id, idea, when))[0] == 204
+    monkeypatch.undo()
+    assert when < datetime.now(timezone.utc), "the hour the pair arranged is not behind them yet"
+
+    lines = _plan_lines(await _chat(client, a["token"], match_id))
+    assert [line["kind"] for line in lines] == ["plan_agreed"], lines
+    assert lines[-1]["plan"]["is_latest"] is True, (
+        "a plan the clock walked past was reported as ended, which nobody told the server"
+    )
+    # The page that carries the plan knows the same fact the chat does: the hour the pair landed on,
+    # unchanged. Which of them is now behind them is not stored anywhere.
+    agreed = _card(await _page(client, b["token"], match_id), idea)["agreed_time"]
+    assert datetime.fromisoformat(agreed) == when.astimezone(timezone.utc), agreed
 
 
 async def test_the_plan_line_names_what_the_pair_knows_and_not_what_it_does_not(
