@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -29,6 +30,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -65,7 +67,11 @@ import java.time.ZoneId
 import java.time.ZonedDateTime
 
 @Composable
-fun RecommendationsScreen(matchId: String, onBack: () -> Unit) {
+fun RecommendationsScreen(
+    matchId: String,
+    focusActivityId: Int?,
+    onBack: () -> Unit,
+) {
     val vm: RecommendationsViewModel =
         beFosViewModel { RecommendationsViewModel(it.matchRepository, it.chatRepository, matchId) }
     val state by vm.uiState.collectAsState()
@@ -78,6 +84,16 @@ fun RecommendationsScreen(matchId: String, onBack: () -> Unit) {
     // the idea; they are shown once above the list instead of eight times inside it.
     val shared = remember(state.items) {
         state.items.map { it.reasons.toSet() }.reduceOrNull { a, b -> a intersect b }.orEmpty()
+    }
+    // The chat leads here by naming one idea, so the page owes the pair that idea under their
+    // eyes. The row it lands on counts the lines above the list, which is why the count is a
+    // function of the same flags the list reads rather than a guess at them.
+    val listState = rememberLazyListState()
+    val focusRow = focusActivityId?.let {
+        planFocusIndex(it, ideas, refused, state.selectError, state.declineError)
+    }
+    LaunchedEffect(focusRow, state.loading) {
+        if (!state.loading && focusRow != null) listState.scrollToItem(focusRow)
     }
 
     Scaffold(
@@ -100,6 +116,7 @@ fun RecommendationsScreen(matchId: String, onBack: () -> Unit) {
                 modifier = Modifier.padding(padding),
             )
             else -> LazyColumn(
+                state = listState,
                 modifier = Modifier.padding(padding).fillMaxSize().padding(horizontal = Spacing.gutter),
                 verticalArrangement = Arrangement.spacedBy(Spacing.lg),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = Spacing.lg),
@@ -138,6 +155,16 @@ fun RecommendationsScreen(matchId: String, onBack: () -> Unit) {
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        if (focusActivityId != null && focusRow == null) {
+                            // The chat named an idea this page no longer holds. The pair asked for
+                            // that idea by tapping, so the page says what happened instead of
+                            // arriving at a card they did not ask about.
+                            Text(
+                                "Идея, о которой вы договаривались, больше не в этой подборке.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                         // A reason printed under every single idea describes the pair, not
                         // the idea, and eight copies of it read as boilerplate. It gets one
                         // home here so what is left on the card is what actually differs.
@@ -230,6 +257,34 @@ fun RecommendationsScreen(matchId: String, onBack: () -> Unit) {
             }
         }
     }
+}
+
+/**
+ * The row a named idea sits on, counted the way the list above is really built.
+ *
+ * The lines over the cards are not fixed: a mark that failed to record adds one, a refusal that
+ * failed adds another, and a page whose ideas have all been pushed away leaves a sentence where the
+ * cards were. A tap from the chat that scrolls to the wrong row is worse than one that does not
+ * scroll, so the count is written out here — where the test beside it can read it — rather than
+ * guessed from the screen's own height. Null when the idea is not on this page.
+ */
+internal fun planFocusIndex(
+    activityId: Int,
+    ideas: List<Recommendation>,
+    refused: List<Recommendation>,
+    selectError: String?,
+    declineError: String?,
+): Int? {
+    val header = 1 +
+        (if (selectError != null) 1 else 0) +
+        (if (declineError != null) 1 else 0) +
+        (if (ideas.isEmpty()) 1 else 0)
+    val inIdeas = ideas.indexOfFirst { it.activity.id == activityId }
+    if (inIdeas >= 0) return header + inIdeas
+    val inRefused = refused.indexOfFirst { it.activity.id == activityId }
+    // The section over the refused cards is its own row, and it is only there because this idea
+    // is inside the list it opens.
+    return if (inRefused >= 0) header + ideas.size + 1 + inRefused else null
 }
 
 @Composable

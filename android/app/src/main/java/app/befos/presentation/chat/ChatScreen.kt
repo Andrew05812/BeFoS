@@ -55,8 +55,10 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.befos.core.designsystem.AppTopBar
+import app.befos.core.designsystem.Ember
 import app.befos.core.designsystem.EmberGradient
 import app.befos.core.designsystem.Elev
 import app.befos.core.designsystem.EmptyState
@@ -71,6 +73,8 @@ import app.befos.core.designsystem.rememberHaptics
 import app.befos.core.di.beFosViewModel
 import app.befos.core.network.CHAT_CLOSED
 import app.befos.core.network.CHAT_CLOSED_DETAIL
+import app.befos.domain.model.Message
+import app.befos.domain.model.MessageKinds
 import kotlinx.coroutines.delay
 import java.time.OffsetDateTime
 import java.time.ZoneId
@@ -85,6 +89,7 @@ fun ChatScreen(
     onBack: () -> Unit,
     onOpenCompatibility: () -> Unit,
     onOpenRecommendations: () -> Unit,
+    onOpenPlan: (Int?) -> Unit,
     onOpenPartnerCard: () -> Unit,
 ) {
     val vm: ChatViewModel = beFosViewModel {
@@ -230,18 +235,26 @@ fun ChatScreen(
                         itemsIndexed(state.messages, key = { _, message -> message.id }) { index, message ->
                             val previous = state.messages.getOrNull(index - 1)
                             // Consecutive messages from one person read as one block:
-                            // tight inside, clear air when the speaker changes.
-                            val continues = previous != null && previous.isOwn == message.isOwn
+                            // tight inside, clear air when the speaker changes. A line the pair's
+                            // agreement wrote is not a person speaking, so it breaks the block on
+                            // both sides instead of taking its neighbour's spacing.
+                            val continues = previous != null && previous.isOwn == message.isOwn &&
+                                previous.isPlanEvent == message.isPlanEvent
                             Column(modifier = Modifier.padding(top = if (continues) Spacing.xs else Spacing.lg)) {
-                                MessageBubble(
-                                    body = message.body,
-                                    isOwn = message.isOwn,
-                                    footer = if (message.isOwn && message.isRead) {
-                                        "прочитано"
-                                    } else {
-                                        formatTime(message.createdAt)
-                                    },
-                                )
+                                if (message.isPlanEvent) {
+                                    val ui = planCardUi(message, state.partnerName)
+                                    PlanEventCard(ui = ui, onClick = { onOpenPlan(ui.activityId) })
+                                } else {
+                                    MessageBubble(
+                                        body = message.body,
+                                        isOwn = message.isOwn,
+                                        footer = if (message.isOwn && message.isRead) {
+                                            "прочитано"
+                                        } else {
+                                            formatTime(message.createdAt)
+                                        },
+                                    )
+                                }
                             }
                         }
                     }
@@ -286,6 +299,137 @@ private fun TypingIndicator(modifier: Modifier = Modifier) {
                     .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f + 0.55f * level)),
             )
         }
+    }
+}
+
+/**
+ * What the plan card says, worked out away from Compose so the words can be read the way the
+ * thread serves them: a promise a later tap took back, a moment that never arrived, an idea the
+ * catalogue has dropped. Each of those has to be named on the card rather than painted over.
+ */
+internal data class PlanCardUi(
+    val overline: String,
+    val idea: String,
+    val moment: String?,
+    val status: String,
+    val who: String,
+    // The idea the card leads to, or null when the line lost it: the tap still opens the pair's
+    // ideas, just without a card to bring into view.
+    val activityId: Int?,
+)
+
+internal fun planCardUi(
+    message: Message,
+    partnerName: String?,
+    zone: ZoneId = ZoneId.systemDefault(),
+): PlanCardUi {
+    val plan = message.plan
+    return PlanCardUi(
+        overline = "Договорённость",
+        // The name the server reads off the catalogue when the page is drawn, so a card that has
+        // lost its idea says that instead of showing a blank where the meeting was about.
+        idea = plan?.activityTitle ?: "Идея, о которой договаривались, больше недоступна",
+        moment = formatPlanMoment(plan?.whenIso, zone),
+        status = when {
+            message.kind == MessageKinds.PLAN_VOIDED -> "отменена"
+            plan?.isLatest != true -> "отменена позже"
+            else -> "действует"
+        },
+        who = "Вы и ${partnerName ?: "собеседник"}",
+        activityId = plan?.activityId,
+    )
+}
+
+/**
+ * The agreed instant in the reader's own calendar, or null when the line carries none.
+ *
+ * A plan is always ahead of the tap that confirmed it, so the date goes with the hour: «19:00» on
+ * its own would have the pair guess which day. A moment this build cannot parse is left out rather
+ * than shown as the server's own text — an unreadable line already says too much about a plan.
+ */
+internal fun formatPlanMoment(iso: String?, zone: ZoneId): String? {
+    if (iso.isNullOrBlank()) return null
+    val when_ = runCatching { OffsetDateTime.parse(iso).atZoneSameInstant(zone) }.getOrNull() ?: return null
+    return when_.format(DateTimeFormatter.ofPattern("d MMMM, HH:mm", Locale("ru")))
+}
+
+/**
+ * The agreement as the thread shows it: a card, not a bubble.
+ *
+ * Nobody typed this line, so it takes neither the ember fill of a person's own message nor their
+ * side of the thread — it stands across the column, and a pair that scrolls past it can tell an
+ * agreement from a sentence at once. A cancelled promise keeps the same shape and loses the accent,
+ * which is the honest reading of a row that records something the pair no longer holds.
+ */
+@Composable
+private fun PlanEventCard(
+    ui: PlanCardUi,
+    onClick: () -> Unit,
+) {
+    val haptics = rememberHaptics()
+    val active = ui.status == "действует"
+    val shape = RoundedCornerShape(18.dp)
+    val accent = if (active) Ember else MaterialTheme.colorScheme.onSurfaceVariant
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .widthIn(max = 380.dp)
+            .clip(shape)
+            .background(
+                if (active) Ember.copy(alpha = 0.07f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+            )
+            .border(
+                width = Elev.hairlineWidth * 2f,
+                color = if (active) Ember.copy(alpha = 0.42f) else MaterialTheme.colorScheme.outlineVariant,
+                shape = shape,
+            )
+            .semantics { role = Role.Button }
+            .clickable {
+                haptics.light()
+                onClick()
+            }
+            .padding(horizontal = Spacing.lg, vertical = Spacing.md),
+        verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+            Box(
+                Modifier
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(if (active) Ember else MaterialTheme.colorScheme.outline)
+            )
+            Text(
+                text = "${ui.overline} · ${ui.status}",
+                style = MaterialTheme.typography.labelMedium,
+                color = accent,
+            )
+        }
+        Text(
+            text = ui.idea,
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurface,
+            // An idea name the catalogue wrote in its own length must not push the moment and the
+            // status off the screen; the tap leads to the card that holds the whole sentence.
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        if (ui.moment != null) {
+            Text(
+                text = ui.moment,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        }
+        Text(
+            text = ui.who,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            text = "Открыть идеи пары",
+            style = MaterialTheme.typography.labelMedium,
+            color = accent,
+        )
     }
 }
 
