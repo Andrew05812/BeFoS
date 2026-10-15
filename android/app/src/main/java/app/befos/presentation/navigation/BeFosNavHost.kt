@@ -230,6 +230,10 @@ fun BeFosNavHost(navController: NavHostController) {
                     navController.navigate(Routes.test(section)) { launchSingleTop = true }
                 },
                 onEditProfile = { navController.navigate(Routes.EDIT_PROFILE) { launchSingleTop = true } },
+                // The bands on this screen are the reader's own answers averaged against someone
+                // else's; the reading that belongs to her alone is the one screen the caption points
+                // at, and it is already on this graph under its own route.
+                onOpenMyProfile = { navController.navigate(Routes.MY_PROFILE) { launchSingleTop = true } },
             )
         }
 
