@@ -350,7 +350,7 @@ app scores: casual, friendship, marriage, networking, relationship.` Клиен�
 | GET | `/tests` | — | `{questions: [...], total, answered, categories: [{key, label, total, answered}]}` |
 | GET | `/tests/progress` | — | `{answered, total, percent, remaining, completed, categories: [{key, label, total, answered}]}` |
 | POST | `/tests/answers` | `{answers: [{question_id, option_id}]}` | прогресс |
-| POST | `/tests/complete` | — (без тела) | `{categories: [...], completed_at}` |
+| POST | `/tests/complete` | — (без тела) | `{categories: [...], axes: [{category, trait, label, value, side}], completed_at}` |
 
 Тело `POST /tests/answers` — карта ответов: приложение отдаёт её целиком, когда закрыт последний
 вопрос, а до того одним элементом на каждое касание, чтобы тест, брошенный на середине, не
@@ -372,6 +372,16 @@ app scores: casual, friendship, marriage, networking, relationship.` Клиен�
 же состав строк, что читает `GET /tests`, но без текстов вопросов и вариантов, — поэтому `total`,
 `answered` и `categories[]` этого ответа выводятся из одних и тех же двух чтений и не могут
 разойтись с `GET /tests`.
+
+`axes[]` в ответе `/tests/complete` — те же значения вектора, из которых посчитаны `categories[]`:
+`category` и `trait` — ключи таксономии, `label` — русское имя оси, `value` — 0..1, `side` — слово,
+которым `describe_side` читает это значение (тот же единственный вывод, что даёт карте пары
+`GET /matches/{id}/universe`). Обход — `TRAIT_CATEGORIES`, поэтому оси одной полосы идут рядом и
+клиент собирает их под свою полосу по `category`; сами `categories[]` при этом отсортированы по
+ключу, так что порядок двух списков совпадает по группам, а не по строкам. Ось, по которой у
+человека нет активного ответа, в `axes[]` не появляется:
+полоса без данных остаётся и без позиций, а не с нулём. Что `categories[].score` — среднее осей,
+лежащих под ним, держит проверка `test_a_band_percent_is_the_average_of_the_axes_listed_under_it`.
 
 `categories[]` в `/tests/progress` — те же полосы, что называет `GET /tests` (`key`, русское
 `label`, `total`, `answered`), и служит он экрану пары: полоса совместимости без данных спрашивает,

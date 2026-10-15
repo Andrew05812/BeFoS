@@ -217,8 +217,30 @@ class CategoryScoreOut(BaseModel):
     has_data: bool
 
 
+class TraitAxisOut(BaseModel):
+    """One axis of the questionnaire, measured from the person's own answers.
+
+    The band percent above it is the average of these, so a screen that shows only the band claims
+    «the calculation is transparent» while hiding the twenty-one positions that produced it — and
+    until now the only place a person could read their own position on an axis was the compatibility
+    map of a pair they might not have yet.
+    """
+
+    category: str
+    trait: str
+    label: str
+    # The same 0..1 the engine stores. Bounded like every other number on the wire: an axis outside
+    # this range is a bug in the build, not an extreme answer.
+    value: float = Field(ge=0, le=1)
+    # Which end of the axis that value reads as, in the taxonomy's own words — the same
+    # `describe_side` the compatibility explanation and the universe map quote, so a person who
+    # finishes the questionnaire and later opens a pair map reads one wording for one answer.
+    side: str
+
+
 class TestResultOut(BaseModel):
     categories: list[CategoryScoreOut]
+    axes: list[TraitAxisOut] = []
     completed_at: datetime | None = None
 
 

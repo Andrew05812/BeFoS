@@ -10,6 +10,7 @@ import app.befos.domain.model.KIND_SCALE
 import app.befos.domain.model.Option
 import app.befos.domain.model.Question
 import app.befos.domain.model.TestCatalog
+import app.befos.domain.model.TestProfile
 import app.befos.domain.model.TestProgress
 import app.befos.domain.repository.TestRepository
 import io.mockk.coEvery
@@ -50,7 +51,7 @@ class FinishWhenSectionsCloseTest {
     @get:Rule
     val mainRule = MainDispatcherRule()
 
-    private val scores = listOf(CategoryScore("values", "Ценности", 80, 0.5))
+    private val scores = TestProfile(categories = listOf(CategoryScore("values", "Ценности", 80, 0.5)))
 
     private fun card(id: Int, section: String, marked: Boolean, scale: Boolean = false) = Question(
         id = id,
@@ -117,7 +118,7 @@ class FinishWhenSectionsCloseTest {
     )
 
     /** `/tests/answers` marks the questions and answers with the counts; `/tests/complete` is the route's rule. */
-    private class Server(private val catalogue: TestCatalog, private val profile: List<CategoryScore>) {
+    private class Server(private val catalogue: TestCatalog, private val profile: TestProfile) {
         val marks = mutableMapOf<Int, Int>()
         val writes = mutableListOf<Map<Int, Int>>()
 
@@ -149,7 +150,7 @@ class FinishWhenSectionsCloseTest {
             return ApiResult.Success(progress())
         }
 
-        fun complete(): ApiResult<List<CategoryScore>> {
+        fun complete(): ApiResult<TestProfile> {
             val state = progress()
             return if (state.completed) ApiResult.Success(profile)
             else ApiResult.Error(422, "Test is not finished yet (${state.answered}/${state.total}).")

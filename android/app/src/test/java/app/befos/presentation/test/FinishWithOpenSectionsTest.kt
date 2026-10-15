@@ -8,6 +8,7 @@ import app.befos.domain.model.CategoryScore
 import app.befos.domain.model.Option
 import app.befos.domain.model.Question
 import app.befos.domain.model.TestCatalog
+import app.befos.domain.model.TestProfile
 import app.befos.domain.model.TestProgress
 import app.befos.domain.repository.TestRepository
 import io.mockk.coEvery
@@ -47,7 +48,7 @@ class FinishWithOpenSectionsTest {
     @get:Rule
     val mainRule = MainDispatcherRule()
 
-    private val scores = listOf(CategoryScore("leisure", "Досуг", 80, 0.0))
+    private val scores = TestProfile(categories = listOf(CategoryScore("leisure", "Досуг", 80, 0.0)))
 
     private fun card(id: Int, section: String, marked: Boolean) = Question(
         id = id,
@@ -91,12 +92,12 @@ class FinishWithOpenSectionsTest {
      */
     private class Server(
         private val catalogue: TestCatalog,
-        private val profile: List<CategoryScore>,
+        private val profile: TestProfile,
     ) {
         val marks = mutableMapOf<Int, Int>()
         val writes = mutableListOf<Map<Int, Int>>()
         var offline = false
-        var scoreFailure: ApiResult<List<CategoryScore>>? = null
+        var scoreFailure: ApiResult<TestProfile>? = null
 
         init {
             catalogue.questions.forEach { q -> q.selectedOptionId?.let { marks[q.id] = it } }
@@ -127,7 +128,7 @@ class FinishWithOpenSectionsTest {
             return ApiResult.Success(progress())
         }
 
-        fun complete(): ApiResult<List<CategoryScore>> {
+        fun complete(): ApiResult<TestProfile> {
             scoreFailure?.let { return it }
             val state = progress()
             return if (state.completed) {

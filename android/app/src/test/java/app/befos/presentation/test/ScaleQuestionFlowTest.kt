@@ -9,6 +9,7 @@ import app.befos.data.model.QuestionDto
 import app.befos.domain.model.CategoryProgress
 import app.befos.domain.model.CategoryScore
 import app.befos.domain.model.TestCatalog
+import app.befos.domain.model.TestProfile
 import app.befos.domain.model.TestProgress
 import app.befos.domain.repository.TestRepository
 import io.mockk.coEvery
@@ -43,7 +44,7 @@ class ScaleQuestionFlowTest {
     val mainRule = MainDispatcherRule()
 
     private val progress = TestProgress(answered = 2, total = 2, percent = 100, remaining = 0, completed = true)
-    private val scores = listOf(CategoryScore("values", "Ценности", 80, 0.5))
+    private val scores = TestProfile(categories = listOf(CategoryScore("values", "Ценности", 80, 0.5)))
 
     /** Every write the flow makes, in the order it makes them. */
     private class Wire {

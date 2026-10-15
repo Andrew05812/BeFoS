@@ -4,8 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.befos.core.network.ApiResult
 import app.befos.domain.model.CategoryProgress
-import app.befos.domain.model.CategoryScore
 import app.befos.domain.model.Question
+import app.befos.domain.model.TestProfile
 import app.befos.domain.model.TestProgress
 import app.befos.domain.repository.TestRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -43,7 +43,7 @@ data class TestUiState(
     // back. Empty while the screen has nothing to send the person back into.
     val openSections: List<CategoryProgress> = emptyList(),
     val submitting: Boolean = false,
-    val result: List<CategoryScore>? = null,
+    val result: TestProfile? = null,
     val error: String? = null,
     val saveError: String? = null,
 ) {

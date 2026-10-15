@@ -85,6 +85,25 @@ data class CategoryScore(
     val hasData: Boolean = true,
 )
 
+/**
+ * One axis of the questionnaire, measured from the person's own answers. The band percents are the
+ * averages of these, so an axis is the position a band was built from — and the word the engine
+ * reads out of it, quoted from the server rather than guessed from the number here.
+ */
+data class TraitAxis(
+    val category: String,
+    val trait: String,
+    val label: String,
+    val value: Double,
+    val side: String,
+)
+
+/** What finishing the questionnaire comes back with: the five bands and the axes behind them. */
+data class TestProfile(
+    val categories: List<CategoryScore> = emptyList(),
+    val axes: List<TraitAxis> = emptyList(),
+)
+
 data class Explanation(
     val category: String,
     val label: String,

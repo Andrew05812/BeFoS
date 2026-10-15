@@ -1,10 +1,13 @@
 package app.befos.presentation.test
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
@@ -62,8 +65,11 @@ import app.befos.core.designsystem.rememberHaptics
 import app.befos.core.designsystem.tabularDigits
 import app.befos.core.di.beFosViewModel
 import app.befos.domain.model.CategoryProgress
+import app.befos.domain.model.CategoryScore
 import app.befos.domain.model.Option
-import app.befos.presentation.common.CategoryScoreList
+import app.befos.domain.model.TestProfile
+import app.befos.domain.model.TraitAxis
+import app.befos.presentation.common.CategoryScoreRow
 
 @Composable
 fun TestScreen(startSection: String? = null, onFinished: () -> Unit) {
@@ -381,7 +387,10 @@ private fun TestResultView(state: TestUiState, onFinished: () -> Unit) {
         )
         AppCard(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(Spacing.xl)) {
-                CategoryScoreList(state.result ?: emptyList())
+                bandsWithAxes(state.result ?: TestProfile()).forEachIndexed { i, (band, axes) ->
+                    CategoryScoreRow(band, delayMs = i * 60)
+                    if (axes.isNotEmpty()) BandAxes(axes)
+                }
             }
         }
         Text(
@@ -396,6 +405,78 @@ private fun TestResultView(state: TestUiState, onFinished: () -> Unit) {
                 .fillMaxWidth()
                 .padding(top = Spacing.sm),
         )
+    }
+}
+
+/** A band together with the positions of the questionnaire it is the average of. */
+internal data class BandWithAxes(val band: CategoryScore, val axes: List<TraitAxis>)
+
+/**
+ * The profile as the card draws it: each band with the positions the engine measured it from.
+ *
+ * The bands keep the order and the counts the route sent, and the axes only ever sit under their own
+ * band. A profile whose server predates the axes comes back with bands and nothing under them, which
+ * is what the card printed before this existed — so it prints that rather than an empty disclosure.
+ */
+internal fun bandsWithAxes(profile: TestProfile): List<BandWithAxes> =
+    profile.categories.map { band ->
+        BandWithAxes(band, profile.axes.filter { it.category == band.category })
+    }
+
+/** One position: the axis the answer was stored on, the percent it holds, and the word the engine reads there. */
+internal fun axisLine(axis: TraitAxis): String =
+    "${axis.label}: ${(axis.value * 100f).roundToInt()}% — ${axis.side}"
+
+/** What the line under those positions promises, and what it is derived from. */
+internal fun axisGlossWord(): String =
+    "Полоса — среднее этих позиций, а слово у каждой — то, как алгоритм читает ваш ответ."
+
+/** The ask that opens the positions of one band, and its opposite. */
+internal fun axesToggleWord(open: Boolean): String =
+    if (open) "Скрыть ответы полосы" else "Показать, из каких ответов полоса"
+
+/**
+ * The positions behind one band, opened on a tap.
+ *
+ * Hidden until asked for because the card is five bands deep already on a 320-point screen, and a
+ * person who wants the bands alone gets them; the numbers a tap uncovers are the ones the stripe
+ * above was averaged from, in the same percent the universe map prints for the same answer.
+ */
+@Composable
+private fun BandAxes(axes: List<TraitAxis>) {
+    var open by remember { mutableStateOf(false) }
+    TextButton(
+        onClick = { open = !open },
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Text(
+            text = axesToggleWord(open),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+    AnimatedVisibility(
+        visible = open,
+        enter = fadeIn(tween(Motion.Base)) + expandVertically(tween(Motion.Base)),
+        exit = fadeOut(tween(Motion.Base)) + shrinkVertically(tween(Motion.Base)),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+        ) {
+            axes.forEach { axis ->
+                Text(
+                    text = axisLine(axis),
+                    style = MaterialTheme.typography.bodySmall.tabularDigits(),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Text(
+                text = axisGlossWord(),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 

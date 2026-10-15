@@ -192,8 +192,20 @@ data class CategoryScoreDto(
 )
 
 @Serializable
+data class TraitAxisDto(
+    val category: String = "",
+    val trait: String = "",
+    val label: String = "",
+    val value: Double = 0.0,
+    val side: String = "",
+)
+
+@Serializable
 data class TestResultDto(
     val categories: List<CategoryScoreDto> = emptyList(),
+    // The positions the band percents are averaged from. A response from before the field simply
+    // carries none, and the screen then shows the bands it has instead of inventing axes.
+    val axes: List<TraitAxisDto> = emptyList(),
     @SerialName("completed_at") val completedAt: String? = null,
 )
 
