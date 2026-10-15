@@ -19,6 +19,7 @@ import app.befos.presentation.universe.UniverseScreen
 import app.befos.presentation.editprofile.EditProfileScreen
 import app.befos.presentation.main.MainScreen
 import app.befos.presentation.onboarding.OnboardingScreen
+import app.befos.presentation.profile.MyProfileScreen
 import app.befos.presentation.publicprofile.PublicProfileScreen
 import app.befos.presentation.recommendations.RecommendationsScreen
 import app.befos.presentation.root.RootDestination
@@ -105,6 +106,7 @@ fun BeFosNavHost(navController: NavHostController) {
         ) { entry ->
             TestScreen(
                 startSection = entry.arguments?.getString(Routes.SECTION_ARG),
+                onOpenProfile = { navController.navigate(Routes.MY_PROFILE) { launchSingleTop = true } },
                 onFinished = {
                     // Re-test from Profile: return to the existing MAIN instead of stacking a second one.
                     if (!navController.popBackStack(Routes.MAIN, false)) {
@@ -116,6 +118,18 @@ fun BeFosNavHost(navController: NavHostController) {
             )
         }
 
+        composable(Routes.MY_PROFILE) {
+            MyProfileScreen(
+                // Back goes where the person came from — the profile tab, or the questionnaire they
+                // just finished — and nothing else: the screen has no second copy of that content to
+                // fall back on.
+                onBack = { navController.popBackStack() },
+                onOpenTest = { section ->
+                    navController.navigate(Routes.test(section)) { launchSingleTop = true }
+                },
+            )
+        }
+
         composable(Routes.MAIN) {
             MainScreen(
                 onOpenChat = { matchId -> navController.navigate(Routes.chat(matchId)) { launchSingleTop = true } },
@@ -123,6 +137,7 @@ fun BeFosNavHost(navController: NavHostController) {
                 onEditProfile = { navController.navigate(Routes.EDIT_PROFILE) { launchSingleTop = true } },
                 onOpenSettings = { navController.navigate(Routes.SETTINGS) { launchSingleTop = true } },
                 onOpenTest = { navController.navigate(Routes.test()) { launchSingleTop = true } },
+                onOpenMyProfile = { navController.navigate(Routes.MY_PROFILE) { launchSingleTop = true } },
                 onLoggedOut = {
                     navController.navigate(Routes.AUTH) {
                         popUpTo(Routes.MAIN) { inclusive = true }

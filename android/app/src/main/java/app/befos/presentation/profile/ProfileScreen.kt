@@ -24,6 +24,7 @@ import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -54,6 +55,7 @@ import app.befos.core.designsystem.answersWord
 import app.befos.core.designsystem.tabularDigits
 import app.befos.core.di.beFosViewModel
 import app.befos.presentation.common.goalLabel
+import app.befos.presentation.common.myProfileEntryWord
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -61,6 +63,7 @@ fun ProfileScreen(
     onEdit: () -> Unit,
     onSettings: () -> Unit,
     onTest: () -> Unit,
+    onOpenMyProfile: () -> Unit,
     onLoggedOut: () -> Unit,
 ) {
     val vm: ProfileViewModel = beFosViewModel {
@@ -110,6 +113,7 @@ fun ProfileScreen(
                     completed = state.testProgress?.completed ?: false,
                     failed = state.testProgress == null && state.testProgressFailed,
                     onTest = onTest,
+                    onOpenMyProfile = onOpenMyProfile,
                 )
 
                 if (profile.interests.isNotEmpty()) {
@@ -200,6 +204,7 @@ private fun TestProgressCard(
     completed: Boolean,
     failed: Boolean,
     onTest: () -> Unit,
+    onOpenMyProfile: () -> Unit,
 ) {
     val lines = testProgressCopy(answered = answered, total = total, completed = completed, failed = failed)
     var visible by remember { androidx.compose.runtime.mutableStateOf(false) }
@@ -265,9 +270,25 @@ private fun TestProgressCard(
                 variant = if (completed) AppButtonVariant.Tonal else AppButtonVariant.Filled,
                 modifier = Modifier.fillMaxWidth(),
             )
+            // The reading the questionnaire produced is the person's to keep, not the evening's:
+            // engine rebuilds the profile on every saved answer, so once one card is answered there
+            // is a profile to open. Offered as a question, not as a percent — this card already
+            // spends its number on coverage, and a second number here would read as a score.
+            if (myProfileEntryVisible(answered, failed)) {
+                TextButton(
+                    onClick = onOpenMyProfile,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(myProfileEntryWord())
+                }
+            }
         }
     }
 }
+
+/** Whether there is a stored profile this card can honestly offer to open. */
+internal fun myProfileEntryVisible(answered: Int, failed: Boolean): Boolean =
+    !failed && answered > 0
 
 /** Three lines the test card prints, one per state the person can be in. */
 internal data class TestProgressCopy(val title: String, val body: String, val button: String)

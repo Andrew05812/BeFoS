@@ -19,6 +19,14 @@ fun genderLabel(code: String): String = GenderLabels[code] ?: code
 fun goalLabel(code: String): String = DatingGoalLabels[code] ?: code
 
 /**
+ * The name of the person's own compatibility screen, as every entry point spells it.
+ *
+ * The results evening and the profile tab both lead there, and they are the same reading of the same
+ * answers — two names for it would suggest two profiles. One word, one screen, one route.
+ */
+fun myProfileEntryWord(): String = "Мой профиль совместимости"
+
+/**
  * The identity line under a name — "Москва · Отношения". A separator only joins two
  * things that were both answered: a profile that has no city says its goal alone instead
  * of opening with a dangling " · ", and one with neither says nothing at all.
