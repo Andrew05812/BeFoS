@@ -269,7 +269,7 @@ advisory): поднять один слой, прогнать `:app:testDebugUni
 `git clone --depth` (неполный клон) ломает граф задач Gradle — `Could not determine the
 dependencies of task ':app:testDebugUnitTest'` с `java.io.IOException` — на том же коммите, на
 котором полный клон собирается и проходит все 131 тест. Backend и образ это не касается.
-Записано в README вместе с ограничением про ASCII-путь.
+Записано в README, в «Быстром старте»; ограничение про ASCII-путь с девятой правки стадии 94 живёт в `docs/VERIFICATION.md`.
 
 ## Регрессии, которые держат эту работу
 

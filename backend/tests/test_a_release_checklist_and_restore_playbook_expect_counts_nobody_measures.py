@@ -16,12 +16,16 @@ release stops. The restore playbook is worse, because the operator there has few
 cannot be produced by any current tree, so a restored copy either fails a step that is actually
 fine or teaches the operator to skip the one step that proves the data is readable.
 
-``README.md`` is where the numbers are actually measured — its «Тесты» section keeps one table row
-per suite, each naming its count, the day it was measured, the UTC window and the artifact. The
-checks below read that table as the source and require the three imperative documents to expect
-exactly what it publishes, so that the next stage cannot leave one of them behind again. The
-paragraph above that table is one of the documents: until the tenth revision of stage 72 it mirrored
-the measured counts by hand and had fallen a whole revision behind them.
+``docs/VERIFICATION.md`` is where the numbers are actually measured. It became the carrier on stage
+94, when ``README.md`` was rebuilt as the product's landing page and its «Тесты» narrative,
+measurement table and commented command block moved out of it verbatim — a visitor reading README
+has no business parsing per-stage shoot history, while an operator signing a release still needs one
+place that says how each count was obtained. The document keeps one table row per suite, each naming
+its count, the day it was measured, the UTC window and the artifact, and the checks below read that
+table as the source and require the three imperative documents to expect exactly what it publishes,
+so that the next stage cannot leave one of them behind again. The paragraph above that table is one
+of the documents: until the tenth revision of stage 72 it mirrored the measured counts by hand and
+had fallen a whole revision behind them.
 """
 
 from __future__ import annotations
@@ -30,7 +34,7 @@ import pathlib
 import re
 
 _ROOT = pathlib.Path(__file__).resolve().parents[2]
-_README = _ROOT / "README.md"
+_VERIFICATION = _ROOT / "docs" / "VERIFICATION.md"
 _RELEASE = _ROOT / "docs" / "RELEASE.md"
 _OPERATIONS = _ROOT / "docs" / "OPERATIONS.md"
 
@@ -44,7 +48,7 @@ _COMMANDS = {
     _JOURNEY: "cd backend && python e2e_journey.py",
 }
 
-_README_HEADINGS = re.compile(r"^#{2,3}\s+(.+?)\s*$", re.MULTILINE)
+_VERIFICATION_HEADINGS = re.compile(r"^#{2,3}\s+(.+?)\s*$", re.MULTILINE)
 _TABLE_ROW = re.compile(r"^\| (?P<name>[^|]*) \| (?P<result>.*) \| `(?P<cmd>[^`]*)` \|$")
 _PASSED_COUNT = re.compile(r"\*\*(\d+) passed, 0 failed\*\* — замер (\d{4}-\d{2}-\d{2})")
 _JOURNEY_COUNT = re.compile(r"\*\*(\d+)\s*/\s*(\d+) проверок\*\* — замер (\d{4}-\d{2}-\d{2})")
@@ -61,8 +65,8 @@ _OPERATIONS_CLAIM = re.compile(
 _SET_LABELS = {"бэкенд": _BACKEND, "Android": _ANDROID, "живой путь": _JOURNEY}
 
 
-def _readme_text() -> str:
-    return _README.read_text(encoding="utf-8")
+def _carrier_text() -> str:
+    return _VERIFICATION.read_text(encoding="utf-8")
 
 
 def _release_text() -> str:
@@ -103,14 +107,14 @@ def _checklist_items(section: str) -> list[str]:
 
 
 def _measured_counts() -> dict[str, tuple[int, str]]:
-    """Every count README's measurement table publishes, with the day it names beside it.
+    """Every count VERIFICATION's measurement table publishes, with the day it names beside it.
 
     The table is the only place in the repository that says how a number was obtained, so its rows
     are what the other documents have to agree with. A row that stops carrying a count, a date, an
     artifact or a UTC window is not read as a small number but as a missing measurement.
     """
     rows: dict[str, str] = {}
-    for line in _readme_text().splitlines():
+    for line in _carrier_text().splitlines():
         match = _TABLE_ROW.match(line)
         if not match or "`" not in line:
             continue
@@ -118,7 +122,7 @@ def _measured_counts() -> dict[str, tuple[int, str]]:
             if command in match.group("cmd"):
                 rows[suite] = match.group("result")
     assert set(rows) == set(_COMMANDS), (
-        f"README's table publishes rows for {sorted(rows)}; a suite lost its row, so its count "
+        f"VERIFICATION's table publishes rows for {sorted(rows)}; a suite lost its row, so its count "
         "has no source left"
     )
 
@@ -126,13 +130,13 @@ def _measured_counts() -> dict[str, tuple[int, str]]:
     for suite, cell in rows.items():
         pattern = _JOURNEY_COUNT if suite == _JOURNEY else _PASSED_COUNT
         claim = pattern.search(cell)
-        assert claim, f"README's {suite} row no longer publishes «N passed»-style count and a date"
+        assert claim, f"VERIFICATION's {suite} row no longer publishes «N passed»-style count and a date"
         numbers = claim.groups()[:-1]
         assert len(set(numbers)) == 1, (
-            f"README's {suite} row says {numbers}: a suite cannot both pass two different counts"
+            f"VERIFICATION's {suite} row says {numbers}: a suite cannot both pass two different counts"
         )
         assert _ARTIFACT.search(cell) and _UTC_WINDOW.search(cell), (
-            f"README's {suite} row publishes {numbers[0]} without an artifact and a UTC window; "
+            f"VERIFICATION's {suite} row publishes {numbers[0]} without an artifact and a UTC window; "
             "an unattributed number is not a measurement"
         )
         counts[suite] = (int(numbers[0]), claim.group(len(numbers) + 1))
@@ -140,15 +144,15 @@ def _measured_counts() -> dict[str, tuple[int, str]]:
 
 
 def _command_block_lines() -> list[str]:
-    """The command lines inside README's ``### Тесты`` fenced block, comments and all."""
-    section = _section(_readme_text(), "### Тесты")
+    """The command lines inside VERIFICATION's ``### Тесты`` fenced block, comments and all."""
+    section = _section(_carrier_text(), "### Тесты")
     body = section.split("```", 2)
-    assert len(body) >= 3, "README's «Тесты» section lost its fenced command block"
+    assert len(body) >= 3, "VERIFICATION's «Тесты» section lost its fenced command block"
     return [line for line in body[1].splitlines() if _BLOCK_LINE.match(line.strip())]
 
 
 def _command_block_counts() -> dict[str, int]:
-    """The counts the ``### Тесты`` fenced block of README comments onto each command."""
+    """The counts the ``### Тесты`` fenced block of VERIFICATION comments onto each command."""
     counts: dict[str, int] = {}
     for line in _command_block_lines():
         match = _BLOCK_LINE.match(line.strip())
@@ -208,18 +212,18 @@ def _operations_claim() -> tuple[int, str]:
 
 
 def _counter_claims() -> dict[str, tuple[int, str]]:
-    """The counts README's own «Тесты» opening promises, keyed by suite.
+    """The counts VERIFICATION's own «Тесты» opening promises, keyed by suite.
 
     The paragraph above the table is the first thing a reader cites, and until stage 72's tenth
     revision it was the one place the table's numbers were mirrored by hand: it still promised the
     eighth revision's 528 while the row below it had been re-measured at 534. It therefore has to
     state all three suites in the same shape the release checklist does.
     """
-    text = _readme_text()
+    text = _carrier_text()
     paragraph = text[text.index("## Тесты") : text.index("| Набор | Результат |")]
     claims = {match.group("set"): match for match in _RELEASE_CLAIM.finditer(paragraph)}
     assert set(claims) == set(_SET_LABELS), (
-        f"the opening of README's «Тесты» names counts for {sorted(claims)}; the paragraph above "
+        f"the opening of VERIFICATION's «Тесты» names counts for {sorted(claims)}; the paragraph above "
         "the table has to promise all three suites the table measures"
     )
     out: dict[str, tuple[int, str]] = {}
@@ -239,17 +243,17 @@ def _divergences() -> list[str]:
     for suite, (number, date) in _counter_claims().items():
         if number != measured[suite][0]:
             out.append(
-                f"README «Тесты» opening: {suite} {number}, measured {measured[suite][0]}"
+                f"VERIFICATION «Тесты» opening: {suite} {number}, measured {measured[suite][0]}"
             )
         if date != measured[suite][1]:
             out.append(
-                f"README «Тесты» opening: {suite} dates its count at {date}, the table measured "
+                f"VERIFICATION «Тесты» opening: {suite} dates its count at {date}, the table measured "
                 f"it on {measured[suite][1]}"
             )
     for suite, number in _command_block_counts().items():
         if number != measured[suite][0]:
             out.append(
-                f"README command block: {suite} {number}, measured {measured[suite][0]}"
+                f"VERIFICATION command block: {suite} {number}, measured {measured[suite][0]}"
             )
     for suite, (number, date) in _release_claims().items():
         if number != measured[suite][0]:
@@ -305,15 +309,15 @@ def test_the_release_checklist_expects_the_counts_the_table_publishes():
 
 def test_the_release_checklist_sends_the_operator_to_a_section_that_exists():
     line = _release_test_item()
-    assert "README.md" in line, (
+    assert "VERIFICATION.md" in line, (
         "the checklist no longer says where the commands and the measurements live"
     )
-    headings = {name.strip() for name in _README_HEADINGS.findall(_readme_text())}
+    headings = {name.strip() for name in _VERIFICATION_HEADINGS.findall(_carrier_text())}
     named = re.findall(r"раздел\w* «([^»]+)»", line)
-    assert named, "the checklist points at README without naming the section to open"
+    assert named, "the checklist points at VERIFICATION without naming the section to open"
     for name in named:
         assert name in headings, (
-            f"the checklist sends the operator to README section «{name}», which the file does not "
+            f"the checklist sends the operator to VERIFICATION section «{name}», which the file does not "
             f"have; its sections are {sorted(headings)}"
         )
 
@@ -343,11 +347,11 @@ def test_the_guard_reads_the_numbers_it_compares(monkeypatch):
     measured = _measured_counts()
 
     android = measured[_ANDROID][0]
-    table = _readme_text().replace(
+    table = _carrier_text().replace(
         f"**{android} passed, 0 failed**", "**199 passed, 0 failed**", 1
     )
-    assert table != _readme_text(), "the flip did not reach the measurement table"
-    monkeypatch.setitem(globals(), "_readme_text", lambda: table)
+    assert table != _carrier_text(), "the flip did not reach the measurement table"
+    monkeypatch.setitem(globals(), "_carrier_text", lambda: table)
     assert _divergences(), "moving the table did not move the command block's expectation"
     monkeypatch.undo()
 
@@ -355,9 +359,9 @@ def test_the_guard_reads_the_numbers_it_compares(monkeypatch):
         line for line in _command_block_lines() if _COMMANDS[_ANDROID] in line
     )
     assert f"# {android}" in block_line, f"the Android line of the block reads: {block_line}"
-    block = _readme_text().replace(block_line, block_line.replace(f"# {android}", "# 199"), 1)
-    assert block != _readme_text(), "the flip did not reach the command block"
-    monkeypatch.setitem(globals(), "_readme_text", lambda: block)
+    block = _carrier_text().replace(block_line, block_line.replace(f"# {android}", "# 199"), 1)
+    assert block != _carrier_text(), "the flip did not reach the command block"
+    monkeypatch.setitem(globals(), "_carrier_text", lambda: block)
     assert any(
         "command block" in line for line in _divergences()
     ), "the block could say anything about the Android suite and stay green"
@@ -365,9 +369,9 @@ def test_the_guard_reads_the_numbers_it_compares(monkeypatch):
 
     backend = measured[_BACKEND][0]
     counter_claim = f"**{backend}/{backend}**"
-    opening = _readme_text().replace(counter_claim, "**191/191**", 1)
-    assert opening != _readme_text(), "the flip did not reach the paragraph above the table"
-    monkeypatch.setitem(globals(), "_readme_text", lambda: opening)
+    opening = _carrier_text().replace(counter_claim, "**191/191**", 1)
+    assert opening != _carrier_text(), "the flip did not reach the paragraph above the table"
+    monkeypatch.setitem(globals(), "_carrier_text", lambda: opening)
     assert any(
         "opening" in line for line in _divergences()
     ), "the counter paragraph could still promise a count the table no longer measures"
