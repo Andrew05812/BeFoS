@@ -244,6 +244,20 @@ class TestResultOut(BaseModel):
     completed_at: datetime | None = None
 
 
+class TestProfileOut(BaseModel):
+    """The person's own profile, read back long after the evening it was scored.
+
+    The bands and axes are the same two lists ``POST /tests/complete`` answers with, built by the
+    same code, so the screen that opens weeks later cannot show a percent the results screen did.
+    What this one adds is ``updated_at`` — the moment the engine last rebuilt the profile from this
+    person's answers — because a profile read months later has to say when it spoke from.
+    """
+
+    categories: list[CategoryScoreOut]
+    axes: list[TraitAxisOut] = []
+    updated_at: datetime | None = None
+
+
 # ---------- Compatibility ----------
 class ExplanationItemOut(BaseModel):
     category: str
