@@ -90,7 +90,10 @@ fun formatMeetingInstant(
  * standing plan on one and a spent one on the other.
  */
 fun planChipText(plan: String, now: ZonedDateTime): String {
-    val moment = formatMeetingInstant(plan, now)
+    // The hour is read on the calendar of the clock this function is handed, not on the machine's
+    // default zone: a chip that mixed the two would name the pair's evening at a different hour on a
+    // test stand, in another country, or on a person whose screen clock and device zone disagree.
+    val moment = formatMeetingInstant(plan, now, now.zone)
     return if (planMomentPassed(plan, now)) "Договорились: $moment · $PLAN_PAST_WORD" else "Договорились: $moment"
 }
 
