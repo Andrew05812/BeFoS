@@ -1,5 +1,6 @@
 package app.befos.presentation.recommendations
 
+import app.befos.presentation.common.PLAN_PAST_WORD
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.OffsetDateTime
@@ -12,9 +13,10 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * The hour row a card offers is the one place this product turns a wall clock into an instant, so
- * its two rules are pinned here: an hour that has already struck cannot be offered, and a moment the
- * partner named in their own zone is shown on this person's calendar.
+ * The hour row a card offers is the one place this product turns a wall clock into an instant, so its
+ * rules are pinned here: an hour that has already struck cannot be offered, a moment the partner named
+ * in their own zone is shown on this person's calendar, and an hour the pair has walked past is called
+ * by the same word the chat card calls it.
  */
 class MeetingTimeTest {
 
@@ -97,5 +99,32 @@ class MeetingTimeTest {
         // The page can only carry what the API wrote, so an unparseable value is not a plan; the
         // section must not print a half-read hour the pair never arranged.
         assertEquals("", formatMeetingInstant("19:00", clockAt(14, 9), moscow))
+    }
+
+    @Test
+    fun `an agreed hour the pair walked past is named spent in the chat's own word`() {
+        // Two screens, one evening. The chat card and this chip are read by the same pair, so the
+        // word for a spent hour is shared rather than said twice in two ways.
+        val chip = planChipText("2026-10-14T15:00+03:00", clockAt(15, 9))
+
+        assertTrue(chip, chip.endsWith(" · $PLAN_PAST_WORD"))
+        // The hour the pair arranged is still the row's own fact and stays printed.
+        assertTrue(chip, chip.contains("15:00"))
+    }
+
+    @Test
+    fun `an agreed hour still ahead is named as a plan and called nothing else`() {
+        assertEquals("Договорились: Завтра, 19:00", planChipText("2026-10-15T19:00+03:00", clockAt(14, 9)))
+    }
+
+    @Test
+    fun `a spent plan invites a new hour by name`() {
+        val spent = "2026-10-14T15:00+03:00"
+        val live = "2026-10-15T19:00+03:00"
+
+        // Nothing of the old agreement is left to keep, so the tap is not called an edit.
+        assertEquals("Договориться о новом часе", offerButtonLabel(spent, spent, clockAt(15, 9)))
+        assertEquals("Изменить время", offerButtonLabel(live, null, clockAt(14, 9)))
+        assertEquals("Договориться о времени", offerButtonLabel(null, null, clockAt(14, 9)))
     }
 }

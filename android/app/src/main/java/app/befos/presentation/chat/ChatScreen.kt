@@ -75,6 +75,8 @@ import app.befos.core.network.CHAT_CLOSED
 import app.befos.core.network.CHAT_CLOSED_DETAIL
 import app.befos.domain.model.Message
 import app.befos.domain.model.MessageKinds
+import app.befos.presentation.common.PLAN_PAST_WORD
+import app.befos.presentation.common.planMomentPassed
 import kotlinx.coroutines.delay
 import java.time.OffsetDateTime
 import java.time.ZoneId
@@ -322,6 +324,7 @@ internal fun planCardUi(
     message: Message,
     partnerName: String?,
     zone: ZoneId = ZoneId.systemDefault(),
+    now: ZonedDateTime = ZonedDateTime.now(zone),
 ): PlanCardUi {
     val plan = message.plan
     return PlanCardUi(
@@ -333,6 +336,9 @@ internal fun planCardUi(
         status = when {
             message.kind == MessageKinds.PLAN_VOIDED -> "отменена"
             plan?.isLatest != true -> "отменена позже"
+            // The hour the pair agreed on is behind them, and the row says nothing else: nobody
+            // retired it, so the card cannot claim a promise that is still being kept.
+            planMomentPassed(plan.whenIso, now) -> PLAN_PAST_WORD
             else -> "действует"
         },
         who = "Вы и ${partnerName ?: "собеседник"}",

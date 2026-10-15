@@ -62,6 +62,7 @@ import app.befos.core.designsystem.scoreTextColorOnWash
 import app.befos.core.designsystem.tabularDigits
 import app.befos.core.di.beFosViewModel
 import app.befos.domain.model.Recommendation
+import app.befos.presentation.common.planMomentPassed
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZonedDateTime
@@ -489,17 +490,26 @@ private fun MeetingTimeSection(
     val hours = remember(day, now) { meetingHours(day, now) }
     val hour = chosenHour?.takeIf { it in hours } ?: hours.first()
 
+    // Whether the evening the pair arranged lies behind them is a reading of the clock, not of the
+    // row: nothing retires a plan on the server, because nobody knows what happened after the hour.
+    val planPassed = plan != null && planMomentPassed(plan, now)
+
     Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
         if (plan != null) {
             ChoiceChip(
-                "Договорились: ${formatMeetingInstant(plan, now)}",
-                Icons.Filled.CheckCircle,
-                EmberSoft,
-                EmberDeep,
-                MaterialTheme.colorScheme.primary,
+                planChipText(plan, now),
+                if (planPassed) Icons.Filled.Schedule else Icons.Filled.CheckCircle,
+                if (planPassed) MaterialTheme.colorScheme.surfaceVariant else EmberSoft,
+                if (planPassed) MaterialTheme.colorScheme.onSurfaceVariant else EmberDeep,
+                if (planPassed) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
             )
-        } else {
-            if (partnerOffer != null) {
+        }
+        // An hour the pair still stands on closes the rest of the row: an offer beside a live plan
+        // would say the arranging is still open. Once that hour is behind them the offers come back,
+        // because what the pair needs is the next one — and the agreed instant is not among them,
+        // since the server refuses a moment that has already passed.
+        if (plan == null || planPassed) {
+            if (partnerOffer != null && partnerOffer != plan) {
                 ChoiceChip(
                     "Партнёр предлагает: ${formatMeetingInstant(partnerOffer, now)}",
                     Icons.AutoMirrored.Filled.Send,
@@ -527,7 +537,7 @@ private fun MeetingTimeSection(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            if (mine != null) {
+            if (mine != null && mine != plan) {
                 ChoiceChip(
                     "Вы предложили: ${formatMeetingInstant(mine, now)}",
                     Icons.Filled.Schedule,
@@ -580,7 +590,7 @@ private fun MeetingTimeSection(
                     }
                 } else {
                     AppButton(
-                        text = if (mine == null) "Договориться о времени" else "Изменить время",
+                        text = offerButtonLabel(mine, plan, now),
                         onClick = { editing = true },
                         variant = AppButtonVariant.Ghost,
                         modifier = Modifier.fillMaxWidth(),

@@ -1,5 +1,7 @@
 package app.befos.presentation.recommendations
 
+import app.befos.presentation.common.PLAN_PAST_WORD
+import app.befos.presentation.common.planMomentPassed
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
@@ -77,4 +79,30 @@ fun formatMeetingInstant(
         else -> at.format(DateTimeFormatter.ofPattern("d MMM", Locale("ru")))
     }
     return "$day, $time"
+}
+
+/**
+ * What the card says about the moment the pair agreed on.
+ *
+ * A plan the clock has walked past keeps its chip: the agreement happened, and the row the pair
+ * reads is the fact of it. What the card adds is that the hour is behind them, in the same words the
+ * chat card uses, because one pair reads both screens and cannot be told the same evening is a
+ * standing plan on one and a spent one on the other.
+ */
+fun planChipText(plan: String, now: ZonedDateTime): String {
+    val moment = formatMeetingInstant(plan, now)
+    return if (planMomentPassed(plan, now)) "Договорились: $moment · $PLAN_PAST_WORD" else "Договорились: $moment"
+}
+
+/**
+ * What the tap that opens the hour row is called.
+ *
+ * Once the agreed hour is behind them the pair is not editing a plan they still stand on — there is
+ * nothing of it left to keep — so the row invites a new evening by name. Calling that «Изменить
+ * время» would leave the person to work out which of the two the tap does.
+ */
+fun offerButtonLabel(mine: String?, plan: String?, now: ZonedDateTime): String = when {
+    plan != null && planMomentPassed(plan, now) -> "Договориться о новом часе"
+    mine != null -> "Изменить время"
+    else -> "Договориться о времени"
 }
