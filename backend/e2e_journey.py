@@ -247,10 +247,32 @@ def main() -> int:
     cats = ca.json()["categories"]
     check(ca.status_code == 200 and len(cats) >= 5, "complete test A -> categories", f"{len(cats)} categories")
 
+    # 4b. The profile outlives the evening it was made. This is the whole point of stage 89: a person
+    # finishes the questionnaire, closes the app, and comes back days later to read the same result.
+    # The route carries no identifier, so the read-back has to be the completion's own numbers —
+    # bands and axes both, because the screen under the band opens exactly those axes.
+    prof = c.get(f"{BASE}/tests/profile", headers=ha)
+    body = prof.json()
+    check(prof.status_code == 200 and body.get("categories") == cats,
+          "profile reads back after the completion", f"{len(body.get('categories', []))} categories")
+    check(body.get("axes") == ca.json().get("axes"),
+          "read-back names the axes the completion printed", f"{len(body.get('axes', []))} axes")
+    check(bool(body.get("updated_at")), "read-back dates the profile", str(body.get("updated_at"))[:19])
+    anon = c.get(f"{BASE}/tests/profile")
+    check(anon.status_code == 401, "profile refuses an anonymous reader", str(anon.status_code))
+
     # B takes test too (needed for compatibility)
     ansb = [{"question_id": q["id"], "option_id": q["options"][-1]["id"]} for q in qs if q["options"]]
     c.post(f"{BASE}/tests/answers", headers=hb, json={"answers": ansb})
     c.post(f"{BASE}/tests/complete", headers=hb)
+
+    # Both halves of the pair read the same pathless route and get their own numbers: A answered the
+    # first option of every question, B the last, so an identical read-back would mean one token read
+    # another person's results.
+    prof_b = c.get(f"{BASE}/tests/profile", headers=hb).json()
+    check(prof_b.get("categories") != cats and prof_b.get("axes") != body.get("axes"),
+          "each reader gets their own profile, not the other's",
+          f"A {cats[0]['score']}% vs B {prof_b['categories'][0]['score']}%")
 
     # 5. discovery (page by cursor; endpoint caps limit at 50)
     items: list[dict] = []
