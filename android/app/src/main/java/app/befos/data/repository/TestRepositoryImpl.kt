@@ -6,8 +6,8 @@ import app.befos.data.mapper.toDomain
 import app.befos.data.model.AnswerDto
 import app.befos.data.model.AnswersRequest
 import app.befos.data.remote.ApiService
-import app.befos.domain.model.CategoryScore
 import app.befos.domain.model.TestCatalog
+import app.befos.domain.model.TestProfile
 import app.befos.domain.model.TestProgress
 import app.befos.domain.repository.TestRepository
 
@@ -29,6 +29,6 @@ class TestRepositoryImpl(private val api: ApiService) : TestRepository {
         return api.submitAnswers(request).map { it.toDomain() }
     }
 
-    override suspend fun complete(): ApiResult<List<CategoryScore>> =
-        api.completeTest().map { dto -> dto.categories.map { it.toDomain() } }
+    override suspend fun complete(): ApiResult<TestProfile> =
+        api.completeTest().map { it.toDomain() }
 }
