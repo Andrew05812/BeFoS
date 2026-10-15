@@ -9,6 +9,7 @@ from sqlalchemy.dialects.postgresql import UUID as pg_uuid, insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Match, Message, MessageRead
+from app.models.chat import KIND_TEXT
 
 # What the pair list answers with per conversation: the newest body, its time, and how many of the
 # partner's lines the reader has not receipted. A row of the narrow `chat_summaries` read.
@@ -101,6 +102,66 @@ class ChatRepository:
                 message_id=message_id, reader_id=sender_id, read_at=datetime.now(timezone.utc)
             )
         )
+
+    async def add_plan_event(
+        self,
+        match_id: uuid.UUID,
+        actor_id: uuid.UUID,
+        *,
+        kind: str,
+        activity_id: int,
+        when: datetime,
+        body: str,
+    ) -> Message:
+        """Write what the pair's plan did, as itself rather than as a sentence somebody typed.
+
+        There is no second copy of this row to collide with: the caller writes it only when the
+        plan's state actually changed, so a replayed tap that changed nothing writes nothing, and
+        the dedup key that protects a person's send from a lost response is not needed here — the
+        idempotency of a journal line is the state diff that produced it.
+
+        The caller holds the pair lock and commits in its own transaction, which is what makes the
+        plan and its record one fact: an hour that did not land cannot leave an event behind, and
+        an event that landed cannot describe an hour the database does not hold.
+        """
+        msg = Message(
+            match_id=match_id,
+            sender_id=actor_id,
+            body=body,
+            kind=kind,
+            plan_activity_id=activity_id,
+            plan_when=when,
+        )
+        self.session.add(msg)
+        await self.session.flush()
+        self._note_read_by_sender(msg.id, actor_id)
+        await self.session.flush()
+        return msg
+
+    async def latest_plan_events(self, match_id: uuid.UUID) -> dict[int, uuid.UUID]:
+        """The newest journal line of every idea this pair arranged, by activity.
+
+        This answers «does this line still stand?» for the page that carries it, and it cannot be
+        answered from the page alone: a plan is voided after it is agreed, so an older page shows
+        the agreement while the cancellation sits on a newer one, and a card that called the
+        agreement current would print a promise the pair no longer holds. The read is over the
+        pair's events only — a handful of rows, however long the conversation — and the caller
+        makes it just for the pages that hold a plan line.
+        """
+        stmt = (
+            select(Message.plan_activity_id, Message.id)
+            .where(
+                Message.match_id == match_id,
+                Message.kind != KIND_TEXT,
+                Message.plan_activity_id.is_not(None),
+                Message.is_deleted.is_(False),
+            )
+            .distinct(Message.plan_activity_id)
+            # The same tie-break the page itself uses, so the newest line is one line and not
+            # whichever two-microsecond rows the scan happened to meet first.
+            .order_by(Message.plan_activity_id, Message.created_at.desc(), Message.id.desc())
+        )
+        return {row.plan_activity_id: row.id for row in (await self.session.execute(stmt)).all()}
 
     async def find_by_client_id(
         self, match_id: uuid.UUID, sender_id: uuid.UUID, client_msg_id: str

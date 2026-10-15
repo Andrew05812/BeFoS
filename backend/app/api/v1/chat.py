@@ -9,7 +9,7 @@ from app.auth.deps import get_current_user
 from app.core.database import get_session
 from app.models import User
 from app.schemas.schemas import MessageIn, MessageOut, MessagePage
-from app.services.chat_service import ChatService
+from app.services.chat_service import ChatService, message_frame
 from app.websocket.manager import manager
 
 router = APIRouter(prefix="/matches", tags=["chat"])
@@ -58,20 +58,9 @@ async def send_message(
         response.status_code = 200
         return MessageOut(**msg)
     # REST sends must reach open sockets too, otherwise the peer only sees
-    # the message after a history reload.
-    await manager.broadcast_to_match(
-        match_id,
-        {
-            "type": "message",
-            "id": msg["id"],
-            "client_msg_id": msg["client_msg_id"],
-            "match_id": msg["match_id"],
-            "sender_id": msg["sender_id"],
-            "body": msg["body"],
-            "created_at": msg["created_at"].isoformat(),
-            "is_read": msg["is_read"],
-        },
-    )
+    # the message after a history reload. The frame is the one the socket sends and the
+    # accepted hour sends, so a pair reading a live line cannot tell doors apart.
+    await manager.broadcast_to_match(match_id, message_frame(msg))
     return MessageOut(**msg)
 
 

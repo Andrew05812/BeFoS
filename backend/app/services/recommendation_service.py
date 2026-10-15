@@ -7,12 +7,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics.tracker import Event, tracker
 from app.core.exceptions import ConflictError, NotFoundError, ValidationError
-from app.models import Match
+from app.models import Activity, Match
 from app.models.base import utcnow
+from app.models.chat import KIND_PLAN_AGREED, KIND_PLAN_VOIDED
 from app.recommendations.engine import ActivitySignal, UserSignal, recommend
 from app.repositories.activity_repo import ActivityRepository
+from app.repositories.chat_repo import ChatRepository
 from app.repositories.social_repo import SocialRepository
 from app.repositories.user_repo import UserRepository
+from app.services.chat_service import message_dto
 
 # A meeting is arranged for a moment that has not passed and is not a rumor about next year. The
 # tolerance is a clock allowance, not a policy: a phone whose clock runs a minute behind should be
@@ -23,6 +26,19 @@ MAX_LEAD = timedelta(days=400)
 
 def _iso(value: datetime | None) -> str | None:
     return None if value is None else value.isoformat()
+
+
+def _plan_sentence(kind: str, title: str, when: datetime) -> str:
+    """The sentence a plan line is born with, for a client that draws only text.
+
+    Named in UTC and said so: the pair is often in two cities, and a card that printed the moment
+    on the server's own clock would hand the wrong hour to whoever reads it. Everything a card can
+    draw from fields is in the fields; this is the fallback that has to be true on its own.
+    """
+    moment = when.astimezone(timezone.utc).strftime("%d.%m.%Y %H:%M UTC")
+    if kind == KIND_PLAN_AGREED:
+        return f"Вы договорились встретиться: {title} — {moment}"
+    return f"Договорённость отменена: {title} — {moment}"
 
 
 def _agreed_instant(
@@ -69,6 +85,7 @@ class RecommendationService:
         self.activities = ActivityRepository(session)
         self.users = UserRepository(session)
         self.social = SocialRepository(session)
+        self.chat = ChatRepository(session)
 
     async def _require_match(self, match_id: uuid.UUID, user_id: uuid.UUID) -> Match:
         match = await self.session.get(Match, match_id)
@@ -333,58 +350,127 @@ class RecommendationService:
 
     async def _require_writable(
         self, match_id: uuid.UUID, user_id: uuid.UUID, activity_id: int
-    ) -> Match:
+    ) -> tuple[Match, Activity]:
         """The guards every tap on a card of this pair's page pays: membership, a real activity
         id, and the pair lock that keeps a dissolve from deleting the parent mid-write.
 
         Stated once because the time taps below are the third copy of this sequence, and the first
         two (`mark_selected`, `set_declined`) learned it the way their comments tell it — a 500
         where the route should answer 404.
+
+        The catalogue row comes back with the match because the tap that names an hour writes a
+        sentence about the idea into the pair's chat, and the row this guard already read is where
+        its title lives.
         """
         match = await self._require_match(match_id, user_id)
         known = await self.activities.get_by_ids([activity_id])
-        if activity_id not in known:
+        activity = known.get(activity_id)
+        if activity is None:
             raise NotFoundError("Activity not found.")
         await self.social.lock_pair(match.user_a_id, match.user_b_id)
         if not await self.social.match_still_present(match_id):
             raise NotFoundError("Match not found.")
-        return match
+        return match, activity
 
     @staticmethod
     def _partner_id(match: Match, user_id: uuid.UUID) -> uuid.UUID:
         return match.user_b_id if match.user_a_id == user_id else match.user_a_id
 
+    async def _journal_plan_change(
+        self,
+        match: Match,
+        actor_id: uuid.UUID,
+        activity: Activity,
+        before: dict[uuid.UUID, dict[int, tuple[datetime | None, datetime | None]]],
+        after_mine: tuple[datetime | None, datetime | None],
+    ) -> list[dict]:
+        """Write the pair's plan into their conversation when this tap changed it, in this same
+        transaction, and answer with the lines a socket has to be told about.
+
+        The journal is a state diff rather than a tap counter, and that is what keeps a promise the
+        pair reads twice from saying it twice: an hour named that does not create, end or move a
+        plan changes nothing and writes nothing, so a client that retried the request after a
+        response was lost leaves one line behind. It is also what keeps a false line out: an accept
+        that lands on an hour the pair has since traded away produces no plan under
+        `_agreed_instant`, and a chat that showed «вы договорились» about it would report an
+        agreement nobody holds.
+
+        Two lines when the tap moved the plan rather than made or unmade it, in that order: the end
+        of the hour the pair had, then the hour they now have. A cancelled agreement and a new one
+        are two facts, and folding them into one sentence would leave the older moment unsaid.
+        """
+        partner_id = self._partner_id(match, actor_id)
+        mine_before = before.get(actor_id, {}).get(activity.id, (None, None))
+        theirs = before.get(partner_id, {}).get(activity.id, (None, None))
+        was = _agreed_instant(mine_before, theirs)
+        now = _agreed_instant(after_mine, theirs)
+        if was == now:
+            return []
+        frames: list[dict] = []
+        for kind, moment in ((KIND_PLAN_VOIDED, was), (KIND_PLAN_AGREED, now)):
+            if moment is None:
+                continue
+            msg = await self.chat.add_plan_event(
+                match.id,
+                actor_id,
+                kind=kind,
+                activity_id=activity.id,
+                when=moment,
+                body=_plan_sentence(kind, activity.title, moment),
+            )
+            frames.append(message_dto(msg, actor_id, is_read=False, activity=activity))
+        # The last line of this pair is the newest word the conversation holds about this idea;
+        # the one before it, if there is one, is already superseded. A page reload reads the same
+        # answer off the rows, so this only keeps a live socket from showing both as current.
+        for index, frame in enumerate(frames):
+            frame["plan"]["is_latest"] = index == len(frames) - 1
+        return frames
+
     async def propose_time(
         self, match_id: uuid.UUID, user_id: uuid.UUID, activity_id: int, when: datetime
-    ) -> None:
+    ) -> list[dict]:
         """Name the moment this person would meet for this idea, or move the one they named.
 
         A time belongs to an idea the pair is already talking about, so the card has to have gone
         into this pair's chat first: naming a moment for an idea the other half has never seen
         would let the page claim a plan out of a message nobody received. The check reads the same
         rows the page reads, so it costs the tap no extra round trip.
+
+        The lines this wrote into the conversation come back for the socket, the way a sent message
+        does: moving the hour can end the plan the pair was standing on, and a chat that learned of
+        it only at the next reload would go on offering a promise nobody holds.
         """
-        match = await self._require_writable(match_id, user_id, activity_id)
+        match, activity = await self._require_writable(match_id, user_id, activity_id)
         _validate_meeting_time(when)
-        proposed, _declined, _times = await self.activities.decisions_by_pair(
+        proposed, _declined, times = await self.activities.decisions_by_pair(
             match_id, [activity_id]
         )
         if activity_id not in proposed.get(user_id, set()):
             raise ConflictError("Send this idea to the chat before arranging a time for it.")
+        _old_time, my_accept = times.get(user_id, {}).get(activity_id, (None, None))
+        events = await self._journal_plan_change(
+            match, user_id, activity, times, (when, my_accept)
+        )
         await self.activities.set_meeting_time(user_id, activity_id, match_id, when)
         await self.session.commit()
+        return events
 
     async def accept_time(
         self, match_id: uuid.UUID, user_id: uuid.UUID, activity_id: int, when: datetime
-    ) -> None:
+    ) -> list[dict]:
         """Agree to the moment the other half named.
 
         The instant arrives from the client rather than being read off the partner's row here, and
         that is the point: it is the value the person saw when they tapped. If the partner has
         moved it in the meantime the answer is a conflict, not a silent agreement to something
         nobody offered — the same reason the chat refuses a message built on a pair that dissolved.
+
+        What the pair agreed on has to be said where they agreed on it. The plan is two rows whose
+        instants line up, which is a fact a conversation cannot read; the line written here states
+        it once more, in the same transaction as the hour that made it, so an hour that did not
+        land leaves no line behind and an open chat learns of the plan without a reload.
         """
-        match = await self._require_writable(match_id, user_id, activity_id)
+        match, activity = await self._require_writable(match_id, user_id, activity_id)
         _validate_meeting_time(when)
         _proposed, _declined, times = await self.activities.decisions_by_pair(
             match_id, [activity_id]
@@ -396,6 +482,11 @@ class RecommendationService:
             raise ConflictError("The other half has not named a time for this idea yet.")
         if partner_time != when:
             raise ConflictError("That time is no longer the one being offered.")
+        my_time, _old_accept = times.get(user_id, {}).get(activity_id, (None, None))
+        events = await self._journal_plan_change(
+            match, user_id, activity, times, (my_time, when)
+        )
         await self.activities.set_accepted_time(user_id, activity_id, match_id, when)
         await self.session.commit()
+        return events
 

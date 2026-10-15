@@ -367,6 +367,23 @@ class MatchListResponse(BaseModel):
 
 
 # ---------- Chat ----------
+class MessagePlan(BaseModel):
+    """The pair's plan a journal line records, as fields rather than as a sentence.
+
+    `activity_title` comes from the catalogue at read time, so a card that names an idea shows the
+    name the idea has now; `body` keeps the sentence the line was born with for a client that draws
+    only text. `activity_id` is absent when the card has left the catalogue: the line stays in the
+    conversation, its tap target does not. `is_latest` says this is the newest word the pair wrote
+    about this idea — an agreement that is not the newest word has been cancelled by a later line,
+    possibly one the viewer has not loaded yet.
+    """
+
+    activity_id: int | None
+    activity_title: str | None
+    when: datetime | None
+    is_latest: bool
+
+
 class MessageOut(BaseModel):
     id: str
     match_id: str
@@ -376,6 +393,10 @@ class MessageOut(BaseModel):
     is_read: bool
     is_own: bool
     client_msg_id: str | None = None
+    # `text` for anything a person typed; a plan kind for a line the pair's plan wrote. Sent as
+    # text because a client groups bubbles by author, and a plan line has an actor but no author.
+    kind: str = "text"
+    plan: MessagePlan | None = None
 
 
 class MessageIn(BaseModel):
