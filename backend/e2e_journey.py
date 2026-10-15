@@ -164,6 +164,77 @@ def realtime(match_id: str, uid_a: str, uid_b: str, tok_a: str, tok_b: str, stra
         check(False, "both members hold a socket on the pair", f"{type(exc).__name__}: {exc}")
 
 
+def agreed_hour_reaches_the_chat(match_id: str, tok_a: str, tok_b: str, activity_id: int,
+                                 title: str, first: str, moved: str, c: httpx.Client) -> None:
+    """Ask the live pair whether the hour they land on is said in their conversation.
+
+    A card answers the tap and a stored row answers the page reload; only a second client proves the
+    conversation itself carries the plan. So the half that names the hour and the half that agrees
+    are driven over REST while the other screen sits open on a socket, and every step is read back
+    from both histories: a proposal that speaks too early, an agreement that arrives twice, a promise
+    that moved without the chat being told about it, and an old hour that keeps posing as current all
+    fail here rather than on a phone.
+    """
+    ha = {"Authorization": f"Bearer {tok_a}"}
+    hb = {"Authorization": f"Bearer {tok_b}"}
+    time_url = f"{BASE}/matches/{match_id}/recommendations/{activity_id}/time"
+    accept_url = f"{time_url}/accept"
+
+    def plan_lines(headers: dict) -> list[dict]:
+        history = c.get(f"{BASE}/matches/{match_id}/messages", headers=headers).json()["messages"]
+        return [m for m in history if m.get("kind") != "text"
+                and (m.get("plan") or {}).get("activity_id") == activity_id]
+
+    async def drive() -> None:
+        uri_b = f"{WS_BASE}/ws/chat/{match_id}?token={tok_b}"
+        async with websockets.connect(uri_b, open_timeout=5) as ws_b:
+            b = Peer(ws_b)
+            proposed = await asyncio.to_thread(c.put, time_url, headers=ha, json={"when": first})
+            check(proposed.status_code == 204, "A names an hour for the card", str(proposed.status_code))
+            lines = plan_lines(ha)
+            check(await b.nothing("message", 1.0) and not lines,
+                  "one half naming an hour says nothing in the conversation yet", str(lines)[:140])
+
+            agreed = await asyncio.to_thread(c.post, accept_url, headers=hb, json={"when": first})
+            check(agreed.status_code == 204, "B agrees to the hour", str(agreed.status_code))
+            frame = await b.next("message", 3.0)
+            check(frame is not None and frame.get("kind") == "plan_agreed"
+                  and (frame.get("plan") or {}).get("is_latest") is True,
+                  "an open chat hears the agreement without a reload", str(frame)[:140])
+
+            lines_a, lines_b = plan_lines(ha), plan_lines(hb)
+            check(len(lines_a) == 1 and len(lines_b) == 1 and lines_a[0]["id"] == lines_b[0]["id"],
+                  "both screens read the same one agreement line", f"{len(lines_a)}/{len(lines_b)}")
+            plan = lines_a[0]["plan"]
+            check(plan.get("activity_title") == title and "19:00" in str(plan.get("when"))
+                  and "UTC" in lines_a[0]["body"],
+                  "the line names the idea, the hour and the clock it is named in", str(plan)[:140])
+
+            retapped = await asyncio.to_thread(c.post, accept_url, headers=hb, json={"when": first})
+            check(retapped.status_code == 204 and len(plan_lines(ha)) == 1,
+                  "a second agreement on the same hour says nothing twice", str(len(plan_lines(ha))))
+
+            moved_up = await asyncio.to_thread(c.put, time_url, headers=ha, json={"when": moved})
+            check(moved_up.status_code == 204, "A moves the agreed hour", str(moved_up.status_code))
+            ended = await b.next("message", 3.0)
+            check(ended is not None and ended.get("kind") == "plan_voided",
+                  "the chat is told the promise ended", str(ended)[:140])
+
+            landing = await asyncio.to_thread(c.post, accept_url, headers=hb, json={"when": moved})
+            check(landing.status_code == 204, "B agrees to the moved hour", str(landing.status_code))
+            lines_a = plan_lines(ha)
+            newest = [m for m in lines_a if (m.get("plan") or {}).get("is_latest")]
+            check(len(newest) == 1 and newest[0]["kind"] == "plan_agreed"
+                  and "21:00" in str(newest[0]["plan"]["when"])
+                  and all(m["plan"]["is_latest"] is False for m in lines_a if m is not newest[0]),
+                  "the hour they moved off stops posing as current", str(newest)[:140])
+
+    try:
+        asyncio.run(drive())
+    except Exception as exc:  # a socket that will not open is a failure, not a traceback
+        check(False, "the pair's agreement is said in their conversation", f"{type(exc).__name__}: {exc}")
+
+
 def onboard_payload(name: str, gender: str, pref: list[str], interests: list[str]) -> dict:
     return {
         "name": name,
@@ -422,6 +493,13 @@ def main() -> int:
     check(len(tapped) == 1 and tapped[0]["selected"] is True,
           "the reopened page reads A's tap back", str([r.get("selected") for r in tapped]))
 
+    # 12c. the hour the pair agrees on belongs to the conversation, not only to the card.
+    plan_activity_id = top["activity"]["id"]
+    plan_title = top["activity"]["title"]
+    evening = time.strftime("%Y-%m-%d", time.gmtime(time.time() + 3 * 86400))
+    agreed_hour_reaches_the_chat(match_id, tok_a, tok_b, plan_activity_id, plan_title,
+                                 f"{evening}T19:00:00+00:00", f"{evening}T21:00:00+00:00", c)
+
     # 12b. A re-takes the test with the other half of the answers. A pair's percent is a
     # stored number that two screens read, so this is where the stored copy could be caught
     # disagreeing with the compatibility screen, which computes live on every request.
@@ -447,6 +525,9 @@ def main() -> int:
     check(blk.status_code == 200, "A blocks B", str(blk.status_code))
     maps_after = [c.get(f"{BASE}/matches/{match_id}/universe", headers=h).status_code for h in (ha, hb)]
     check(maps_after == [404, 404], "a dissolved pair has no map left to open", str(maps_after))
+    named_after = c.put(f"{BASE}/matches/{match_id}/recommendations/{plan_activity_id}/time",
+                        headers=ha, json={"when": f"{evening}T19:00:00+00:00"}).status_code
+    check(named_after in (403, 404, 409), "a dissolved pair names no new hour", str(named_after))
     unblk_ok = c.get(f"{BASE}/users/{uid_b}", headers=ha).status_code
     check(unblk_ok in (200, 403, 404), "profile access after block is defined", str(unblk_ok))
 
