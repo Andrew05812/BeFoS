@@ -6,7 +6,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Match, Message, SharedPlan, SharedPlanMember
+from app.models import Match, Message, SharedPlan
 
 
 class PlanRepository:
@@ -77,9 +77,3 @@ class PlanRepository:
         rows = list((await self.session.execute(stmt)).scalars().all())
         rows.reverse()
         return rows
-
-    async def add_member(self, plan_id: uuid.UUID, user_id: uuid.UUID) -> SharedPlanMember:
-        member = SharedPlanMember(plan_id=plan_id, user_id=user_id)
-        self.session.add(member)
-        await self.session.flush()
-        return member

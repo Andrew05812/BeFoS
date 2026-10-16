@@ -291,16 +291,18 @@ class PlanService:
             if line.proposed and line.created_at is not None
         )
         created_by = proposals[0][2]
+        # The two answer rows are built through the relationship rather than inserted beside it: the
+        # projection reads `plan.members` in the same statement that creates the plan, and a
+        # collection the session never populated is loaded on access — which an async session
+        # refuses.
         plan = SharedPlan(
             match_id=match.id,
             activity_id=activity.id,
             created_by=created_by,
             title=activity.title,
+            members=[SharedPlanMember(user_id=user_id) for user_id in (match.user_a_id, match.user_b_id)],
         )
         self.session.add(plan)
-        await self.session.flush()
-        for user_id in (match.user_a_id, match.user_b_id):
-            await self.plans.add_member(plan.id, user_id)
         await self.session.flush()
         return plan
 
