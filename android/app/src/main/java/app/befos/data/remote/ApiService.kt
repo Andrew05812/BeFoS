@@ -20,6 +20,7 @@ import app.befos.data.model.MessagePageDto
 import app.befos.data.model.MessageRequest
 import app.befos.data.model.OnboardingRequest
 import app.befos.data.model.PassResponseDto
+import app.befos.data.model.PlanListDto
 import app.befos.data.model.ProfileDto
 import app.befos.data.model.ProfileUpdateRequest
 import app.befos.data.model.ProgressDto
@@ -301,6 +302,84 @@ class ApiService(private val client: HttpClient) {
         client.apiCallUnit {
             method = HttpMethod.Post
             url(endpoint("matches/$matchId/read"))
+        }
+
+    // ---------- Shared plans ----------
+    /**
+     * One pair's arrangements, as the pair's screen reads them.
+     *
+     * The list is asked for by the pair, not by the person: the screen a pair opens is about the two
+     * of them, and the session already says whose eyes it is drawn for. No id of a person or of a plan
+     * is sent anywhere as a claim about rights — the routes resolve the owner themselves.
+     */
+    suspend fun getMatchPlans(matchId: String): ApiResult<PlanListDto> =
+        client.apiCall {
+            method = HttpMethod.Get
+            url(endpoint("matches/$matchId/plans"))
+        }
+
+    /** Stand behind the idea the plan is about — the same act as tapping «выбрать» on the card. */
+    suspend fun acceptPlan(planId: String): ApiResult<Unit> =
+        client.apiCallUnit {
+            method = HttpMethod.Post
+            url(endpoint("plans/$planId/accept"))
+        }
+
+    suspend fun declinePlan(planId: String): ApiResult<Unit> =
+        client.apiCallUnit {
+            method = HttpMethod.Post
+            url(endpoint("plans/$planId/decline"))
+        }
+
+    suspend fun restorePlanDecline(planId: String): ApiResult<Unit> =
+        client.apiCallUnit {
+            method = HttpMethod.Delete
+            url(endpoint("plans/$planId/decline"))
+        }
+
+    /** Name — or move — the hour this person would meet at. The hour stays a projection of the pair's rows. */
+    suspend fun offerPlanHour(planId: String, whenIso: String): ApiResult<Unit> =
+        client.apiCallUnit {
+            method = HttpMethod.Post
+            url(endpoint("plans/$planId/hour"))
+            setBody(MeetingTimeRequest(whenIso))
+        }
+
+    /** The instant travels back as it was read, so an offer that moved in between is refused, not agreed to. */
+    suspend fun confirmPlanHour(planId: String, whenIso: String): ApiResult<Unit> =
+        client.apiCallUnit {
+            method = HttpMethod.Post
+            url(endpoint("plans/$planId/hour/confirm"))
+            setBody(MeetingTimeRequest(whenIso))
+        }
+
+    suspend fun cancelPlan(planId: String): ApiResult<Unit> =
+        client.apiCallUnit {
+            method = HttpMethod.Post
+            url(endpoint("plans/$planId/cancel"))
+        }
+
+    /** Take a cancellation back — by the half that called it off, and by nobody else. */
+    suspend fun restorePlan(planId: String): ApiResult<Unit> =
+        client.apiCallUnit {
+            method = HttpMethod.Delete
+            url(endpoint("plans/$planId/cancel"))
+        }
+
+    /**
+     * This person's own word that the meeting happened. One tap answers 204 and can still leave the
+     * plan planned: «состоялось» is the pair's, not one half's, and the clock never says it.
+     */
+    suspend fun markPlanAttended(planId: String): ApiResult<Unit> =
+        client.apiCallUnit {
+            method = HttpMethod.Post
+            url(endpoint("plans/$planId/complete"))
+        }
+
+    suspend fun undoPlanAttended(planId: String): ApiResult<Unit> =
+        client.apiCallUnit {
+            method = HttpMethod.Delete
+            url(endpoint("plans/$planId/complete"))
         }
 
     // ---------- Safety ----------

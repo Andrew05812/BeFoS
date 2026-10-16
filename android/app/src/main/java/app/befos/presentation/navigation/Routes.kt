@@ -52,6 +52,16 @@ object Routes {
     fun recommendations(matchId: String, activityId: Int? = null): String =
         if (activityId == null) "recommendations/$matchId" else "recommendations/$matchId?$ACTIVITY_ARG=$activityId"
 
+    // The plan the page is asked to bring into view. A chat line names the plan it was written about,
+    // and the pair tapping it wants that row rather than the top of the list. Optional, so the plain
+    // route from the top bar still matches the same screen and opens at its top.
+    const val PLAN_ARG = "plan"
+    const val PLANS = "plans/{$CHAT_ARG}?${PLAN_ARG}={$PLAN_ARG}"
+
+    /** A plan is named by its server-issued id; the pair whose plans these are comes from the session. */
+    fun plans(matchId: String, planId: String? = null): String =
+        if (planId == null) "plans/$matchId" else "plans/$matchId?$PLAN_ARG=$planId"
+
     const val USER_ARG = "userId"
     const val PUBLIC_PROFILE = "user/{$USER_ARG}"
     fun publicProfile(userId: String) = "user/$userId"

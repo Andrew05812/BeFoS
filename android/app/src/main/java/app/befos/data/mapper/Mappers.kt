@@ -11,6 +11,7 @@ import app.befos.data.model.MatchSummaryDto
 import app.befos.data.model.MessageDto
 import app.befos.data.model.OnboardingRequest
 import app.befos.data.model.OptionDto
+import app.befos.data.model.PlanDto
 import app.befos.data.model.ProfileDto
 import app.befos.data.model.ProfileUpdateRequest
 import app.befos.data.model.ProgressDto
@@ -40,6 +41,7 @@ import app.befos.domain.model.Profile
 import app.befos.domain.model.ProfileUpdateData
 import app.befos.domain.model.PublicProfile
 import app.befos.domain.model.Question
+import app.befos.domain.model.Plan
 import app.befos.domain.model.Recommendation
 import app.befos.domain.model.Activity
 import app.befos.domain.model.TestProfile
@@ -205,6 +207,7 @@ fun MessageDto.toDomain() = Message(
             activityId = it.activityId,
             activityTitle = it.activityTitle,
             whenIso = it.whenIso,
+            planId = it.planId,
             isLatest = it.isLatest,
         )
     },
@@ -228,6 +231,32 @@ fun RecommendationDto.toDomain() = Recommendation(
     partnerMeetingTime = partnerMeetingTime,
     iAcceptedTime = iAcceptedTime,
     agreedTime = agreedTime,
+)
+
+/**
+ * The plan as the pair's screen holds it. The hours stay text rather than becoming instants: the
+ * screen prints them on this person's calendar and sends back exactly what it showed, and a value
+ * parsed and re-printed on the way could name a moment nobody offered.
+ */
+fun PlanDto.toDomain() = Plan(
+    id = id,
+    title = title,
+    description = description,
+    note = note,
+    place = place,
+    status = status,
+    startsAt = startsAt,
+    pendingHour = pendingHour,
+    pendingBy = pendingBy,
+    myDecision = myDecision,
+    iAttended = iAttended,
+    partnerId = partnerId,
+    partnerName = partnerName,
+    partnerDecision = partnerDecision,
+    partnerAttended = partnerAttended,
+    hourPassed = hourPassed,
+    needsMyAnswer = needsMyAnswer,
+    canCancel = canCancel,
 )
 
 fun OnboardingData.toRequest() = OnboardingRequest(

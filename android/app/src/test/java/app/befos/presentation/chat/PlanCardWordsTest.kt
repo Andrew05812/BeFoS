@@ -38,10 +38,12 @@ class PlanCardWordsTest {
         title: String? = "Поход в кино",
         whenIso: String? = "2026-10-17T21:00+09:00",
         activityId: Int? = if (title == null) null else 7,
+        planId: String? = "p1",
     ) = MessagePlan(
         activityId = activityId,
         activityTitle = title,
         whenIso = whenIso,
+        planId = planId,
         isLatest = latest,
     )
 
@@ -67,6 +69,25 @@ class PlanCardWordsTest {
         assertTrue(moment, moment.endsWith(", 15:00"))
         assertEquals("действует", ui.status)
         assertEquals("Вы и Анна", ui.who)
+        assertEquals(7, ui.activityId)
+    }
+
+    @Test
+    fun `the card carries the plan its line was written about`() {
+        val ui = planCardUi(line(MessageKinds.PLAN_AGREED, plan()), "Анна", moscow, now)
+
+        // A pair can talk the same idea over more than once, so the tap opens the plan the line names
+        // rather than whichever card happens to share its activity.
+        assertEquals("p1", ui.planId)
+    }
+
+    @Test
+    fun `a line the plan entity never wrote leads to the idea instead`() {
+        // Rows written before plans had their own rows carry no id, and the card must not promise the
+        // plan page it cannot open.
+        val ui = planCardUi(line(MessageKinds.PLAN_AGREED, plan(planId = null)), "Анна", moscow, now)
+
+        assertNull(ui.planId)
         assertEquals(7, ui.activityId)
     }
 
