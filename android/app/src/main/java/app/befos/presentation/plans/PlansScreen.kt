@@ -81,13 +81,14 @@ fun PlansScreen(
     focusPlanId: String?,
     onBack: () -> Unit,
 ) {
-    val vm: PlansViewModel = beFosViewModel { PlansViewModel(it.planRepository, matchId) }
+    val vm: PlansViewModel =
+        beFosViewModel { PlansViewModel(it.planRepository, it.chatRepository, matchId) }
     val state by vm.uiState.collectAsState()
     val sections = remember(state.plans) { planSections(state.plans) }
     val listState = rememberLazyListState()
     // A refused refresh that leaves the cards standing costs its own row over the list, so the row a
     // tap from the chat leads to is counted from the same flags the list reads.
-    val headerRows = 1 + (if (state.error != null) 1 else 0)
+    val headerRows = 1 + (if (state.error != null) 1 else 0) + (if (state.outdated != null) 1 else 0)
     val focusRow = focusPlanId?.let { planFocusRow(it, sections, headerRows) }
     LaunchedEffect(focusRow, state.loading) {
         if (!state.loading && focusRow != null) listState.scrollToItem(focusRow)
@@ -104,6 +105,15 @@ fun PlansScreen(
             state.error != null && state.plans.isEmpty() -> ErrorState(
                 message = state.error.orEmpty(),
                 title = "Не удалось загрузить планы",
+                onRetry = vm::load,
+                modifier = Modifier.padding(padding),
+            )
+            state.outdated != null && state.plans.isEmpty() -> ErrorState(
+                // The pair's thread said a plan moved while this page held no rows to keep. «Планов
+                // пока нет» would then be a sentence the socket has already contradicted, so the page
+                // says the one thing it knows: the arrangement moved and this copy did not read it.
+                message = state.outdated.orEmpty(),
+                title = "План пары изменился",
                 onRetry = vm::load,
                 modifier = Modifier.padding(padding),
             )
@@ -130,6 +140,14 @@ fun PlansScreen(
                             actionLabel = "Повторить",
                             onAction = vm::load,
                         )
+                    }
+                }
+                state.outdated?.let { word ->
+                    item {
+                        // The pair's socket said the arrangement moved and this page could not read the
+                        // new one. The cards below stay, because they are what the pair last saw the
+                        // server agree on — but they are named as that, rather than as the plan now.
+                        InlineNotice(text = word, actionLabel = "Перечитать", onAction = vm::load)
                     }
                 }
                 item {

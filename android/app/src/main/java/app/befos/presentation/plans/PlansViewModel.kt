@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.befos.core.network.ApiResult
 import app.befos.domain.model.Plan
+import app.befos.domain.repository.ChatEvent
+import app.befos.domain.repository.ChatRepository
 import app.befos.domain.repository.PlanRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -36,6 +38,10 @@ data class PlansUiState(
     val loading: Boolean = true,
     val plans: List<Plan> = emptyList(),
     val error: String? = null,
+    // Said when a plan the pair just moved could not be read back. The rows on the screen are then
+    // the ones the socket has already called outdated, and a page that shows them without saying so
+    // presents an arrangement the server replaced as the pair's current one.
+    val outdated: String? = null,
     // Why the last tap on this plan did not land, one line per plan. A plan is a row the pair reads
     // as its own card, so a refusal says which card it refused rather than floating above the list.
     val tapErrors: Map<String, String> = emptyMap(),
@@ -44,8 +50,12 @@ data class PlansUiState(
     val busy: Set<String> = emptySet(),
 )
 
+/** The word the page uses when the plan moved and this copy of the list did not. */
+const val PLAN_NOT_CURRENT_WORD = "План пары изменился, а этот список не перечитался."
+
 class PlansViewModel(
     private val planRepository: PlanRepository,
+    chatRepository: ChatRepository,
     private val matchId: String,
 ) : ViewModel() {
 
@@ -54,6 +64,18 @@ class PlansViewModel(
 
     init {
         load()
+        // The pair's hour moves on the other half's screen, and the thread's plan lines are the only
+        // notice an open page gets. The page listens to every line the plan wrote rather than to the
+        // kinds this build knows: a newer server can move the arrangement with a word this copy has
+        // never seen, and a page that did not recognise it would keep showing an hour as current.
+        // A sentence somebody typed is not such a notice, and neither is this person's own move — the
+        // write below already read the page back for it.
+        viewModelScope.launch {
+            chatRepository.socket(matchId).collect { event ->
+                val line = (event as? ChatEvent.IncomingMessage)?.message ?: return@collect
+                if (line.isPlanEvent && !line.isOwn) reread()
+            }
+        }
     }
 
     fun load() {
@@ -63,9 +85,34 @@ class PlansViewModel(
                 // The page is the pair's record, so it ends the doubt a refused write left: the card
                 // repaints from what the server says rather than from what this visit tried to do.
                 is ApiResult.Success -> _uiState.update {
-                    it.copy(loading = false, plans = result.data, tapErrors = emptyMap())
+                    it.copy(
+                        loading = false,
+                        plans = result.data,
+                        outdated = null,
+                        tapErrors = emptyMap(),
+                    )
                 }
                 is ApiResult.Error -> _uiState.update { it.copy(loading = false, error = result.message) }
+            }
+        }
+    }
+
+    /**
+     * The read a plan line from the other half asks for.
+     *
+     * It keeps the rows on screen rather than blinking to a skeleton: the pair is reading this page,
+     * and trading the arrangement they are looking at for a blank one is not how a move is announced.
+     * What it cannot keep is silence — when this read is refused, the rows the pair sees are exactly
+     * the ones the socket has already said are not current, so the page names that and waits for the
+     * tap that reads again.
+     */
+    private fun reread() {
+        viewModelScope.launch {
+            when (val result = planRepository.plans(matchId)) {
+                is ApiResult.Success -> _uiState.update {
+                    it.copy(plans = result.data, outdated = null, error = null)
+                }
+                is ApiResult.Error -> _uiState.update { it.copy(outdated = PLAN_NOT_CURRENT_WORD) }
             }
         }
     }
