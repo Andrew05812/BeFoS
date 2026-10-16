@@ -30,6 +30,11 @@ import kotlinx.coroutines.withTimeout
  * would otherwise arrive on this phone as news the person can still act on. So the alarm asks the server
  * for its own plan: what the pair no longer stands on says nothing here, and what could not be answered
  * says its hour with the doubt named in the same line.
+ *
+ * A moved evening is the one answer this wake gives rather than speaks. The alarm that woke the device
+ * held the old hour, the page that would have re-armed it is not open, so silence alone would leave the
+ * pair's new hour with no call at all: this receiver puts it back on the clock under the same plan id,
+ * which is what makes the wake a move rather than the last sound the evening ever made.
  */
 class PlanReminderReceiver : BroadcastReceiver() {
 
@@ -52,9 +57,17 @@ class PlanReminderReceiver : BroadcastReceiver() {
         scope.launch {
             try {
                 val reading = read(repository, planId)
-                when (val delivery = deliveryFor(armed, reading, ZonedDateTime.now())) {
+                // One moment for both halves of this decision: what the delivery was read against is the
+                // moment the new hour is armed from, so an evening the pair moved cannot be armed for a
+                // lead this same wake has already walked past.
+                val now = ZonedDateTime.now()
+                when (val delivery = deliveryFor(armed, reading, now)) {
                     is ReminderDelivery.Speak ->
                         PlanReminders.post(context, planId, delivery.title, delivery.text)
+                    // The page that armed this hour is not open, so the moved evening would be left with
+                    // no call at all. Arming under the same plan id is what makes this a move rather than
+                    // a second alarm for the same evening.
+                    is ReminderDelivery.Rearm -> PlanReminders.sync(context, listOf(delivery.plan), now)
                     ReminderDelivery.Silent -> Unit
                 }
             } finally {

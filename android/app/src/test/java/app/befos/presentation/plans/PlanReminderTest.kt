@@ -20,10 +20,16 @@ import org.junit.Test
  * for itself which plan is a договорённость — would put the pair's promise behind a second reading of it.
  *
  * The second half of the file holds the clock still for the moment the alarm has already woken the
- * device. The plans page is the only place that re-arms an hour, so between that arming and this wake the
- * pair can move the evening, call it off or let it pass, and the sentence still sitting in the alarm's
- * extras would arrive as news. What the device is allowed to say then depends on what the plan says now,
- * and that is a rule a test can hold rather than one the phone gets to discover.
+ * device. The plans page arms an hour and then closes, so between that arming and this wake the pair can
+ * move the evening, call it off or let it pass, and the sentence still sitting in the alarm's extras
+ * would arrive as news. What the device is allowed to say then depends on what the plan says now, and
+ * that is a rule a test can hold rather than one the phone gets to discover.
+ *
+ * A moved evening is held to a second rule as well: the wake that stays quiet about the hour nobody
+ * stands on must put the live one back on the clock, because a silence alone would cost the person both
+ * evenings at once — the old one to a correct quiet and the new one to an alarm that was never moved
+ * with it. Which hour the device wakes for, under which plan id, and what happens when the pair moves
+ * the evening twice are the same test's business as the notice itself.
  */
 class PlanReminderTest {
 
@@ -190,17 +196,182 @@ class PlanReminderTest {
     }
 
     @Test
-    fun `an hour the other half moved leaves the alarm silent`() {
+    fun `an hour the other half moved is not spoken but goes back onto the clock`() {
         // The 17th became the 18th while nobody opened the plans page. The old evening arriving on this
-        // phone as news would be a wrong hour the person can still act on — their plans page is the
-        // one place that already holds the moved one.
-        val delivery = deliveryFor(
-            armed(),
-            PlanReading.Read(plan(startsAt = "2026-10-18T19:00:00+03:00")),
-            now,
-        )
+        // phone as news would be a wrong hour the person can still act on — and the moved one deserves
+        // a call of its own, because the only screen that arms an hour is not open to do it.
+        val moved = plan(startsAt = "2026-10-18T19:00:00+03:00")
 
-        assertEquals(ReminderDelivery.Silent, delivery)
+        assertEquals(ReminderDelivery.Rearm(moved), deliveryFor(armed(), PlanReading.Read(moved), now))
+    }
+
+    @Test
+    fun `an evening moved later is armed for its own lead rather than the one that just woke`() {
+        val moved = plan(startsAt = "2026-10-18T19:00:00+03:00")
+
+        val delivery = deliveryFor(armed(), PlanReading.Read(moved), now)
+        val reArmed = reminderFor((delivery as ReminderDelivery.Rearm).plan, now)!!
+
+        assertEquals(ZonedDateTime.of(2026, 10, 18, 18, 0, 0, 0, moscow), reArmed.firesAt)
+        assertEquals(moved.startsAt, reArmed.agreedHourIso)
+        // The same plan id is what makes the new hour take the old one's slot on the device rather than
+        // stand beside it as a second alarm for the same evening.
+        assertEquals("p1", reArmed.planId)
+    }
+
+    @Test
+    fun `an evening moved earlier is armed for its own lead`() {
+        // The pair pulled the meeting in from two days off to this afternoon. A person who only heard
+        // the old hour would have had two days to get ready for an evening two hours away.
+        val moved = plan(startsAt = "2026-10-15T14:00:00+03:00")
+
+        val delivery = deliveryFor(armed(), PlanReading.Read(moved), now)
+        val reArmed = reminderFor((delivery as ReminderDelivery.Rearm).plan, now)!!
+
+        assertEquals(ZonedDateTime.of(2026, 10, 15, 13, 0, 0, 0, moscow), reArmed.firesAt)
+        assertEquals("Через час — Сегодня, 14:00", reArmed.text)
+    }
+
+    @Test
+    fun `an evening moved inside the lead is armed for the hour itself`() {
+        // Half an hour left. The lead slipped behind this moment, so the call moves to the hour and
+        // arrives late rather than not at all.
+        val moved = plan(startsAt = "2026-10-15T12:30:00+03:00")
+
+        val delivery = deliveryFor(armed(), PlanReading.Read(moved), now)
+        val reArmed = reminderFor((delivery as ReminderDelivery.Rearm).plan, now)!!
+
+        assertEquals(ZonedDateTime.of(2026, 10, 15, 12, 30, 0, 0, moscow), reArmed.firesAt)
+        assertTrue(reArmed.text, reArmed.text.startsWith("Сейчас — "))
+    }
+
+    @Test
+    fun `an evening moved past this moment is armed for a lead still ahead of it`() {
+        // The device wakes at 18:00 on the 17th and the pair has moved the evening to the 18th 19:00.
+        // Re-arming from that wake has to leave a call in the future, or the phone would go on waking
+        // itself for an hour it has already passed.
+        val woke = clock(17, 18)
+        val moved = plan(startsAt = "2026-10-18T19:00:00+03:00")
+
+        val delivery = deliveryFor(armed(), PlanReading.Read(moved), woke)
+        val reArmed = reminderFor((delivery as ReminderDelivery.Rearm).plan, woke)!!
+
+        assertTrue(reArmed.firesAt.toString(), !reArmed.firesAt.toInstant().isBefore(woke.toInstant()))
+    }
+
+    @Test
+    fun `a moved evening the clock walked past while this device slept is left off the clock`() {
+        // Nothing to arm for a meeting nobody is going to any more, and no notice about an hour gone.
+        val passed = plan(startsAt = "2026-10-15T11:00:00+03:00")
+
+        assertEquals(ReminderDelivery.Silent, deliveryFor(armed(), PlanReading.Read(passed), now))
+    }
+
+    @Test
+    fun `a plan the pair called off while this device slept is not put back on the clock`() {
+        // The hour is still written on the row, so it is the state rather than the number that decides.
+        val calledOff = plan(status = PlanStatuses.CANCELLED, startsAt = "2026-10-18T19:00:00+03:00")
+
+        assertEquals(ReminderDelivery.Silent, deliveryFor(armed(), PlanReading.Read(calledOff), now))
+    }
+
+    @Test
+    fun `a meeting both have marked as kept is not put back on the clock`() {
+        val kept = plan(status = PlanStatuses.COMPLETED, startsAt = "2026-10-18T19:00:00+03:00")
+
+        assertEquals(ReminderDelivery.Silent, deliveryFor(armed(), PlanReading.Read(kept), now))
+    }
+
+    @Test
+    fun `an hour the server could not answer for is spoken with its doubt and never armed afresh`() {
+        // An unconfirmed moment is not a thing to wake a device for. The notice goes out with its doubt
+        // named, and the clock stays as the plans page left it.
+        val delivery = deliveryFor(armed(), PlanReading.Unreachable, now)
+
+        assertTrue(delivery.toString(), delivery is ReminderDelivery.Speak)
+        assertEquals(
+            ReminderDelivery.Speak(
+                "Поход в кино",
+                "Через час — строка, которую страница написала ранее$REMINDER_NOT_VERIFIED_SUFFIX",
+            ),
+            delivery,
+        )
+    }
+
+    @Test
+    fun `an hour the pair only reprinted with another offset is spoken rather than armed again`() {
+        // The pair moved nothing; the server wrote the same evening in UTC. Re-arming on a change of
+        // characters would give one agreed hour as many alarms as the service has formats.
+        val rewritten = plan(startsAt = "2026-10-17T16:00:00+00:00")
+
+        val delivery = deliveryFor(armed(), PlanReading.Read(rewritten), now)
+
+        assertTrue(delivery.toString(), delivery is ReminderDelivery.Speak)
+    }
+
+    @Test
+    fun `a moved evening the server writes in the partner's offset is armed for that moment`() {
+        // 20:00 where the partner is, 18:00 here. The move is real, so the hour goes back on the clock
+        // at the moment it names rather than at the characters it was written in.
+        val moved = plan(startsAt = "2026-10-18T20:00:00+05:00")
+
+        val delivery = deliveryFor(armed(), PlanReading.Read(moved), now)
+        val reArmed = reminderFor((delivery as ReminderDelivery.Rearm).plan, now)!!
+
+        assertEquals(ZonedDateTime.of(2026, 10, 18, 17, 0, 0, 0, moscow), reArmed.firesAt)
+    }
+
+    @Test
+    fun `two wakes of one moved evening arm one hour rather than two`() {
+        // A dozing device hands the same alarm over again a few minutes later. Both wakes read the same
+        // moved evening, so what goes onto the clock has to be that one hour under that one plan id —
+        // a lead measured from the wake itself would put a second alarm beside the first.
+        val moved = plan(startsAt = "2026-10-18T19:00:00+03:00")
+        val first = reminderFor(
+            (deliveryFor(armed(), PlanReading.Read(moved), now) as ReminderDelivery.Rearm).plan,
+            now,
+        )!!
+        val second = reminderFor(
+            (deliveryFor(armed(), PlanReading.Read(moved), now.plusMinutes(4)) as ReminderDelivery.Rearm).plan,
+            now.plusMinutes(4),
+        )!!
+
+        assertEquals(first.agreedHourIso, second.agreedHourIso)
+        assertEquals(first.planId, second.planId)
+        assertEquals(first.firesAt.toInstant(), second.firesAt.toInstant())
+    }
+
+    @Test
+    fun `an evening moved twice is armed once per move and then spoken at the hour it stands on`() {
+        // The whole life of one reminder through two moves: the page armed the 17th, the partner made it
+        // the 18th, the wake re-armed that hour, the partner moved it again to the 19th, the second wake
+        // re-armed again — and a wake that finds its own hour still the live one speaks instead of
+        // arming, which is what keeps this from going round for ever.
+        val toTheEighteenth = plan(startsAt = "2026-10-18T19:00:00+03:00")
+        val firstWake = reminderFor(
+            (deliveryFor(armed(), PlanReading.Read(toTheEighteenth), now) as ReminderDelivery.Rearm).plan,
+            now,
+        )!!
+        assertEquals(ZonedDateTime.of(2026, 10, 18, 18, 0, 0, 0, moscow), firstWake.firesAt)
+
+        // The second wake, at the lead the first one wrote down, with the plan unchanged.
+        val spoken = deliveryFor(firstWake, PlanReading.Read(toTheEighteenth), firstWake.firesAt)
+        assertTrue(spoken.toString(), spoken is ReminderDelivery.Speak)
+
+        // The partner moves it once more before that hour arrives.
+        val woke = firstWake.firesAt
+        val toTheNineteenth = plan(startsAt = "2026-10-19T19:00:00+03:00")
+        val secondWake = reminderFor(
+            (deliveryFor(firstWake, PlanReading.Read(toTheNineteenth), woke) as ReminderDelivery.Rearm).plan,
+            woke,
+        )!!
+
+        assertEquals(ZonedDateTime.of(2026, 10, 19, 18, 0, 0, 0, moscow), secondWake.firesAt)
+        assertEquals("p1", secondWake.planId)
+        assertTrue(
+            deliveryFor(secondWake, PlanReading.Read(toTheNineteenth), secondWake.firesAt)
+            is ReminderDelivery.Speak,
+        )
     }
 
     @Test
