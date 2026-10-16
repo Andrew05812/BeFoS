@@ -505,6 +505,11 @@ data class PlanListDto(
     val plans: List<PlanDto> = emptyList(),
 )
 
+@Serializable
+data class PlanDetailDto(
+    val plan: PlanDto,
+)
+
 // ---------- Safety ----------
 @Serializable
 data class ReportRequest(
