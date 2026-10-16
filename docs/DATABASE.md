@@ -1,6 +1,6 @@
 # База данных BeFoS
 
-PostgreSQL 16, SQLAlchemy 2.0 (async) + asyncpg. Миграции — Alembic (`backend/alembic/versions/`). Первичная миграция `03f0ea587029_initial_schema` создаёт 21 таблицу, `4f2a1c9d7b30_discovery_deck_and_indexes` добавляет колоду подбора и индексы, нужные горячим чтением, `9c1f5b7d2a40_message_idempotency_key` — ключ повторяемости отправки в `messages`, `b7e3d0a9c421_onboarding_completed_at` — отметку законченного онбординга в `profiles`, `c5a7d1e0b342_unique_deck_rank_per_viewer` — уникальный индекс `(viewer_id, rank)`, `d8f4b2c6a157_index_email_lookup_a_sign_in_actually_uses` — функциональный индекс `lower(email)`, а `e6b28c4a13d0_indexes_that_only_cost_writes` снимает 15 индексов, которые были левым префиксом другого ключа и чтению не служили, и `f3a07c2d5b18_the_deck_pages_the_visible_population_newest_first` даёт чтению колоды ключ в том порядке, который оно просит, `7c4f2a91be36_seven_activities_were_tagged_with_interests` правит строки каталога, не трогая схему, а `b4d8f1c07a52_the_pair_a_tap_was_made_for_is_kept` добавляет `activity_preferences.match_id` (head на 2026-10-11, `alembic check` чист).
+PostgreSQL 16, SQLAlchemy 2.0 (async) + asyncpg. Миграции — Alembic (`backend/alembic/versions/`). Первичная миграция `03f0ea587029_initial_schema` создаёт 21 таблицу, `4f2a1c9d7b30_discovery_deck_and_indexes` добавляет колоду подбора и индексы, нужные горячим чтением, `9c1f5b7d2a40_message_idempotency_key` — ключ повторяемости отправки в `messages`, `b7e3d0a9c421_onboarding_completed_at` — отметку законченного онбординга в `profiles`, `c5a7d1e0b342_unique_deck_rank_per_viewer` — уникальный индекс `(viewer_id, rank)`, `d8f4b2c6a157_index_email_lookup_a_sign_in_actually_uses` — функциональный индекс `lower(email)`, а `e6b28c4a13d0_indexes_that_only_cost_writes` снимает 15 индексов, которые были левым префиксом другого ключа и чтению не служили, и `f3a07c2d5b18_the_deck_pages_the_visible_population_newest_first` даёт чтению колоды ключ в том порядке, который оно просит, `7c4f2a91be36_seven_activities_were_tagged_with_interests` правит строки каталога, не трогая схему, а `b4d8f1c07a52_the_pair_a_tap_was_made_for_is_kept` добавляет `activity_preferences.match_id`, и `f2b7c90ad341_a_pair_arranges_one_thing_that_has` поднимает `shared_plans` с `shared_plan_members` и даёт `messages.plan_id` (head на 2026-10-16, `alembic check` чист — см. счёт ниже).
 
 Все таблицы наследуют `TimestampMixin` (`created_at`, `updated_at`), кроме чисто справочных. Первичные ключи пользователей и связанных сущностей — `UUID`; справочники — `INTEGER` (autoincrement). Внешние ключи на `users.id` используют `ON DELETE CASCADE`.
 
@@ -21,7 +21,16 @@ PostgreSQL 16, SQLAlchemy 2.0 (async) + asyncpg. Миграции — Alembic (`
 `plan_activity_id integer`; у его внешнего ключа `pg_constraint.confdeltype` = `n`. Тот же круг на
 другой копии (`s92_migration_roundtrip.log`, прогон 18:20:26…18:20:42 UTC) проходит и обратный ход:
 после `downgrade base` в схеме остаётся одна строка таблиц (`alembic_version`), а повторный
-`upgrade head` кладёт три колонки снова и сажает базу на `e3f6a81c4d90`. Одиночный индекс
+`upgrade head` кладёт три колонки снова и сажает базу на `e3f6a81c4d90`. Счёт переснят и на хэде
+стадии 95: пустая база, поднятая `alembic upgrade head` до `f2b7c90ad341` (прогон
+02:47:09…02:47:27 UTC 2026-10-16, артефакт `s95_schema_counts.log`), даёт 25 таблиц и 72 индекса —
+восемь из них кладёт сама ревизия: четыре у `shared_plans` (pkey, `uq_shared_plan_pair_activity`,
+два индекса под чтение корзин), три у `shared_plan_members` (pkey, `uq_shared_plan_member`, индекс
+по `user_id`) и `ix_messages_plan_id` у строк журнала. Тот же прогон отвечает `alembic check` как
+«No new upgrade operations detected», а обратный ход того же круга оставляет после `downgrade base`
+одну строку таблиц и один индекс — то есть обе таблицы с их ключами снимаются вместе с ревизией, и
+повторный `upgrade head` ставит их обратно. Обе базы съёма (`befos_schema_s95`,
+`befos_schema_s95b`) удалены после замера. Одиночный индекс
 по внешней колонке здесь
 есть там, где с этой колонки не начинается более длинный ключ: свайп — это `INSERT` в `passes`, и
 каждый лишний btree на этой таблице оплачивается при каждом свайпе. Замерено: 100 000 строк
@@ -40,9 +49,15 @@ users ─1:1─ profiles ─M:N─ interests   (через user_interests)
   ├─M:N─ likes / passes (from_user, to_user)
   ├─M:N─ discovery_queue (viewer, candidate — колода подбора)
   ├─M:N─ matches (user_a, user_b) ─1:N─ messages ─1:N─ message_reads
+  │                                └─1:N─ shared_plans ─1:N─ shared_plan_members
   ├─M:N─ blocks / reports
   └─1:N─ activity_preferences ─N:1─ activities ─M:N─ recommendations (per match)
+                                    └─1:N─ shared_plans (тот же activity_id)
 ```
+
+`messages.plan_id` указывает на строку `shared_plans`, которую этот журнал рассказывает, а
+`shared_plans.activity_id` — на карточку каталога, из которой план родился: план и переписка
+говорят об одном и том же id, а не о двух копиях одной договорённости.
 
 ## Пользователи и профиль
 
@@ -271,14 +286,21 @@ onboarding_completed_at IS NOT NULL` добавлен миграцией `f3a07c
 частичный: у сообщений, записанных до этой ревизии, и у отправок без имени ключа нет, и NULL не
 должен сталкиваться с NULL. Миграция `9c1f5b7d2a40`.
 
-`kind` (`text` / `plan_agreed` / `plan_voided`, `NOT NULL DEFAULT 'text'`), `plan_activity_id`
-(Int FK на `activities` с `ON DELETE SET NULL`) и `plan_when` (timestamptz) добавлены
+`kind` (`text` и восемь строк журнала — `plan_proposed`, `plan_accepted`, `plan_declined`,
+`plan_agreed`, `plan_rescheduled`, `plan_changed`, `plan_cancelled`, `plan_completed`, с
+`NOT NULL DEFAULT 'text'`), `plan_activity_id` (Int FK на `activities` с `ON DELETE SET NULL`) и
+`plan_when` (timestamptz) добавлены
 `e3f6a81c4d90` и заполнены только у строк журнала: час, о котором пара договорилась по карточке,
 пишется в её переписку рядом с предложениями, которые она набрала. Дефолт `'text'` оставляет
 строки, записанные до журнала, обычными сообщениями без backfill, а `SET NULL` держит то, что
 идея может уйти из каталога раньше, чем нитка, которая о ней рассказывает: `body` такой строки
-остаётся фразой с подписью UTC, поэтому карточка теряет название, но не содержание. Отдельного
-индекса под журнал не заведено: строки плана — редкая доля нитки, актуальность договора считается
+остаётся фразой с подписью UTC, поэтому карточка теряет название, но не содержание. Стадия 95
+добавила к этим строкам `plan_id` (UUID FK на `shared_plans.id` с `ON DELETE SET NULL`,
+`ix_messages_plan_id`) — тот же id, по которому карточка в чате доходит до экрана планов: строка
+журнала указывает на сущность, а не пересказывает её заново. И здесь `SET NULL` по той же
+причине, что и у идеи: план мог распасться, а сказанного переписка уже не отменяет.
+Отдельного индекса под журнал не заведено: строки плана — редкая доля нитки,
+актуальность договора считается
 одним `DISTINCT ON` по строкам этой же пары, а лишним btree на `messages` оплачивалась бы каждая
 отправленная фраза — 100 000 строк входят в неё за 4 234 мс с индексом и за 3 518 мс без него,
 числа сняты экспериментом `e6b28c4a13d0`, описанным выше.
@@ -352,6 +374,66 @@ onboarding_completed_at IS NOT NULL` добавлен миграцией `f3a07c
 0.2000 / 0.2000 там, где движок теперь считает 0.7000 / 0.5000 / 0.4000 / 0.2667 — 0.0267…0.0933 от
 общего числа. Ни один столбец не говорит, с какой стороны ревизии посчитана строка; пункт записан
 открытым в [`CHANGELOG.md`](../CHANGELOG.md).
+
+## Планы пары
+
+### `shared_plans`
+`id` (UUID PK), `match_id` (FK matches, cascade), `activity_id` (Int FK `activities`, cascade),
+`created_by` (FK users, cascade), `title` (String 160), `note` (Text, null), `place` (String 200,
+null), `starts_at` и `pending_hour` (timestamptz, null), `pending_by` (FK users, cascade, null),
+`status` (String 16 с CHECK: `proposed` / `accepted` / `planned` / `rescheduled` / `completed` /
+`declined` / `cancelled`, default `proposed`), `was_planned` (Boolean, default false),
+`cancelled_at` (timestamptz, null) и `cancelled_by` (FK users, cascade, null). Уникальный
+`uq_shared_plan_pair_activity (match_id, activity_id)`; индексы `ix_shared_plan_match_status
+(match_id, status)` — корзина одной пары, и `ix_shared_plan_start (status, starts_at)` — список
+всех планов человека по порядку ближайшей встречи. Одиночного индекса по `match_id` нет: он уже
+ведущая колонка уникального ключа, а по `activity_id` он не нужен ни одному чтению.
+
+Это та строка, которой у пары раньше не было: план был составным значением — `(match_id,
+activity_id)`, прочитанный из двух строк `activity_preferences`, — и списку планов не на что было
+указать, переносу часа негде было держать спрашиваемый момент, завершению — куда записывать
+ответ, а состояния «отменено» не существовало. Час на строке — проекция, а не второй
+переговорщик: `starts_at` держит мгновение, на котором пара стоит (то, о котором её две строки
+договорились), `pending_hour` — единственный названный и ещё не подтверждённый момент, а
+`pending_by` — кого о нём спрашивают. Правило «считается ли мгновение согласованным» живёт в
+`app.services.plan_time.agreed_instant` и остаётся единственным; `PlanService.sync_pair` перечитывает
+строки предпочтений на каждом чтении пары, поэтому план не может убежать вперёд них. `was_planned`
+— тот единственный факт, которого строки предпочтений не рассказывают: стояла ли пара когда-нибудь
+на часе. Без него «час предлагают перенести» и «час называют впервые» для карточки — одно состояние,
+а предупредить человека нужно именно о первом. `note` и `place` принадлежат плану, а не активности,
+потому что это то, что добавляют к идее двое, и обе колонки остаются NULL, пока кто-нибудь их не
+назовёт: у карточки из каталога адреса нет, и выдуманное место положило бы в план пары то, чего
+ни один их разговор не называл. `title` держится здесь, а не дочитывается из каталога на каждую
+строку, потому что список планов читает по всем парям человека сразу — join оплачивался бы с
+каждой карточкой, — и переименование активности не должно молча менять то, что пара уже
+назвала.
+Внешний ключ на каталог — CASCADE, как у `recommendations` и `activity_preferences`: карточка,
+ушедшая из каталога, уносит и план, потому что план и был этой карточкой, о которой двое
+договорились; своя строка в переписке при этом остаётся (`messages.plan_activity_id` — SET NULL).
+
+Миграция `f2b7c90ad341` ничего не переписывает и ничего не копирует: таблица начинается пустой и
+наполняется из уже записанных строк предпочтений при первом чтении пары — тем же правилом, которым
+всегда жила страница идей. Backfill здесь был бы второй реализацией этого правила, способной с
+ним разойтись, и ему пришлось бы решать `was_planned` снаружи, а это ровно тот факт, которого
+старые строки не рассказывают.
+
+### `shared_plan_members`
+`id` (UUID PK), `plan_id` (FK shared_plans, cascade), `user_id` (FK users, cascade, index),
+`decision` (String 16 с CHECK: `pending` / `joined` / `declined`, default `pending`),
+`attended_at` (timestamptz, null) и `personal_note` (Text, null). `uq_shared_plan_member
+(plan_id, user_id)`; одиночный индекс по `plan_id` не заведён — он ведущая колонка этого ключа.
+
+Две строки на план, обе пишутся при его рождении, потому что вопросы этой таблицы задаются о
+человеке, который ещё не ответил: «ждёт подтверждения» — состояние пары, и оно должно называть,
+какую именно половину спрашивают. `decision` отражает то, что уже стоит в строках предпочтений, и
+держится здесь, чтобы план пары читался без всей страницы карточек. `attended_at` — собственное
+слово этой половины о том, что встреча состоялась: план становится `completed`, только когда обе
+строки её держат, потому что встреча, на которой был один человек, а второму про неё неизвестно, —
+не встреча пары. Ничто в схеме или в сервисах не ставит эту отметку по наступлению часа, поэтому
+часы не могут положить в журнал пары утверждение о встрече, которой не было. `personal_note` —
+единственное ненащее: заметка человека о согласованной встрече, которую сервер отдаёт только его
+собственному экрану (`PlanService.detail`), — именно это делает её хранение заметкой, а не утечкой
+в экран второй половины.
 
 ## Токены
 

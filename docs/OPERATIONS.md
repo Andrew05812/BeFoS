@@ -153,7 +153,7 @@ Execution Time: 0.187 ms
    `docker run --rm -v myapp_befos_uploads:/data alpine tar xzf /in/uploads-<timestamp>.tgz -C /data`.
 5. `docker start befos_backend`, дождаться healthy, проверить `/health/db`, затем
    `alembic current` — он должен показать тот же `revision`, что и отпечаток копии.
-6. Прогнать `python e2e_journey.py` (ожидание: 102/102; замер 2026-10-15, число и его окно снимает
+6. Прогнать `python e2e_journey.py` (ожидание: 106/106; замер 2026-10-16, число и его окно снимает
    таблица раздела «Тесты» в `docs/VERIFICATION.md`, куда она переехала с девятой правки стадии 94) — копия считается восстановленной, когда путь нового
    пользователя проходит целиком, а не когда `pg_restore` вышел с нулём. С правки этот путь читает и
    карту пары (`GET /matches/{match_id}/universe`), поэтому прогон проверяет восстановленную копию
