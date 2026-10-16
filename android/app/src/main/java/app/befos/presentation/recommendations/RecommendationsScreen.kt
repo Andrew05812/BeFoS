@@ -74,7 +74,7 @@ fun RecommendationsScreen(
     onBack: () -> Unit,
 ) {
     val vm: RecommendationsViewModel =
-        beFosViewModel { RecommendationsViewModel(it.matchRepository, it.chatRepository, matchId) }
+        beFosViewModel { RecommendationsViewModel(it.matchRepository, matchId) }
     val state by vm.uiState.collectAsState()
     // Refused ideas stay on the page rather than vanishing from it: what is hidden is the card's
     // place in the list, not its record, so the same data carries both sections.
@@ -123,19 +123,13 @@ fun RecommendationsScreen(
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = Spacing.lg),
             ) {
                 if (state.selectError != null) {
-                    item {
-                        // The card stays marked while the notice is about its record: the idea is
-                        // readable in chat either way, and only the mark is missing.
-                        val canRetry = state.unsavedChoices.isNotEmpty()
-                        InlineNotice(
-                            text = state.selectError.orEmpty(),
-                            actionLabel = "Повторить".takeIf { canRetry },
-                            onAction = if (canRetry) vm::retryRecords else null,
-                        )
-                    }
+                    // One notice, no «Повторить»: the idea and the pair's record of it are the same
+                    // write now, so a lost one left nothing half-way — the card is back among the
+                    // unchosen ones, and the tap on it is the retry under its own name.
+                    item { InlineNotice(text = state.selectError.orEmpty()) }
                 }
                 if (state.declineError != null) {
-                    // No «Повторить» beside this one: the card came back to the list, so the tap
+                    // No «Повторить» beside this one either: the card came back to the list, so the tap
                     // that failed is its own retry, and a second button would offer one decision
                     // under two names.
                     item { InlineNotice(text = state.declineError.orEmpty()) }
@@ -215,7 +209,7 @@ fun RecommendationsScreen(
                         selected = state.selected.contains(rec.activity.id),
                         declined = false,
                         time = cardTime(rec, state),
-                        onSelect = { vm.select(rec.activity.id, rec.activity.title) },
+                        onSelect = { vm.select(rec.activity.id) },
                         onDecline = { vm.decline(rec.activity.id) },
                         onRestore = null,
                         onProposeTime = { whenIso -> vm.proposeTime(rec.activity.id, whenIso) },
@@ -247,7 +241,7 @@ fun RecommendationsScreen(
                             selected = state.selected.contains(rec.activity.id),
                             declined = true,
                             time = cardTime(rec, state),
-                            onSelect = { vm.select(rec.activity.id, rec.activity.title) },
+                            onSelect = { vm.select(rec.activity.id) },
                             onDecline = null,
                             onRestore = { vm.restore(rec.activity.id) },
                             onProposeTime = { whenIso -> vm.proposeTime(rec.activity.id, whenIso) },

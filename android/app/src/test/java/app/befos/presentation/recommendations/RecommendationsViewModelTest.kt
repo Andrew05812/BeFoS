@@ -3,9 +3,7 @@ package app.befos.presentation.recommendations
 import app.befos.MainDispatcherRule
 import app.befos.core.network.ApiResult
 import app.befos.domain.model.Activity
-import app.befos.domain.model.Message
 import app.befos.domain.model.Recommendation
-import app.befos.domain.repository.ChatRepository
 import app.befos.domain.repository.MatchRepository
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -14,6 +12,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -41,173 +40,103 @@ class RecommendationsViewModelTest {
         myMeetingTime = null, partnerMeetingTime = null, iAcceptedTime = null, agreedTime = null,
     )
 
-    private val proposal = Message(
-        id = "p1", matchId = "m1", senderId = "me", body = "Идея для нас: Поход в кино. Что скажете?",
-        createdAt = "2026-01-01T00:00:00", isRead = false, isOwn = true,
-    )
-
     private fun matchRepo() = mockk<MatchRepository> {
         coEvery { recommendations("m1") } returns ApiResult.Success(listOf(rec))
         coEvery { selectRecommendation("m1", 7) } returns ApiResult.Success(Unit)
     }
 
-    private fun chatRepo(result: ApiResult<Message> = ApiResult.Success(proposal)) = mockk<ChatRepository> {
-        coEvery { send("m1", any(), any()) } returns result
-    }
-
-    private fun viewModel(
-        match: MatchRepository = matchRepo(),
-        chat: ChatRepository = chatRepo(),
-    ): RecommendationsViewModel {
-        val vm = RecommendationsViewModel(match, chat, "m1")
+    private fun viewModel(match: MatchRepository = matchRepo()): RecommendationsViewModel {
+        val vm = RecommendationsViewModel(match, "m1")
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
         return vm
     }
 
     @Test
-    fun `proposal reaches the chat before the choice is recorded`() = runTest {
+    fun `an idea tap is one request and marks the card`() = runTest {
+        // The one request is the pair's plan, and the plan is what carries the idea into their chat:
+        // the route writes the journal line of its own kind in the same transaction, so the tab has
+        // no sentence of its own to type and the pair cannot read one idea twice.
         val match = matchRepo()
-        val chat = chatRepo()
-        val vm = viewModel(match, chat)
+        val vm = viewModel(match)
 
-        vm.select(7, cinema.title)
+        vm.select(7)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
 
-        coVerify { chat.send("m1", "Идея для нас: Поход в кино. Что скажете?", any()) }
-        coVerify { match.selectRecommendation("m1", 7) }
+        coVerify(exactly = 1) { match.selectRecommendation("m1", 7) }
         assertTrue(vm.uiState.value.selected.contains(7))
         assertNull(vm.uiState.value.selectError)
     }
 
     @Test
-    fun `failed proposal rolls back and never records a choice`() = runTest {
+    fun `tapping the same idea twice records it once`() = runTest {
         val match = matchRepo()
-        val chat = chatRepo(ApiResult.Error(0, "Нет соединения"))
-        val vm = viewModel(match, chat)
+        val vm = viewModel(match)
 
-        vm.select(7, cinema.title)
+        vm.select(7)
+        vm.select(7)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
 
-        assertTrue(vm.uiState.value.selected.isEmpty())
-        assertEquals("Не удалось отправить предложение. Нет соединения", vm.uiState.value.selectError)
-        assertTrue(vm.uiState.value.unsavedChoices.isEmpty())
-        coVerify(exactly = 0) { match.selectRecommendation(any(), any()) }
+        coVerify(exactly = 1) { match.selectRecommendation("m1", 7) }
     }
 
     @Test
-    fun `tapping the same idea twice sends it once`() = runTest {
-        val chat = chatRepo()
-        val vm = viewModel(chat = chat)
-
-        vm.select(7, cinema.title)
-        vm.select(7, cinema.title)
-        mainRule.testDispatcher.scheduler.advanceUntilIdle()
-
-        coVerify(exactly = 1) { chat.send(any(), any(), any()) }
-    }
-
-    @Test
-    fun `a proposal tap that got no answer is retried under the same name`() = runTest {
-        val names = mutableListOf<String?>()
-        val chat = mockk<ChatRepository> {
-            coEvery { send("m1", any(), captureNullable(names)) } returnsMany listOf(
-                ApiResult.Error(-1, "Сервер недоступен. Проверьте соединение и попробуйте ещё раз."),
-                ApiResult.Success(proposal),
-            )
-        }
-        val vm = viewModel(chat = chat)
-
-        vm.select(7, cinema.title)
-        mainRule.testDispatcher.scheduler.advanceUntilIdle()
-        vm.select(7, cinema.title)
-        mainRule.testDispatcher.scheduler.advanceUntilIdle()
-
-        assertEquals(2, names.size)
-        assertEquals(1, names.distinct().size)
-        assertTrue(names.first() != null)
-    }
-
-    @Test
-    fun `a card the page reports as proposed opens proposed and sends nothing on a tap`() = runTest {
+    fun `a card the page reports as chosen opens chosen and takes no request`() = runTest {
         // The state a second visit to the tab starts from: the choice this person recorded for
         // this pair comes back on the page, so the tab has to be opened before the mark exists.
         val match = mockk<MatchRepository> {
             coEvery { recommendations("m1") } returns ApiResult.Success(listOf(rec.copy(selected = true)))
         }
-        val chat = chatRepo()
-        val vm = viewModel(match, chat)
+        val vm = viewModel(match)
 
         assertTrue(vm.uiState.value.selected.contains(7))
 
-        vm.select(7, cinema.title)
+        vm.select(7)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
 
-        coVerify(exactly = 0) { chat.send(any(), any(), any()) }
+        coVerify(exactly = 0) { match.selectRecommendation(any(), any()) }
     }
 
     @Test
-    fun `a choice the server refused to record is named instead of silenced`() = runTest {
+    fun `an idea the partner proposed is joined by the same one request`() = runTest {
+        // What used to be a sentence of its own («Я тоже за: …») is now the plan's own news: the
+        // page says whose idea this is, the button reads «Поддержать в чате», and the write behind
+        // it is the same one — the pair's plan gains the second half and says so in the thread.
         val match = mockk<MatchRepository> {
-            coEvery { recommendations("m1") } returns ApiResult.Success(listOf(rec))
-            coEvery { selectRecommendation("m1", 7) } returns ApiResult.Error(0, "Нет соединения")
+            coEvery { recommendations("m1") } returns
+                ApiResult.Success(listOf(rec.copy(partnerSelected = true)))
+            coEvery { selectRecommendation("m1", 7) } returns ApiResult.Success(Unit)
         }
-        val vm = viewModel(match, chatRepo())
+        val vm = viewModel(match)
 
-        vm.select(7, cinema.title)
+        vm.select(7)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
 
-        // The idea is readable in chat, so the card keeps its mark; what the person has to be
-        // told is that the pair's own record of it did not survive the request.
-        assertNotNull(vm.uiState.value.selectError)
-        assertTrue(vm.uiState.value.selectError!!.contains("чат"))
+        coVerify(exactly = 1) { match.selectRecommendation("m1", 7) }
         assertTrue(vm.uiState.value.selected.contains(7))
-        assertEquals(setOf(7), vm.uiState.value.unsavedChoices)
-    }
-
-    @Test
-    fun `a refused record is retried as a record and never as a second message`() = runTest {
-        val match = mockk<MatchRepository> {
-            coEvery { recommendations("m1") } returns ApiResult.Success(listOf(rec))
-            coEvery { selectRecommendation("m1", 7) } returns ApiResult.Error(0, "Нет соединения") andThen
-                ApiResult.Success(Unit)
-        }
-        val chat = chatRepo()
-        val vm = viewModel(match, chat)
-
-        vm.select(7, cinema.title)
-        mainRule.testDispatcher.scheduler.advanceUntilIdle()
-        assertNotNull(vm.uiState.value.selectError)
-
-        vm.retryRecords()
-        mainRule.testDispatcher.scheduler.advanceUntilIdle()
-
         assertNull(vm.uiState.value.selectError)
-        assertTrue(vm.uiState.value.unsavedChoices.isEmpty())
-        coVerify(exactly = 1) { chat.send(any(), any(), any()) }
-        coVerify(exactly = 2) { match.selectRecommendation("m1", 7) }
     }
 
     @Test
-    fun `a record the server refuses twice stays named after the second refusal`() = runTest {
+    fun `an idea the server refused comes back unmarked and names the reason`() = runTest {
         val match = mockk<MatchRepository> {
             coEvery { recommendations("m1") } returns ApiResult.Success(listOf(rec))
             coEvery { selectRecommendation("m1", 7) } returns ApiResult.Error(0, "Нет соединения")
         }
-        val vm = viewModel(match, chatRepo())
+        val vm = viewModel(match)
 
-        vm.select(7, cinema.title)
-        mainRule.testDispatcher.scheduler.advanceUntilIdle()
-        vm.retryRecords()
+        vm.select(7)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
 
-        assertEquals(setOf(7), vm.uiState.value.unsavedChoices)
-        assertEquals("Идея отправлена в чат, но отметить её в паре не удалось. Нет соединения", vm.uiState.value.selectError)
+        // Nothing half-landed: the idea is neither in the pair's chat nor on their plan, so the
+        // card returns to where the tap can be made again and the notice says what was lost.
+        assertTrue(vm.uiState.value.selected.isEmpty())
+        assertEquals("Не удалось отправить идею в чат. Нет соединения", vm.uiState.value.selectError)
     }
 
     @Test
-    fun `a page that reports the mark retires the notice`() = runTest {
-        // The record can reach the pair even though its answer was lost, so the next page is
-        // the fact that ends the doubt: the mark came back, nothing has to be retried.
+    fun `a page that reports the idea to the pair retires the notice`() = runTest {
+        // The answer of a send can be lost while the idea itself reached the pair, so the next page
+        // is the fact that ends the doubt: the plan is on the pair and nothing is missing.
         val match = mockk<MatchRepository> {
             coEvery { recommendations("m1") } returnsMany listOf(
                 ApiResult.Success(listOf(rec)),
@@ -215,81 +144,63 @@ class RecommendationsViewModelTest {
             )
             coEvery { selectRecommendation("m1", 7) } returns ApiResult.Error(0, "Нет соединения")
         }
-        val vm = viewModel(match, chatRepo())
+        val vm = viewModel(match)
 
-        vm.select(7, cinema.title)
+        vm.select(7)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
         assertNotNull(vm.uiState.value.selectError)
 
         vm.load()
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
 
-        assertTrue(vm.uiState.value.unsavedChoices.isEmpty())
         assertNull(vm.uiState.value.selectError)
         assertTrue(vm.uiState.value.selected.contains(7))
     }
 
     @Test
-    fun `a send failure never claims a missing record`() = runTest {
+    fun `a page that reports another idea keeps the notice of the one that was lost`() = runTest {
+        // The retirement reads the page for the card the notice speaks of, not for any chosen card:
+        // an idea the pair has held since an earlier visit says nothing about this tap.
         val match = mockk<MatchRepository> {
-            coEvery { recommendations("m1") } returns ApiResult.Success(listOf(rec))
-            coEvery { selectRecommendation(any(), any()) } returns ApiResult.Success(Unit)
+            coEvery { recommendations("m1") } returnsMany listOf(
+                ApiResult.Success(listOf(rec, recBoard)),
+                ApiResult.Success(listOf(rec, recBoard.copy(selected = true))),
+            )
+            coEvery { selectRecommendation("m1", 7) } returns ApiResult.Error(0, "Нет соединения")
         }
-        val vm = viewModel(match, chatRepo(ApiResult.Error(0, "Сервер недоступен")))
+        val vm = viewModel(match)
 
-        vm.select(7, cinema.title)
-        mainRule.testDispatcher.scheduler.advanceUntilIdle()
-        vm.retryRecords()
+        vm.select(7)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
 
-        // Nothing was recorded and nothing needs recording: the retry has no target here, so
-        // the notice must stay about the message and must not offer to re-send a mark.
-        assertEquals("Не удалось отправить предложение. Сервер недоступен", vm.uiState.value.selectError)
-        coVerify(exactly = 0) { match.selectRecommendation(any(), any()) }
+        vm.load()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        assertNotNull(vm.uiState.value.selectError)
+        assertTrue(vm.uiState.value.selected.contains(8))
+        assertFalse(vm.uiState.value.selected.contains(7))
     }
 
     @Test
-    fun `an idea the partner proposed is answered in chat instead of proposed again`() = runTest {
-        // What the page now reports: the other half put this card into the pair's chat, so the
-        // sentence this tap sends is an answer to it rather than a second copy of the proposal.
-        val match = mockk<MatchRepository> {
-            coEvery { recommendations("m1") } returns
-                ApiResult.Success(listOf(rec.copy(partnerSelected = true)))
-            coEvery { selectRecommendation("m1", 7) } returns ApiResult.Success(Unit)
-        }
-        val chat = chatRepo()
-        val vm = viewModel(match, chat)
-
-        vm.select(7, cinema.title)
-        mainRule.testDispatcher.scheduler.advanceUntilIdle()
-
-        coVerify { chat.send("m1", "Я тоже за: Поход в кино.", any()) }
-        coVerify(exactly = 0) {
-            chat.send("m1", "Идея для нас: Поход в кино. Что скажете?", any())
-        }
-        assertTrue(vm.uiState.value.selected.contains(7))
-        assertNull(vm.uiState.value.selectError)
-    }
-
-    @Test
-    fun `a second tap does not bury the notice of the idea still missing its mark`() = runTest {
-        // The tap clears the notice of its own attempt, and a successful record of the second
-        // idea says nothing about the first one: its mark is still missing and still has to show.
+    fun `a later tap clears the notice of the idea that failed`() = runTest {
+        // The notice is about one tap, and the card it names is back among the unchosen ones. A new
+        // decision on this page ends the sentence about the old one instead of stacking two.
         val match = mockk<MatchRepository> {
             coEvery { recommendations("m1") } returns ApiResult.Success(listOf(rec, recBoard))
             coEvery { selectRecommendation("m1", 7) } returns ApiResult.Error(0, "Нет соединения")
             coEvery { selectRecommendation("m1", 8) } returns ApiResult.Success(Unit)
         }
-        val vm = viewModel(match, chatRepo())
+        val vm = viewModel(match)
 
-        vm.select(7, cinema.title)
+        vm.select(7)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
-        vm.select(8, boardGames.title)
+        assertNotNull(vm.uiState.value.selectError)
+
+        vm.select(8)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
 
-        assertEquals(setOf(7), vm.uiState.value.unsavedChoices)
-        assertTrue(vm.uiState.value.selectError!!.startsWith("Идея отправлена в чат"))
-        assertTrue(vm.uiState.value.selected.containsAll(setOf(7, 8)))
+        assertNull(vm.uiState.value.selectError)
+        assertEquals(setOf(8), vm.uiState.value.selected)
     }
 
     @Test
@@ -298,8 +209,7 @@ class RecommendationsViewModelTest {
             coEvery { recommendations("m1") } returns ApiResult.Success(listOf(rec, recBoard))
             coEvery { declineRecommendation("m1", 7) } returns ApiResult.Success(Unit)
         }
-        val chat = chatRepo()
-        val vm = viewModel(match, chat)
+        val vm = viewModel(match)
 
         vm.decline(7)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
@@ -309,7 +219,6 @@ class RecommendationsViewModelTest {
         // person's list, not the record, so the screen can offer it back.
         assertEquals(2, vm.uiState.value.items.size)
         assertNull(vm.uiState.value.declineError)
-        coVerify(exactly = 0) { chat.send(any(), any(), any()) }
     }
 
     @Test
@@ -318,14 +227,14 @@ class RecommendationsViewModelTest {
             coEvery { recommendations("m1") } returns ApiResult.Success(listOf(rec))
             coEvery { declineRecommendation("m1", 7) } returns ApiResult.Error(0, "Нет соединения")
         }
-        val vm = viewModel(match, chatRepo())
+        val vm = viewModel(match)
 
         vm.decline(7)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
 
         assertTrue(vm.uiState.value.declined.isEmpty())
-        // Nothing half-succeeded here: no message went to the chat, so there is no debt to retry —
-        // the card is back in the list and the tap can simply be made again.
+        // Nothing half-succeeded here, so there is no debt to name — the card is back in the list
+        // and the tap can simply be made again.
         assertEquals("Не удалось отклонить идею. Нет соединения", vm.uiState.value.declineError)
     }
 
@@ -336,7 +245,7 @@ class RecommendationsViewModelTest {
             coEvery { declineRecommendation("m1", 7) } returns ApiResult.Success(Unit)
             coEvery { restoreRecommendation("m1", 7) } returns ApiResult.Success(Unit)
         }
-        val vm = viewModel(match, chatRepo())
+        val vm = viewModel(match)
 
         vm.decline(7)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
@@ -355,7 +264,7 @@ class RecommendationsViewModelTest {
             coEvery { recommendations("m1") } returns ApiResult.Success(listOf(rec.copy(declined = true)))
             coEvery { restoreRecommendation("m1", 7) } returns ApiResult.Error(0, "Нет соединения")
         }
-        val vm = viewModel(match, chatRepo())
+        val vm = viewModel(match)
 
         assertEquals(setOf(7), vm.uiState.value.declined)
 
@@ -367,15 +276,15 @@ class RecommendationsViewModelTest {
     }
 
     @Test
-    fun `pushing away an idea that went to chat keeps its mark`() = runTest {
+    fun `pushing away an idea that reached the pair keeps its mark`() = runTest {
         // The two answers a person can give the same card, both true at once: the idea did reach
-        // the pair's chat, and they have since decided they do not want it. Neither erases the
-        // other, so the refused card still says the chat holds it.
+        // the pair, and they have since decided they do not want it. Neither erases the other, so
+        // the refused card still says the pair holds it.
         val match = mockk<MatchRepository> {
             coEvery { recommendations("m1") } returns ApiResult.Success(listOf(rec.copy(selected = true)))
             coEvery { declineRecommendation("m1", 7) } returns ApiResult.Success(Unit)
         }
-        val vm = viewModel(match, chatRepo())
+        val vm = viewModel(match)
 
         vm.decline(7)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
@@ -392,7 +301,7 @@ class RecommendationsViewModelTest {
                 ApiResult.Success(listOf(rec.copy(declined = true))),
             )
         }
-        val vm = viewModel(match, chatRepo())
+        val vm = viewModel(match)
 
         assertTrue(vm.uiState.value.declined.isEmpty())
 
@@ -417,7 +326,7 @@ class RecommendationsViewModelTest {
                 ApiResult.Success(Unit)
             }
         }
-        val vm = viewModel(match, chatRepo())
+        val vm = viewModel(match)
 
         vm.decline(7)
         vm.load()
@@ -438,7 +347,7 @@ class RecommendationsViewModelTest {
                 ApiResult.Success(Unit)
             }
         }
-        val vm = viewModel(match, chatRepo())
+        val vm = viewModel(match)
 
         assertEquals(setOf(7), vm.uiState.value.declined)
 
@@ -455,7 +364,7 @@ class RecommendationsViewModelTest {
     private val offeredByPartner = "2026-10-18T20:00+03:00"
     private val movedHour = "2026-10-19T21:00+03:00"
 
-    /** A page whose idea is already in the chat, which is the only state that arranges an hour. */
+    /** A page whose idea is already the pair's plan, which is the only state that arranges an hour. */
     private fun timeRepo(
         cards: List<Recommendation>,
         offer: ApiResult<Unit> = ApiResult.Success(Unit),
@@ -469,7 +378,7 @@ class RecommendationsViewModelTest {
     @Test
     fun `an hour named for an idea in the chat stays named on the card`() = runTest {
         val match = timeRepo(listOf(rec.copy(selected = true)))
-        val vm = viewModel(match, chatRepo())
+        val vm = viewModel(match)
 
         vm.proposeTime(7, offeredByMe)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
@@ -482,7 +391,7 @@ class RecommendationsViewModelTest {
     @Test
     fun `an hour the server refused leaves nothing offered and says which tap failed`() = runTest {
         val match = timeRepo(listOf(rec.copy(selected = true)), offer = ApiResult.Error(0, "Нет соединения"))
-        val vm = viewModel(match, chatRepo())
+        val vm = viewModel(match)
 
         vm.proposeTime(7, offeredByMe)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
@@ -501,7 +410,7 @@ class RecommendationsViewModelTest {
             coEvery { proposeMeetingTime("m1", 7, offeredByMe) } returns ApiResult.Success(Unit)
             coEvery { proposeMeetingTime("m1", 7, movedHour) } returns ApiResult.Error(0, "Нет соединения")
         }
-        val vm = viewModel(match, chatRepo())
+        val vm = viewModel(match)
 
         vm.proposeTime(7, offeredByMe)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
@@ -515,7 +424,7 @@ class RecommendationsViewModelTest {
     @Test
     fun `the partner's hour is agreed to as it was read`() = runTest {
         val match = timeRepo(listOf(rec.copy(selected = true, partnerMeetingTime = offeredByPartner)))
-        val vm = viewModel(match, chatRepo())
+        val vm = viewModel(match)
 
         vm.acceptTime(7, offeredByPartner)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
@@ -527,7 +436,7 @@ class RecommendationsViewModelTest {
     @Test
     fun `tapping подходит twice confirms the hour once`() = runTest {
         val match = timeRepo(listOf(rec.copy(partnerMeetingTime = offeredByPartner)))
-        val vm = viewModel(match, chatRepo())
+        val vm = viewModel(match)
 
         vm.acceptTime(7, offeredByPartner)
         vm.acceptTime(7, offeredByPartner)
@@ -542,7 +451,7 @@ class RecommendationsViewModelTest {
             listOf(rec.copy(partnerMeetingTime = offeredByPartner)),
             accept = ApiResult.Error(0, "Партнёр уже предложил другое время."),
         )
-        val vm = viewModel(match, chatRepo())
+        val vm = viewModel(match)
 
         vm.acceptTime(7, offeredByPartner)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
@@ -564,7 +473,7 @@ class RecommendationsViewModelTest {
             coEvery { proposeMeetingTime(any(), any(), any()) } returns ApiResult.Success(Unit)
             coEvery { acceptMeetingTime("m1", 7, offeredByPartner) } returns ApiResult.Error(0, "Нет соединения")
         }
-        val vm = viewModel(match, chatRepo())
+        val vm = viewModel(match)
 
         vm.acceptTime(7, offeredByPartner)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
@@ -590,7 +499,7 @@ class RecommendationsViewModelTest {
             }
             coEvery { acceptMeetingTime(any(), any(), any()) } returns ApiResult.Success(Unit)
         }
-        val vm = viewModel(match, chatRepo())
+        val vm = viewModel(match)
 
         vm.proposeTime(7, offeredByMe)
         vm.load()
@@ -611,7 +520,7 @@ class RecommendationsViewModelTest {
             coEvery { acceptMeetingTime("m1", 8, offeredByPartner) } returns ApiResult.Success(Unit)
             coEvery { proposeMeetingTime("m1", 7, offeredByMe) } returns ApiResult.Error(0, "Нет соединения")
         }
-        val vm = viewModel(match, chatRepo())
+        val vm = viewModel(match)
 
         vm.proposeTime(7, offeredByMe)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
@@ -630,7 +539,7 @@ class RecommendationsViewModelTest {
             coEvery { recommendations("m1") } returns ApiResult.Success(listOf(rec.copy(selected = true), recBoard))
             coEvery { proposeMeetingTime("m1", 7, offeredByMe) } returns ApiResult.Success(Unit)
         }
-        val vm = viewModel(match, chatRepo())
+        val vm = viewModel(match)
 
         vm.proposeTime(7, offeredByMe)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
