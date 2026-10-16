@@ -9,13 +9,37 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
 from app.models.base import TimestampMixin
 
-# The three kinds a line of a conversation can be. A person types one and the pair's plan writes
-# the other two, which is the split the columns above exist to keep: `sender_id` on a plan line
-# names the person whose tap produced it, and it is not the author of a sentence.
+# What the two a line of a conversation can be: something a person typed, or something the pair's
+# plan did. A plan is not a message from one of them — it stands only while both halves say the same
+# thing about it — so it cannot be smuggled into `body` as if somebody had written it.
+#
+# The plan kinds are the things a plan does that the pair has to be told about. The two oldest
+# (`plan_agreed`, `plan_voided`) say what happened to the hour the pair stands on; the rest name the
+# states the hour cannot express — an idea put to the pair, an answer to it, a move being asked for,
+# a meeting kept, a plan called off, a card whose place or note moved. A client that groups lines by
+# `sender_id` still has to read `kind`: a plan line names the person whose tap produced it, and that
+# person is not the author of the sentence.
 KIND_TEXT = "text"
 KIND_PLAN_AGREED = "plan_agreed"
 KIND_PLAN_VOIDED = "plan_voided"
-PLAN_KINDS = (KIND_PLAN_AGREED, KIND_PLAN_VOIDED)
+KIND_PLAN_PROPOSED = "plan_proposed"
+KIND_PLAN_ACCEPTED = "plan_accepted"
+KIND_PLAN_DECLINED = "plan_declined"
+KIND_PLAN_RESCHEDULED = "plan_rescheduled"
+KIND_PLAN_CANCELLED = "plan_cancelled"
+KIND_PLAN_COMPLETED = "plan_completed"
+KIND_PLAN_CHANGED = "plan_changed"
+PLAN_KINDS = (
+    KIND_PLAN_AGREED,
+    KIND_PLAN_VOIDED,
+    KIND_PLAN_PROPOSED,
+    KIND_PLAN_ACCEPTED,
+    KIND_PLAN_DECLINED,
+    KIND_PLAN_RESCHEDULED,
+    KIND_PLAN_CANCELLED,
+    KIND_PLAN_COMPLETED,
+    KIND_PLAN_CHANGED,
+)
 
 
 class Message(TimestampMixin, Base):
@@ -40,7 +64,7 @@ class Message(TimestampMixin, Base):
     # A plan is not a message from one of them — it stands only while both rows name the same
     # instant — so it cannot be smuggled into `body` as if somebody had written it, and the idea
     # it belongs to has to stay a number rather than a phrase: `body` is the sentence the line was
-    # born with, these three are the fields a client renders from, and a catalogue that renames
+    # born with, these fields are the ones a client renders from, and a catalogue that renames
     # the activity is seen in the title the read carries, not in a frozen copy.
     kind: Mapped[str] = mapped_column(
         String(32), nullable=False, default="text", server_default="text"
@@ -50,6 +74,17 @@ class Message(TimestampMixin, Base):
         # with it. The line stays readable on its own sentence, and the tap target is simply gone.
         ForeignKey("activities.id", ondelete="SET NULL"),
         nullable=True,
+    )
+    # The plan this line is about, once a pair's arrangement has a name of its own. The activity id
+    # above says what the idea was; this says which arrangement of it the line records, which is what
+    # lets a chat card open the plan's details and a plan's history be read back without guessing
+    # from the idea's name. SET NULL for the same reason as the activity: a plan that goes away — the
+    # card leaves the catalogue, the pair dissolves — must not un-say what the conversation already
+    # said; the line loses its tap target and keeps its sentence.
+    plan_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("shared_plans.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
     )
     plan_when: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

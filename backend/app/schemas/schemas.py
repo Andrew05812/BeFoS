@@ -381,6 +381,10 @@ class MessagePlan(BaseModel):
     activity_id: int | None
     activity_title: str | None
     when: datetime | None
+    # The arrangement the line records. A pair can talk the same idea over more than once, and a card
+    # that opens the plan's details has to name which one; absent for a line the plan entity never
+    # wrote.
+    plan_id: str | None
     is_latest: bool
 
 
@@ -460,6 +464,86 @@ class MeetingTimeIn(BaseModel):
     """The moment a person names for a card, or the one they agree to."""
 
     when: AwareDatetime
+
+
+# ---------- Shared plans ----------
+class PlanOut(BaseModel):
+    """One arrangement of the pair, as both halves of it see it.
+
+    The shared fields are shared: `note` and `place` are what the pair wrote about the arrangement, so
+    each of them reads the same words. A person's own remark is not here — it is `my_note` of the
+    detail read, because a note about one's own plan is not a fact about the pair. The two `*_decision`
+    and `*_attended` pairs are the same kind of answer seen from either side, and the four flags at the
+    end are the screen's questions answered once rather than re-derived by each client: which bucket the
+    card belongs to, whether it is the viewer who is being asked, and whether the tap they are about to
+    make is allowed.
+    """
+
+    id: str
+    match_id: str
+    activity_id: int
+    # Absent when the idea has left the catalogue: the plan keeps its own title and its history, and
+    # the deep link that needs the slug simply is not offered.
+    activity_slug: str | None
+    activity_category: str | None
+    title: str
+    description: str | None
+    note: str | None
+    place: str | None
+    status: str = Field(
+        description=(
+            "proposed | accepted | planned | rescheduled | completed | declined | cancelled — "
+            "read off what the pair has said, never stored ahead of it"
+        )
+    )
+    starts_at: datetime | None
+    pending_hour: datetime | None
+    pending_by: str | None
+    created_by: str
+    cancelled_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+    my_decision: str
+    i_attended: bool
+    partner_id: str | None
+    partner_name: str | None
+    partner_photo_url: str | None
+    partner_decision: str
+    partner_attended: bool
+    hour_passed: bool
+    needs_my_answer: bool
+    can_cancel: bool
+
+
+class PlanListResponse(BaseModel):
+    plans: list[PlanOut]
+
+
+class PlanDetailResponse(BaseModel):
+    plan: PlanOut
+    my_note: str | None
+    events: list[MessageOut]
+
+
+class PlanEditIn(BaseModel):
+    """What the pair writes about the arrangement: where, and their own word about it.
+
+    The hour is not among these fields, and that is not an omission: an hour the pair stands on is the
+    other half's answer as much as this person's, so it moves through the hour routes and waits for
+    that answer again.
+    """
+
+    place: str | None = Field(default=None, max_length=200)
+    note: str | None = Field(default=None, max_length=500)
+    my_note: str | None = Field(default=None, max_length=500)
+    # A field that is absent says nothing, so it cannot clear what is already written; these two say
+    # it on purpose, and a client that wants the place gone has to be able to ask.
+    clear_place: bool = False
+    clear_note: bool = False
+
+
+class PlanPersonalNoteIn(BaseModel):
+    note: str | None = Field(default=None, max_length=500)
 
 
 class RecommendationListResponse(BaseModel):

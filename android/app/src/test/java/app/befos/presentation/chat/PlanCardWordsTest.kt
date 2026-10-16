@@ -7,20 +7,24 @@ import app.befos.presentation.common.PLAN_PAST_WORD
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * The agreement the pair's plan wrote into the thread is not typed by anybody, so the card that
- * shows it is read here from the fields the server actually answers: the idea's name off the
- * catalogue, the hour off the row, and the status off the whole conversation rather than the line
- * alone. What the row does not carry has to stay unnamed — a place the product does not store, an
- * hour it cannot parse, an idea the catalogue has dropped.
+ * The pair's plan writes a line into the thread for every move it makes, and the moves are not the
+ * same act: an idea put to the pair, an hour agreed, an hour offered for a move, a plan ended. The
+ * card that shows each of them is read here from the fields the server actually answers — the idea's
+ * name off the catalogue, the hour off the row, and the status off the whole conversation rather
+ * than the line alone — so a proposal can never be shown as a promise the pair is keeping. What the
+ * row does not carry has to stay unnamed: a place the product does not store, an hour it cannot
+ * parse, an idea the catalogue has dropped, a kind this build has not met.
  *
- * The clock is named here rather than read from the machine: whether a pair's hour still lies ahead
- * is the one part of the status the row does not answer, and a test that took it from the wall would
- * change its own expected word as the suite ages.
+ * The clock is named here rather than read from the machine: whether the hour the pair agreed on
+ * still lies ahead is the one part of the status the row does not answer, and a test that took it
+ * from the wall would change its own expected word as the suite ages.
  */
 class PlanCardWordsTest {
 
@@ -150,5 +154,96 @@ class PlanCardWordsTest {
         // text would put a moment on the card that nobody agreed to.
         assertNull(formatPlanMoment("вечером в субботу", moscow))
         assertEquals("19:00", formatPlanMoment("2026-10-17T19:00+03:00", moscow)?.substringAfter(", "))
+    }
+
+    @Test
+    fun `an idea put to the pair waits for an answer instead of naming an agreement`() {
+        val ui = planCardUi(line(MessageKinds.PLAN_PROPOSED, plan(whenIso = null)), "Анна", moscow, now)
+
+        assertEquals("Идея", ui.overline)
+        assertEquals("ждёт ответа", ui.status)
+        assertNull(ui.moment)
+        assertFalse(ui.standing)
+    }
+
+    @Test
+    fun `both halves behind an idea says the hour is still missing`() {
+        val ui = planCardUi(line(MessageKinds.PLAN_ACCEPTED, plan(whenIso = null)), "Анна", moscow, now)
+
+        assertEquals("подтверждена обоими, час не назван", ui.status)
+        assertFalse("сдвоенное «да» ещё не договорённость", ui.standing)
+    }
+
+    @Test
+    fun `a refusal reads as a refusal rather than as a broken promise`() {
+        assertEquals("отклонена", planCardUi(line(MessageKinds.PLAN_DECLINED, plan(whenIso = null)), "Анна", moscow, now).status)
+    }
+
+    @Test
+    fun `an hour one half offered is not the hour the pair agreed to`() {
+        // A rescheduled line carries a pending offer. The card prints it, because it is the row's own
+        // fact, and keeps it out of the standing agreement: the answer the other half owes is the news.
+        val ahead = planCardUi(line(MessageKinds.PLAN_RESCHEDULED, plan()), "Анна", moscow, now)
+
+        assertEquals("Договорённость", ahead.overline)
+        assertEquals("новый час ждёт ответа", ahead.status)
+        assertFalse(ahead.standing)
+        assertTrue(ahead.moment.orEmpty(), ahead.moment.orEmpty().startsWith("17"))
+    }
+
+    @Test
+    fun `an agreement the pair edited still stands, and still ages`() {
+        val moved = planCardUi(line(MessageKinds.PLAN_CHANGED, plan()), "Анна", moscow, now)
+        assertEquals("действует", moved.status)
+        assertTrue(moved.standing)
+
+        val spent = planCardUi(line(MessageKinds.PLAN_CHANGED, plan(whenIso = "2026-10-14T21:00+09:00")), "Анна", moscow, now)
+        assertEquals(PLAN_PAST_WORD, spent.status)
+        assertFalse(spent.standing)
+    }
+
+    @Test
+    fun `a plan the pair ended says how it ended`() {
+        val cancelled = planCardUi(line(MessageKinds.PLAN_CANCELLED, plan()), "Анна", moscow, now)
+        assertEquals("отменена", cancelled.status)
+        assertFalse(cancelled.standing)
+
+        // Both halves said the meeting happened, so the clock has nothing left to report about the
+        // hour it carries: a spent moment behind a completed plan is the meeting, not a broken promise.
+        val completed = planCardUi(line(MessageKinds.PLAN_COMPLETED, plan(whenIso = "2026-10-14T21:00+09:00")), "Анна", moscow, now)
+        assertEquals("встреча состоялась", completed.status)
+        assertFalse(completed.standing)
+    }
+
+    @Test
+    fun `a line the conversation moved past never reads as its current news`() {
+        val kinds = listOf(
+            MessageKinds.PLAN_PROPOSED,
+            MessageKinds.PLAN_ACCEPTED,
+            MessageKinds.PLAN_DECLINED,
+            MessageKinds.PLAN_AGREED,
+            MessageKinds.PLAN_RESCHEDULED,
+            MessageKinds.PLAN_CHANGED,
+            MessageKinds.PLAN_CANCELLED,
+            MessageKinds.PLAN_COMPLETED,
+            MessageKinds.PLAN_VOIDED,
+        )
+        kinds.forEach { kind ->
+            val newest = planCardUi(line(kind, plan()), "Анна", moscow, now)
+            val older = planCardUi(line(kind, plan(latest = false)), "Анна", moscow, now)
+
+            assertTrue(kind, older.status == "отменена позже" || older.status == "позже пара сказала другое")
+            assertNotEquals(kind, newest.status, older.status)
+            assertFalse(kind, older.standing)
+        }
+    }
+
+    @Test
+    fun `a kind this build does not know says so instead of promising an agreement`() {
+        val ui = planCardUi(line("plan_meeting_scheduled", plan()), "Анна", moscow, now)
+
+        assertEquals("План пары", ui.overline)
+        assertEquals("эта версия приложения её не читает", ui.status)
+        assertFalse(ui.standing)
     }
 }

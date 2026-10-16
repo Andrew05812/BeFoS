@@ -68,6 +68,11 @@ def message_dto(
                 "activity_id": msg.plan_activity_id,
                 "activity_title": None if activity is None else activity.title,
                 "when": msg.plan_when,
+                # The arrangement this line records, so a card in the chat can open the plan it
+                # speaks about instead of guessing which of the pair's plans the idea became. Absent
+                # for a line written before the plan entity existed: the sentence stays true, only
+                # the tap target is missing.
+                "plan_id": None if msg.plan_id is None else str(msg.plan_id),
                 # The newest word the pair wrote about this idea. Not «still true of the moment»:
                 # a cancellation is a newest word too, and the two kinds together are what lets a
                 # card say «договорённость в силе» about one line and «отменена» about the next.

@@ -4,17 +4,16 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.befos.core.network.ApiResult
 import app.befos.domain.model.Recommendation
-import app.befos.domain.repository.ChatRepository
 import app.befos.domain.repository.MatchRepository
-import java.util.UUID
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-private const val SEND_SENTENCE = "Не удалось отправить предложение."
-private const val RECORD_SENTENCE = "Идея отправлена в чат, но отметить её в паре не удалось."
+// The tap and the pair's record of it are one write now, so a refusal of it is complete: nothing
+// reaches the chat half-way, and the card that came back is where the tap is made again.
+private const val PROPOSE_SENTENCE = "Не удалось отправить идею в чат."
 private const val DECLINE_SENTENCE = "Не удалось отклонить идею."
 private const val RESTORE_SENTENCE = "Не удалось вернуть идею в подборку."
 // Two sentences rather than one: naming an hour and agreeing to one are different answers to the
@@ -34,11 +33,10 @@ data class RecommendationsUiState(
     // «Вернуть», and the idea behind them stays readable with the reason it was chosen for.
     val declined: Set<Int> = emptySet(),
     val error: String? = null,
+    // Why the last idea tap did not reach the pair. One line above the list: a lost idea leaves no
+    // half-state behind — its card is back among the unchosen ones, where the tap can be made again.
     val selectError: String? = null,
     val declineError: String? = null,
-    // Ideas the pair can already read in chat whose mark the server refused. They are the
-    // ones a repeated visit would offer a second time, so the tab has to keep them named.
-    val unsavedChoices: Set<Int> = emptySet(),
     // Hours this person named and the page has not reported back yet, and the plan the pair has
     // once one half agreed to the other's. Keyed by the card, because a time belongs to one idea:
     // a card that lost its own hour must not go on showing another one's plan.
@@ -52,14 +50,15 @@ data class RecommendationsUiState(
 
 class RecommendationsViewModel(
     private val matchRepository: MatchRepository,
-    private val chatRepository: ChatRepository,
     private val matchId: String,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(RecommendationsUiState())
     val uiState: StateFlow<RecommendationsUiState> = _uiState.asStateFlow()
 
-    private val pendingProposalIds = mutableMapOf<String, String>()
+    // The idea the notice above the list speaks of, or null once the page has reported it to the
+    // pair. Kept beside the state rather than inside it because only this ViewModel ever reads it.
+    private var lostProposal: Int? = null
 
     // Refusals whose answer has not arrived yet, and which way each was going: true pushed the
     // card away, false took it back. A page that lands mid-flight cannot know either.
@@ -73,99 +72,67 @@ class RecommendationsViewModel(
         _uiState.update { it.copy(loading = true, error = null) }
         viewModelScope.launch {
             when (val result = matchRepository.recommendations(matchId)) {
-                is ApiResult.Success -> _uiState.update { state ->
+                is ApiResult.Success -> {
                     val cards = result.data.sortedBy { r -> r.position }
                     val recorded = cards.filter { it.selected }.map { it.activity.id }.toSet()
-                    // A page that reports the mark resolves the doubt the notice was raising;
-                    // local marks are kept because a tap in flight is not on the server yet.
-                    val left = state.unsavedChoices - recorded
-                    val refused = cards.filter { it.declined }.map { it.activity.id }.toSet()
-                    val pushedAway = pendingRefusals.filterValues { push -> push }.keys
-                    val takingBack = pendingRefusals.filterValues { push -> !push }.keys
-                    // The hours the page carries. A read that landed mid-write has no hour yet, so
-                    // what the person named locally is kept instead of being cleared by the page.
-                    val reportedOffers = cards.mapNotNull { r -> r.myMeetingTime?.let { r.activity.id to it } }.toMap()
-                    val reportedPlans = cards.mapNotNull { r -> r.agreedTime?.let { r.activity.id to it } }.toMap()
-                    state.copy(
-                        loading = false,
-                        items = cards,
-                        selected = state.selected + recorded,
-                        unsavedChoices = left,
-                        declined = (refused + pushedAway) - takingBack,
-                        selectError = state.selectError.takeUnless {
-                            left.isEmpty() && it?.startsWith(RECORD_SENTENCE) == true
-                        },
-                        myOffers = reportedOffers + state.myOffers,
-                        agreedMoments = reportedPlans + state.agreedMoments,
-                        // A page that shows the plan ends the doubt about it; the agreement is on the
-                        // pair now, so there is nothing left for the person to retry.
-                        timeErrors = state.timeErrors - reportedPlans.keys,
-                    )
+                    // The answer of a send can be lost while the idea itself reached the pair, so
+                    // the page is the fact that ends the doubt the notice was raising.
+                    val arrived = lostProposal?.let { recorded.contains(it) } == true
+                    if (arrived) lostProposal = null
+                    _uiState.update { state ->
+                        // Local marks are kept because a tap in flight is not on the server yet.
+                        val refused = cards.filter { it.declined }.map { it.activity.id }.toSet()
+                        val pushedAway = pendingRefusals.filterValues { push -> push }.keys
+                        val takingBack = pendingRefusals.filterValues { push -> !push }.keys
+                        // The hours the page carries. A read that landed mid-write has no hour yet, so
+                        // what the person named locally is kept instead of being cleared by the page.
+                        val reportedOffers = cards.mapNotNull { r -> r.myMeetingTime?.let { r.activity.id to it } }.toMap()
+                        val reportedPlans = cards.mapNotNull { r -> r.agreedTime?.let { r.activity.id to it } }.toMap()
+                        state.copy(
+                            loading = false,
+                            items = cards,
+                            selected = state.selected + recorded,
+                            declined = (refused + pushedAway) - takingBack,
+                            selectError = state.selectError.takeUnless { arrived },
+                            myOffers = reportedOffers + state.myOffers,
+                            agreedMoments = reportedPlans + state.agreedMoments,
+                            // A page that shows the plan ends the doubt about it; the agreement is on the
+                            // pair now, so there is nothing left for the person to retry.
+                            timeErrors = state.timeErrors - reportedPlans.keys,
+                        )
+                    }
                 }
                 is ApiResult.Error -> _uiState.update { it.copy(loading = false, error = result.message) }
             }
         }
     }
 
-    fun select(activityId: Int, title: String) {
+    /**
+     * Put an idea to the pair, or join the one the other half already put there.
+     *
+     * One write, and it is the plan's own: the route that records this tap lays the idea into the
+     * pair's chat as a card of its own kind in the same transaction, so the tab types no sentence
+     * beside it and the pair reads the idea once. Whose idea it is second the card already says —
+     * «Предложить в чате» against «Поддержать в чате» — from the same `partnerSelected` the page
+     * reports, so nothing is lost by sending no text.
+     */
+    fun select(activityId: Int) {
         if (_uiState.value.selected.contains(activityId)) return
-        val key = activityId.toString()
-        // A tap that got no answer may still have stored the proposal, so the retry keeps
-        // its name and the pair reads one idea instead of two identical ones. An answered
-        // tap ends the name: the next proposal of this activity is a new intent.
-        val clientMsgId = pendingProposalIds.getOrPut(key) { UUID.randomUUID().toString() }
-        _uiState.update {
-            // The notice of an older idea whose record is still missing survives this tap: that
-            // condition did not go away, and a second failure sentence would overwrite it anyway.
-            it.copy(
-                selected = it.selected + activityId,
-                selectError = it.selectError.takeIf { error ->
-                    error?.startsWith(RECORD_SENTENCE) == true && it.unsavedChoices.isNotEmpty()
-                },
-            )
-        }
+        _uiState.update { it.copy(selected = it.selected + activityId, selectError = null) }
         viewModelScope.launch {
-            // Titles are noun phrases ("Вечер настольных игр"), so the frame must not add a verb.
-            // Whose idea this is second decides the sentence: the page says whether the partner has
-            // already put this card into the chat, and a tap on a card they proposed is an answer to
-            // it, not a copy of it.
-            val partnerProposed = _uiState.value.items
-                .any { it.activity.id == activityId && it.partnerSelected }
-            val body = if (partnerProposed) "Я тоже за: $title." else "Идея для нас: $title. Что скажете?"
-            when (val result = chatRepository.send(matchId, body, clientMsgId)) {
-                is ApiResult.Error -> _uiState.update {
-                    it.copy(
-                        selected = it.selected - activityId,
-                        selectError = reasonSentence(SEND_SENTENCE, result.message),
-                    )
-                }
-                is ApiResult.Success -> {
-                    pendingProposalIds.remove(key)
-                    // The record the next page reads back is written here; the local mark above
-                    // is what the same visit to the tab shows before that answer arrives.
-                    when (val recorded = matchRepository.selectRecommendation(matchId, activityId)) {
-                        is ApiResult.Error -> markUnsaved(activityId, recorded.message)
-                        is ApiResult.Success -> clearUnsaved(activityId)
+            when (val result = matchRepository.selectRecommendation(matchId, activityId)) {
+                // Nothing half-landed: an idea the pair did not receive is not in their chat and not
+                // on their plan, so the card goes back where the tap was made and says why.
+                is ApiResult.Error -> {
+                    lostProposal = activityId
+                    _uiState.update {
+                        it.copy(
+                            selected = it.selected - activityId,
+                            selectError = reasonSentence(PROPOSE_SENTENCE, result.message),
+                        )
                     }
                 }
-            }
-        }
-    }
-
-    /** Re-sends only the marks the pair is missing; the chat message of these ideas is already out. */
-    fun retryRecords() {
-        val pending = _uiState.value.unsavedChoices
-        if (pending.isEmpty()) return
-        viewModelScope.launch {
-            var failure: String? = null
-            pending.forEach { id ->
-                when (val result = matchRepository.selectRecommendation(matchId, id)) {
-                    is ApiResult.Error -> failure = result.message
-                    is ApiResult.Success -> clearUnsaved(id)
-                }
-            }
-            if (failure != null && _uiState.value.unsavedChoices.isNotEmpty()) {
-                _uiState.update { it.copy(selectError = reasonSentence(RECORD_SENTENCE, failure)) }
+                is ApiResult.Success -> Unit
             }
         }
     }
@@ -177,10 +144,10 @@ class RecommendationsViewModel(
         _uiState.update { it.copy(declined = it.declined + activityId, declineError = null) }
         viewModelScope.launch {
             when (val result = matchRepository.declineRecommendation(matchId, activityId)) {
-                // A proposal can half-succeed — the chat has the message while the pair's record
-                // does not — so a failed mark stays named as a debt. A refusal sends nothing to
-                // the chat: a write that failed is simply not a refusal, and the card comes back
-                // to the list the person just left it out of, where the tap can be made again.
+                // One write, and it is complete: the pair's plan and — for the half that did not make
+                // it — their answer in the chat land in the same transaction, so a refusal the server
+                // refused left nothing behind. The card comes back to the list the person just left it
+                // out of, and the tap there is its own retry.
                 is ApiResult.Error -> _uiState.update {
                     it.copy(
                         declined = it.declined - activityId,
@@ -267,27 +234,6 @@ class RecommendationsViewModel(
                 // person named earlier stays on the row as its own fact, not as a rival offer.
                 is ApiResult.Success -> Unit
             }
-        }
-    }
-
-    private fun markUnsaved(activityId: Int, reason: String) {
-        _uiState.update {
-            it.copy(
-                unsavedChoices = it.unsavedChoices + activityId,
-                selectError = reasonSentence(RECORD_SENTENCE, reason),
-            )
-        }
-    }
-
-    private fun clearUnsaved(activityId: Int) {
-        _uiState.update {
-            val left = it.unsavedChoices - activityId
-            it.copy(
-                unsavedChoices = left,
-                selectError = it.selectError.takeUnless { error ->
-                    left.isEmpty() && error?.startsWith(RECORD_SENTENCE) == true
-                },
-            )
         }
     }
 }

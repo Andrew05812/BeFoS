@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from collections import namedtuple
 from datetime import datetime
 
 from sqlalchemy import delete, or_, select
@@ -8,6 +9,14 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Activity, ActivityPreference, Match, Recommendation
+
+# One person's whole answer about one idea of one pair, as the row of `activity_preferences` holds it.
+# A shape rather than seven positional values because two readers now consume this read and one of
+# them (the pair's plans) asks about the instant the row was written too — which half named an idea
+# first is a fact about the plan, not about the card.
+PreferenceLine = namedtuple(
+    "PreferenceLine", "proposed declined meeting_time accepted_time created_at"
+)
 
 
 class ActivityRepository:
@@ -177,6 +186,40 @@ class ActivityRepository:
             if meeting_time is not None or accepted_time is not None:
                 times.setdefault(user_id, {})[activity_id] = (meeting_time, accepted_time)
         return proposed, declined, times
+
+    async def pair_decisions(self, match_id: uuid.UUID) -> dict[int, dict[uuid.UUID, PreferenceLine]]:
+        """Every idea this pair has a word about, and what each half's row says about it.
+
+        The unbounded version of `decisions_by_pair`, asked by the plan side of the product: a
+        pair's list of plans is not the page of eight cards the engine happens to score today, it is
+        every idea the two of them have taken up — including one that has since left the page, which
+        is exactly the idea a plan they arranged would belong to. One statement over the pair, keyed
+        activity then person, so the projection of every plan costs one round trip rather than two
+        per plan.
+        """
+        stmt = select(
+            ActivityPreference.user_id,
+            ActivityPreference.activity_id,
+            ActivityPreference.proposed,
+            ActivityPreference.declined,
+            ActivityPreference.meeting_time,
+            ActivityPreference.accepted_time,
+            ActivityPreference.created_at,
+        ).where(ActivityPreference.match_id == match_id)
+        out: dict[int, dict[uuid.UUID, PreferenceLine]] = {}
+        for (
+            user_id,
+            activity_id,
+            proposed,
+            declined,
+            meeting_time,
+            accepted_time,
+            created_at,
+        ) in (await self.session.execute(stmt)).all():
+            out.setdefault(activity_id, {})[user_id] = PreferenceLine(
+                proposed, declined, meeting_time, accepted_time, created_at
+            )
+        return out
 
     async def replace_recommendations(
         self, match_id: uuid.UUID, recs: list[dict]

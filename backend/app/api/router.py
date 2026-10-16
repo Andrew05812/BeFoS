@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
-from app.api.v1 import auth, chat, discover, health, matches, safety, tests, users
+from app.api.v1 import auth, chat, discover, health, matches, plans, safety, tests, users
 from app.core.rate_limit import rate_limit_dependency
 
 api_router = APIRouter()
@@ -21,5 +21,9 @@ api_router.include_router(users.router, dependencies=[Depends(rate_limit_depende
 api_router.include_router(tests.router, dependencies=[Depends(rate_limit_dependency)])
 api_router.include_router(discover.router, dependencies=[Depends(rate_limit_dependency)])
 api_router.include_router(matches.router, dependencies=[Depends(rate_limit_dependency)])
+# Plans are named two ways — by their own id, and by the pair they belong to — so the two route
+# families are registered as the two routers they are written as.
+api_router.include_router(plans.router, dependencies=[Depends(rate_limit_dependency)])
+api_router.include_router(plans.pair_router, dependencies=[Depends(rate_limit_dependency)])
 api_router.include_router(chat.router, dependencies=[Depends(rate_limit_dependency)])
 api_router.include_router(safety.router, dependencies=[Depends(rate_limit_dependency)])

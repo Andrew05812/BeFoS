@@ -78,6 +78,8 @@ from app.models import (  # noqa: E402
     Recommendation,
     RefreshToken,
     Report,
+    SharedPlan,
+    SharedPlanMember,
     TestAnswer,
     TestResult,
     User,
@@ -85,6 +87,10 @@ from app.models import (  # noqa: E402
 from app.seed import _seed_catalogs  # noqa: E402
 
 _DOMAIN_MODELS = (
+    # The member rows are children of the plan and the plan a child of the pair, so both go before
+    # `Match`; the order of this tuple is the order the next test's clean-up runs in.
+    SharedPlanMember,
+    SharedPlan,
     DiscoveryQueue,
     MessageRead,
     Message,

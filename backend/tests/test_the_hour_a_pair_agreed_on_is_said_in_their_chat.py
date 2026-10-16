@@ -18,11 +18,12 @@ sentence in `body` for a client that draws only text.
 What is pinned here is when the line appears, because the interesting failures are the ones where a
 chat would lie:
 
-A line appears when the plan appears, when it ends, and when it moves — and the pair's state, not
-the tap, decides. A retried accept changes nothing, so it writes nothing; a refusal writes nothing;
-an accept that lands on a traded-away hour produces no plan under the pair's own rule, so no
-agreement is announced. The chronology of a moved plan is two lines, the end of the old moment
-first, so no promise the pair no longer holds is left standing as the newest word.
+A line appears when the idea is put to the pair, when the plan appears, when it ends, and when it
+moves — and the pair's state, not the tap, decides. A retried accept changes nothing, so it writes
+nothing; a refusal writes nothing; an accept that lands on a traded-away hour produces no plan under
+the pair's own rule, so no agreement is announced. The chronology of a moved plan is two lines, the
+end of the old moment first, so no promise the pair no longer holds is left standing as the newest
+word.
 
 The newest word is read from the whole conversation, not from the page carrying it: a cancellation
 always comes after the agreement it cancels, so an older page shows an agreement whose end sits on a
@@ -38,7 +39,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from httpx import AsyncClient
 
-from app.services import recommendation_service
+from app.services import plan_time
 from .conftest import auth_headers
 from .test_a_pair_can_agree_on_when_to_meet import (
     _accept,
@@ -52,7 +53,10 @@ from .test_a_pair_can_agree_on_when_to_meet import (
 )
 from .test_chat_idempotency import FakeSocket, _close, _open, _wait_until
 
-PLAN_FIELDS = {"activity_id", "activity_title", "when", "is_latest"}
+# The card a chat line draws. `plan_id` is in it because the plan is now a thing of its own: the line
+# says which arrangement it records rather than leaving a client to guess which of the pair's plans an
+# idea became. `when` is absent on a proposal, which has no hour yet.
+PLAN_FIELDS = {"activity_id", "activity_title", "when", "plan_id", "is_latest"}
 
 
 async def _chat(client: AsyncClient, token: str, match_id: str, *, before_id: str | None = None):
@@ -84,7 +88,12 @@ def _plan_lines(lines: list[dict]) -> list[dict]:
 
 @pytest.fixture
 async def pair_talking_about_one_idea(client: AsyncClient):
-    """A pair whose chat holds the idea as a sentence, and nothing about an hour yet."""
+    """A pair whose chat holds one idea: the card that put it there, and a sentence about it.
+
+    The card is the first line of the two. `select` is the tap that puts an idea in front of the other
+    half, and from this stage it says so in the conversation itself rather than leaving the pair's own
+    typed sentence to carry it — so every chronology below starts from it.
+    """
     a = await _ready(client, "journal_a@befos.app", "Аня")
     b = await _ready(client, "journal_b@befos.app", "Боря")
     match_id = await _pair(client, a, b)
@@ -107,15 +116,16 @@ async def test_the_hour_both_halves_named_is_read_in_their_chat(
 
     for token in (a["token"], b["token"]):
         lines = _plan_lines(await _chat(client, token, match_id))
-        assert len(lines) == 1, f"the agreement was said {len(lines)} times: {lines}"
-        plan = lines[0]["plan"]
-        assert lines[0]["kind"] == "plan_agreed"
+        assert [line["kind"] for line in lines] == ["plan_proposed", "plan_agreed"], (
+            f"the pair's chat says {len(lines)} things about one idea: {lines}"
+        )
+        plan = lines[-1]["plan"]
         assert plan["activity_id"] == idea
         assert plan["activity_title"] == title
         assert datetime.fromisoformat(plan["when"]) == when.astimezone(timezone.utc)
         assert plan["is_latest"] is True
         hour = when.astimezone(timezone.utc).strftime("%H:%M")
-        assert title in lines[0]["body"] and hour in lines[0]["body"], lines[0]["body"]
+        assert title in lines[-1]["body"] and hour in lines[-1]["body"], lines[-1]["body"]
 
 
 async def test_a_line_about_the_plan_is_not_somebody_saying_it(
@@ -134,10 +144,13 @@ async def test_a_line_about_the_plan_is_not_somebody_saying_it(
     assert (await _accept(client, b["token"], match_id, idea, when))[0] == 204
     lines = await _chat(client, a["token"], match_id)
     typed = [line for line in lines if line["kind"] == "text"]
-    agreed = [line for line in lines if line["kind"] != "text"]
-    assert len(typed) == 1 and len(agreed) == 1, lines
-    assert agreed[0]["is_own"] is False, "the person reading the chat was shown their own line"
-    assert agreed[0]["sender_id"] == b["user_id"], (
+    agreed = _plan_lines(lines)
+    assert len(typed) == 1 and [line["kind"] for line in agreed] == [
+        "plan_proposed",
+        "plan_agreed",
+    ], lines
+    assert agreed[-1]["is_own"] is False, "the person reading the chat was shown their own line"
+    assert agreed[-1]["sender_id"] == b["user_id"], (
         "the line does not name the person whose tap made the plan"
     )
 
@@ -152,10 +165,14 @@ async def test_a_refused_agreement_leaves_the_conversation_as_it_was(
     """
     _a, b, match_id, idea, _title = pair_talking_about_one_idea
     before = await _chat(client, b["token"], match_id)
+    assert [line["kind"] for line in _plan_lines(before)] == ["plan_proposed"], before
     code, text = await _accept(client, b["token"], match_id, idea, _whole_hour(48))
     assert code == 409, text
-    assert _plan_lines(await _chat(client, b["token"], match_id)) == []
-    assert len(await _chat(client, b["token"], match_id)) == len(before)
+    after = await _chat(client, b["token"], match_id)
+    assert [line["id"] for line in after] == [line["id"] for line in before], (
+        "an agreement nobody offered was written into the conversation"
+    )
+    assert "plan_agreed" not in [line["kind"] for line in _plan_lines(after)]
 
 
 async def test_agreeing_twice_to_the_same_hour_says_it_once(
@@ -174,13 +191,20 @@ async def test_agreeing_twice_to_the_same_hour_says_it_once(
     assert (await _accept(client, b["token"], match_id, idea, when))[0] == 204
 
     lines = _plan_lines(await _chat(client, a["token"], match_id))
-    assert len(lines) == 1, [line["body"] for line in lines]
+    assert [line["kind"] for line in lines] == ["plan_proposed", "plan_agreed"], [
+        line["body"] for line in lines
+    ]
 
 
 async def test_moving_the_hour_reports_the_end_of_the_plan(
     client: AsyncClient, pair_talking_about_one_idea
 ):
-    """A chat that kept showing an agreement one half has taken back would lie about the pair."""
+    """A chat that kept showing an agreement one half has taken back would lie about the pair.
+
+    The move is two lines and not one, because it is two facts: the hour the pair stood on is over,
+    and a new one is being asked about. Folding them into a single sentence would leave the promise
+    the half no longer holds unsaid, and showing only the question would leave it standing.
+    """
     a, b, match_id, idea, title = pair_talking_about_one_idea
     first, second = _whole_hour(48), _whole_hour(96)
     assert (await _offer(client, a["token"], match_id, idea, first))[0] == 204
@@ -188,18 +212,24 @@ async def test_moving_the_hour_reports_the_end_of_the_plan(
     assert (await _offer(client, a["token"], match_id, idea, second))[0] == 204
 
     lines = _plan_lines(await _chat(client, b["token"], match_id))
-    assert [line["kind"] for line in lines] == ["plan_agreed", "plan_voided"], lines
-    # Read from the half who agreed: their own tap wrote the first line, the other one's move wrote
-    # the second. Each of them owns the line their own decision produced, which is what keeps the
-    # unread count honest on the side that has not opened the chat yet.
-    assert [line["is_own"] for line in lines] == [True, False], lines
-    assert datetime.fromisoformat(lines[1]["plan"]["when"]) == first.astimezone(timezone.utc)
-    assert lines[1]["plan"]["is_latest"] is True
-    assert lines[0]["plan"]["is_latest"] is False, (
+    assert [line["kind"] for line in lines] == [
+        "plan_proposed",
+        "plan_agreed",
+        "plan_voided",
+        "plan_rescheduled",
+    ], lines
+    # Read from the half who agreed: the first line is the other one's proposal, the second is their
+    # own answer, and the move — both of its lines — belongs to whoever moved it. Each of them owns
+    # the line their own decision produced, which is what keeps the unread count honest on the side
+    # that has not opened the chat yet.
+    assert [line["is_own"] for line in lines] == [False, True, False, False], lines
+    assert datetime.fromisoformat(lines[2]["plan"]["when"]) == first.astimezone(timezone.utc)
+    assert datetime.fromisoformat(lines[3]["plan"]["when"]) == second.astimezone(timezone.utc)
+    assert [line["plan"]["is_latest"] for line in lines] == [False, False, False, True], (
         "the agreement was still called the newest word after its cancellation"
     )
     assert _card(await _page(client, b["token"], match_id), idea)["agreed_time"] is None
-    assert title in lines[1]["body"]
+    assert title in lines[2]["body"]
 
 
 async def test_the_pair_that_traded_hours_announces_no_agreement_at_the_end(
@@ -208,8 +238,8 @@ async def test_the_pair_that_traded_hours_announces_no_agreement_at_the_end(
     """Two hours each taking the other's is a conversation, not a promise, and the chat says so.
 
     `_agreed_instant` refuses to pick one of the two, and a journal that wrote a line per tap would
-    have called the trade a plan twice. What the pair has instead is the agreement they did reach
-    and its end, with nothing claiming to still stand.
+    have called the trade a plan twice. What the pair has instead is the proposal, the idea they both
+    stood behind, the agreement they did reach and its end — with nothing claiming to still stand.
     """
     a, b, match_id, idea = pair_talking_about_one_idea[:4]
     first, second = _whole_hour(48), _whole_hour(96)
@@ -220,8 +250,16 @@ async def test_the_pair_that_traded_hours_announces_no_agreement_at_the_end(
     assert (await _accept(client, a["token"], match_id, idea, second))[0] == 204
 
     lines = _plan_lines(await _chat(client, a["token"], match_id))
-    assert [line["kind"] for line in lines] == ["plan_agreed", "plan_voided"], lines
-    assert [line["plan"]["is_latest"] for line in lines] == [False, True]
+    assert [line["kind"] for line in lines] == [
+        "plan_proposed",
+        "plan_accepted",
+        "plan_agreed",
+        "plan_voided",
+    ], lines
+    assert [line["plan"]["is_latest"] for line in lines] == [False, False, False, True]
+    assert lines[-1]["plan"]["when"] is not None, (
+        "the line that ends the agreement does not name the hour it ended"
+    )
 
 
 async def test_an_older_page_of_the_chat_knows_its_agreement_was_cancelled(
@@ -239,11 +277,15 @@ async def test_an_older_page_of_the_chat_knows_its_agreement_was_cancelled(
     assert (await _offer(client, a["token"], match_id, idea, second))[0] == 204
 
     newest = await _chat(client, a["token"], match_id)
-    voided_id = _plan_lines(newest)[-1]["id"]
-    older_page = await _chat(client, a["token"], match_id, before_id=voided_id)
+    end_of_page_id = _plan_lines(newest)[-1]["id"]
+    older_page = await _chat(client, a["token"], match_id, before_id=end_of_page_id)
     agreed = _plan_lines(older_page)
-    assert [line["kind"] for line in agreed] == ["plan_agreed"], older_page
-    assert agreed[0]["plan"]["is_latest"] is False
+    assert [line["kind"] for line in agreed] == [
+        "plan_proposed",
+        "plan_agreed",
+        "plan_voided",
+    ], older_page
+    assert agreed[1]["plan"]["is_latest"] is False
 
 
 async def test_an_agreement_whose_hour_has_passed_is_still_the_agreement(
@@ -260,7 +302,7 @@ async def test_an_agreement_whose_hour_has_passed_is_still_the_agreement(
     """
     a, b, match_id, idea = pair_talking_about_one_idea[:4]
     monkeypatch.setattr(
-        recommendation_service,
+        plan_time,
         "utcnow",
         lambda: datetime.now(timezone.utc) - timedelta(days=2),
     )
@@ -271,7 +313,7 @@ async def test_an_agreement_whose_hour_has_passed_is_still_the_agreement(
     assert when < datetime.now(timezone.utc), "the hour the pair arranged is not behind them yet"
 
     lines = _plan_lines(await _chat(client, a["token"], match_id))
-    assert [line["kind"] for line in lines] == ["plan_agreed"], lines
+    assert [line["kind"] for line in lines] == ["plan_proposed", "plan_agreed"], lines
     assert lines[-1]["plan"]["is_latest"] is True, (
         "a plan the clock walked past was reported as ended, which nobody told the server"
     )
@@ -288,26 +330,37 @@ async def test_the_plan_line_names_what_the_pair_knows_and_not_what_it_does_not(
 
     The fields are pinned by name: adding a venue, an address or a guest list to this answer would
     need a source for each of them, and a plan card that filled an absent one in looks exactly like
-    the rest.
+    the rest. `plan_id` is pinned as one of them because it is the same arrangement the pair's list
+    of plans carries — the chat and the plan screen are two views of one row, not two copies.
     """
     a, b, match_id, idea = pair_talking_about_one_idea[:4]
     when = _whole_hour(48)
     assert (await _offer(client, a["token"], match_id, idea, when))[0] == 204
     assert (await _accept(client, b["token"], match_id, idea, when))[0] == 204
-    plan = _plan_lines(await _chat(client, a["token"], match_id))[0]["plan"]
+    plan = _plan_lines(await _chat(client, a["token"], match_id))[-1]["plan"]
     assert set(plan) == PLAN_FIELDS, plan
+    assert plan["when"] is not None, plan
+    listed = await client.get(
+        f"/api/v1/matches/{match_id}/plans", headers=auth_headers(a["token"])
+    )
+    assert listed.status_code == 200, listed.text
+    assert plan["plan_id"] in {item["id"] for item in listed.json()["plans"]}, listed.text
 
 
 async def test_a_conversation_of_only_sentences_reports_no_plan(
-    client: AsyncClient, pair_talking_about_one_idea
+    client: AsyncClient
 ):
     """The page a pair reads every day keeps answering the way it did before this line existed.
 
     `kind` and `plan` are added to every line, so the ordinary case has to be pinned too: a typed
     message is `text` with no plan, and a build that only reads the older fields gets the same body
-    it got before.
+    it got before. A pair that never put an idea in front of each other is the conversation this
+    checks — a plan line would otherwise come from the tap that opened it, not from the sentence.
     """
-    a, _b, match_id, _idea, _title = pair_talking_about_one_idea
+    a = await _ready(client, "journal_plain_a@befos.app", "Галя")
+    b = await _ready(client, "journal_plain_b@befos.app", "Гоша")
+    match_id = await _pair(client, a, b)
+    await _say(client, a["token"], match_id, "Привет")
     lines = await _chat(client, a["token"], match_id)
     assert len(lines) == 1
     assert lines[0]["kind"] == "text" and lines[0]["plan"] is None
@@ -323,6 +376,7 @@ async def test_somebody_outside_the_pair_cannot_write_a_plan_line_into_its_chat(
     conversation they are not in — and the answer does not say which of the two was wrong.
     """
     _a, _b, match_id, idea = pair_talking_about_one_idea[:4]
+    before = await _chat(client, _a["token"], match_id)
     stranger = await _ready(client, "journal_c@befos.app", "Вика")
     resp = await client.post(
         f"/api/v1/matches/{match_id}/recommendations/{idea}/time/accept",
@@ -330,7 +384,8 @@ async def test_somebody_outside_the_pair_cannot_write_a_plan_line_into_its_chat(
         headers=auth_headers(stranger["token"]),
     )
     assert resp.status_code == 404, resp.text
-    assert _plan_lines(await _chat(client, _a["token"], match_id)) == []
+    after = await _chat(client, _a["token"], match_id)
+    assert [line["id"] for line in after] == [line["id"] for line in before]
 
 
 async def test_a_dissolved_pair_arranges_nothing_and_says_nothing(
@@ -392,7 +447,11 @@ async def test_both_open_chats_hear_the_agreement_without_reopening(
             assert frame["plan"]["activity_id"] == idea
             assert frame["plan"]["is_latest"] is True
             assert datetime.fromisoformat(frame["plan"]["when"]) == when.astimezone(timezone.utc)
-        assert (await _chat(client, a["token"], match_id))[0]["kind"] == "text"
+        stored = _plan_lines(await _chat(client, a["token"], match_id))
+        assert [line["kind"] for line in stored] == ["plan_proposed", "plan_agreed"]
+        # The frame the socket carried is the row the conversation already holds, not a promise of
+        # one still to come — which is the ordering this check exists for.
+        assert stored[-1]["id"] == _plan_frames(sock_a)[0]["id"]
     finally:
         await _close(sock_a, task_a)
         await _close(sock_b, task_b)
