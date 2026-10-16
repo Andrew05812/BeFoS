@@ -318,6 +318,98 @@ internal data class PlanCardUi(
     // The idea the card leads to, or null when the line lost it: the tap still opens the pair's
     // ideas, just without a card to bring into view.
     val activityId: Int?,
+    // Whether the line holds an agreement the pair is still keeping: the card takes its accent from
+    // this rather than from a word, so a header rewrite cannot quietly restyle every card.
+    val standing: Boolean,
+)
+
+/**
+ * The header and the chip each kind of plan line is allowed to claim.
+ *
+ * The pair's plan writes a line per move, and the moves are not the same act: an idea put to the
+ * pair has no hour yet, a rescheduled line names an hour the other half has not answered, a
+ * completed one says the meeting happened. Only the two kinds that carry the hour the pair landed
+ * on can be called standing, and only they can be walked past by the clock — so the words belong to
+ * the kind, and a kind this build does not know says that on its face instead of falling through to
+ * a promise nobody made.
+ */
+private data class PlanKindWords(
+    val overline: String,
+    val current: String,
+    val superseded: String,
+    val holdsAgreedHour: Boolean,
+)
+
+/** The word a live agreement is called on screen, and on the pair's own idea card. */
+internal const val PLAN_STANDING_WORD = "действует"
+
+private const val PLAN_SUPERSEDED_WORD = "позже пара сказала другое"
+
+private val PLAN_KIND_UNKNOWN = PlanKindWords(
+    overline = "План пары",
+    current = "эта версия приложения её не читает",
+    superseded = PLAN_SUPERSEDED_WORD,
+    holdsAgreedHour = false,
+)
+
+private val PLAN_KIND_WORDS: Map<String, PlanKindWords> = mapOf(
+    MessageKinds.PLAN_PROPOSED to PlanKindWords(
+        overline = "Идея",
+        current = "ждёт ответа",
+        superseded = PLAN_SUPERSEDED_WORD,
+        holdsAgreedHour = false,
+    ),
+    MessageKinds.PLAN_ACCEPTED to PlanKindWords(
+        overline = "Идея",
+        current = "подтверждена обоими, час не назван",
+        superseded = PLAN_SUPERSEDED_WORD,
+        holdsAgreedHour = false,
+    ),
+    MessageKinds.PLAN_DECLINED to PlanKindWords(
+        overline = "Идея",
+        current = "отклонена",
+        superseded = PLAN_SUPERSEDED_WORD,
+        holdsAgreedHour = false,
+    ),
+    MessageKinds.PLAN_AGREED to PlanKindWords(
+        overline = "Договорённость",
+        current = PLAN_STANDING_WORD,
+        superseded = "отменена позже",
+        holdsAgreedHour = true,
+    ),
+    MessageKinds.PLAN_RESCHEDULED to PlanKindWords(
+        overline = "Договорённость",
+        // The hour on this line is one half's offer, not the pair's agreement, so the card cannot
+        // call it standing and cannot call it spent: the answer it waits for is the news.
+        current = "новый час ждёт ответа",
+        superseded = PLAN_SUPERSEDED_WORD,
+        holdsAgreedHour = false,
+    ),
+    MessageKinds.PLAN_CHANGED to PlanKindWords(
+        overline = "Договорённость",
+        current = PLAN_STANDING_WORD,
+        superseded = "отменена позже",
+        holdsAgreedHour = true,
+    ),
+    MessageKinds.PLAN_CANCELLED to PlanKindWords(
+        overline = "Договорённость",
+        current = "отменена",
+        superseded = PLAN_SUPERSEDED_WORD,
+        holdsAgreedHour = false,
+    ),
+    MessageKinds.PLAN_COMPLETED to PlanKindWords(
+        overline = "Договорённость",
+        // Both halves said the meeting happened, so the clock has nothing left to report about it.
+        current = "встреча состоялась",
+        superseded = PLAN_SUPERSEDED_WORD,
+        holdsAgreedHour = false,
+    ),
+    MessageKinds.PLAN_VOIDED to PlanKindWords(
+        overline = "Договорённость",
+        current = "отменена",
+        superseded = PLAN_SUPERSEDED_WORD,
+        holdsAgreedHour = false,
+    ),
 )
 
 internal fun planCardUi(
@@ -327,22 +419,25 @@ internal fun planCardUi(
     now: ZonedDateTime = ZonedDateTime.now(zone),
 ): PlanCardUi {
     val plan = message.plan
+    val words = PLAN_KIND_WORDS[message.kind] ?: PLAN_KIND_UNKNOWN
+    val latest = plan?.isLatest == true
+    // The hour the pair agreed on is behind them, and the row says nothing else: nobody retired it,
+    // so the card cannot claim a promise that is still being kept.
+    val passed = latest && words.holdsAgreedHour && planMomentPassed(plan?.whenIso, now)
     return PlanCardUi(
-        overline = "Договорённость",
+        overline = words.overline,
         // The name the server reads off the catalogue when the page is drawn, so a card that has
         // lost its idea says that instead of showing a blank where the meeting was about.
         idea = plan?.activityTitle ?: "Идея, о которой договаривались, больше недоступна",
         moment = formatPlanMoment(plan?.whenIso, zone),
         status = when {
-            message.kind == MessageKinds.PLAN_VOIDED -> "отменена"
-            plan?.isLatest != true -> "отменена позже"
-            // The hour the pair agreed on is behind them, and the row says nothing else: nobody
-            // retired it, so the card cannot claim a promise that is still being kept.
-            planMomentPassed(plan.whenIso, now) -> PLAN_PAST_WORD
-            else -> "действует"
+            !latest -> words.superseded
+            passed -> PLAN_PAST_WORD
+            else -> words.current
         },
         who = "Вы и ${partnerName ?: "собеседник"}",
         activityId = plan?.activityId,
+        standing = latest && !passed && words.holdsAgreedHour,
     )
 }
 
@@ -373,7 +468,7 @@ private fun PlanEventCard(
     onClick: () -> Unit,
 ) {
     val haptics = rememberHaptics()
-    val active = ui.status == "действует"
+    val active = ui.standing
     val shape = RoundedCornerShape(18.dp)
     val accent = if (active) Ember else MaterialTheme.colorScheme.onSurfaceVariant
     Column(

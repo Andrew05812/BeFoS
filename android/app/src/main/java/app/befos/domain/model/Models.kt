@@ -239,14 +239,24 @@ data class MatchSummary(
 /**
  * The kinds a conversation line arrives with.
  *
- * `text` is a sentence somebody typed; the two plan kinds are what the pair's agreement wrote into
- * the thread. The screen has to tell them apart because a plan is not anybody's bubble, and a kind
- * this build does not know is drawn as the sentence its `body` holds, so a newer server cannot buy
- * a blank space on a screen it cannot reach.
+ * `text` is a sentence somebody typed; the rest are what the pair's plan wrote into the thread, one
+ * kind per move — an idea put to the pair, an hour agreed, a plan brought to an end. The screen has
+ * to tell them apart because a plan is not anybody's bubble, and because only `plan_agreed` and
+ * `plan_changed` hold an hour the pair agreed to: a card that read any of the others as a standing
+ * agreement would show the pair a promise they never made. A kind this build does not know is still
+ * drawn as a card, and says on its face that this version cannot read it — a newer server cannot buy
+ * a blank space, or worse a live agreement, on a screen it cannot reach.
  */
 object MessageKinds {
     const val TEXT = "text"
+    const val PLAN_PROPOSED = "plan_proposed"
+    const val PLAN_ACCEPTED = "plan_accepted"
+    const val PLAN_DECLINED = "plan_declined"
     const val PLAN_AGREED = "plan_agreed"
+    const val PLAN_RESCHEDULED = "plan_rescheduled"
+    const val PLAN_CHANGED = "plan_changed"
+    const val PLAN_CANCELLED = "plan_cancelled"
+    const val PLAN_COMPLETED = "plan_completed"
     const val PLAN_VOIDED = "plan_voided"
 }
 
