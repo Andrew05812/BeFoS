@@ -123,7 +123,7 @@ uvicorn app.main:app --reload --port 8000 --no-proxy-headers
 конфигурации. Демо-доступ при `DEMO_ENABLED=true` (значение по умолчанию): `demo@befos.app` /
 `Demo12345`.
 
-Без Docker, тесты, релизная сборка и разбор задержек — в
+Тесты, релизная сборка и разбор задержек — в
 [`docs/OPERATIONS.md`](docs/OPERATIONS.md) и [`docs/VERIFICATION.md`](docs/VERIFICATION.md).
 
 ## Структура
