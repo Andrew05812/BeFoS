@@ -12,6 +12,7 @@ import androidx.core.app.NotificationManagerCompat
 import app.befos.MainActivity
 import app.befos.R
 import app.befos.domain.model.Plan
+import app.befos.presentation.plans.PlanReminder
 import app.befos.presentation.plans.reminderFor
 import java.time.ZonedDateTime
 
@@ -30,6 +31,7 @@ object PlanReminders {
     const val EXTRA_PLAN_ID = "app.befos.extra.PLAN_ID"
     const val EXTRA_TITLE = "app.befos.extra.TITLE"
     const val EXTRA_TEXT = "app.befos.extra.TEXT"
+    const val EXTRA_AGREED_HOUR = "app.befos.extra.AGREED_HOUR"
 
     /** Whether a notice this app posts can reach the person at all. */
     fun canPost(context: Context): Boolean =
@@ -60,7 +62,7 @@ object PlanReminders {
                 manager.setAndAllowWhileIdle(
                     AlarmManager.RTC_WAKEUP,
                     reminder.firesAt.toInstant().toEpochMilli(),
-                    alarmFor(context, reminder.planId, reminder.title, reminder.text),
+                    alarmFor(context, reminder),
                 )
             }
         }
@@ -101,14 +103,15 @@ object PlanReminders {
         existing.cancel()
     }
 
-    private fun alarmFor(context: Context, planId: String, title: String, text: String) =
+    private fun alarmFor(context: Context, reminder: PlanReminder) =
         PendingIntent.getBroadcast(
             context,
-            planId.hashCode(),
-            bare(context, planId)
-                .putExtra(EXTRA_PLAN_ID, planId)
-                .putExtra(EXTRA_TITLE, title)
-                .putExtra(EXTRA_TEXT, text),
+            reminder.planId.hashCode(),
+            bare(context, reminder.planId)
+                .putExtra(EXTRA_PLAN_ID, reminder.planId)
+                .putExtra(EXTRA_TITLE, reminder.title)
+                .putExtra(EXTRA_TEXT, reminder.text)
+                .putExtra(EXTRA_AGREED_HOUR, reminder.agreedHourIso),
             pendingFlags(),
         )
 

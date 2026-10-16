@@ -18,6 +18,12 @@ import org.junit.Test
  * here, where a test can hold the clock still: which plan states owe a call, at what moment the device
  * wakes, and what sentence the wake carries. The alternative — letting the notification code work out
  * for itself which plan is a договорённость — would put the pair's promise behind a second reading of it.
+ *
+ * The second half of the file holds the clock still for the moment the alarm has already woken the
+ * device. The plans page is the only place that re-arms an hour, so between that arming and this wake the
+ * pair can move the evening, call it off or let it pass, and the sentence still sitting in the alarm's
+ * extras would arrive as news. What the device is allowed to say then depends on what the plan says now,
+ * and that is a rule a test can hold rather than one the phone gets to discover.
  */
 class PlanReminderTest {
 
@@ -138,5 +144,126 @@ class PlanReminderTest {
         assertNull(reminderFor(plan(startsAt = "not-an-instant"), now))
         // A naive string names no zone, and the pair is often in two cities.
         assertNull(reminderFor(plan(startsAt = "2026-10-17T19:00:00"), now))
+    }
+
+    /**
+     * The sentence the page left in the alarm's extras.
+     *
+     * Deliberately worded differently from anything a fresh read would produce: a delivery test that
+     * asserted on the armed text could not tell a live sentence from the one the alarm was handed, and
+     * the whole point of the read is that the pair may have moved the evening since it was written.
+     */
+    private fun armed(
+        planId: String = "p1",
+        agreedHourIso: String = ahead,
+    ) = PlanReminder(
+        planId = planId,
+        title = "Поход в кино",
+        text = "Через час — строка, которую страница написала ранее",
+        firesAt = clock(17, 18),
+        agreedHourIso = agreedHourIso,
+    )
+
+    @Test
+    fun `an hour both readings stand on is spoken in the words of the live plan`() {
+        val delivery = deliveryFor(armed(), PlanReading.Read(plan()), now)
+
+        assertEquals(
+            ReminderDelivery.Speak("Поход в кино", reminderFor(plan(), now)!!.text),
+            delivery,
+        )
+    }
+
+    @Test
+    fun `one evening the server writes with another offset is still this hour`() {
+        // 19:00 at +03:00 and 16:00 UTC are the pair's one agreed evening. Comparing the characters
+        // instead would leave every reminder on this phone silent the day the server changes how it
+        // prints a zone, which is a thing no user did to their plan.
+        val utcIso = "2026-10-17T16:00:00+00:00"
+
+        val delivery = deliveryFor(armed(), PlanReading.Read(plan(startsAt = utcIso)), now)
+
+        assertEquals(
+            ReminderDelivery.Speak("Поход в кино", reminderFor(plan(startsAt = utcIso), now)!!.text),
+            delivery,
+        )
+    }
+
+    @Test
+    fun `an hour the other half moved leaves the alarm silent`() {
+        // The 17th became the 18th while nobody opened the plans page. The old evening arriving on this
+        // phone as news would be a wrong hour the person can still act on — their plans page is the
+        // one place that already holds the moved one.
+        val delivery = deliveryFor(
+            armed(),
+            PlanReading.Read(plan(startsAt = "2026-10-18T19:00:00+03:00")),
+            now,
+        )
+
+        assertEquals(ReminderDelivery.Silent, delivery)
+    }
+
+    @Test
+    fun `a plan the pair called off leaves the alarm silent`() {
+        assertEquals(
+            ReminderDelivery.Silent,
+            deliveryFor(armed(), PlanReading.Read(plan(status = PlanStatuses.CANCELLED)), now),
+        )
+    }
+
+    @Test
+    fun `a meeting both have marked as kept leaves the alarm silent`() {
+        assertEquals(
+            ReminderDelivery.Silent,
+            deliveryFor(armed(), PlanReading.Read(plan(status = PlanStatuses.COMPLETED)), now),
+        )
+    }
+
+    @Test
+    fun `an hour the clock walked past while this device slept leaves the alarm silent`() {
+        assertEquals(
+            ReminderDelivery.Silent,
+            deliveryFor(armed(), PlanReading.Read(plan(startsAt = "2026-10-14T19:00:00+03:00")), now),
+        )
+    }
+
+    @Test
+    fun `a plan this person may no longer read leaves the alarm silent`() {
+        // 403 or 404: the pair dissolved or the plan went. Nothing is left to be on time for, and the
+        // server's refusal is itself the answer rather than a gap to speak across.
+        assertEquals(ReminderDelivery.Silent, deliveryFor(armed(), PlanReading.Refused, now))
+    }
+
+    @Test
+    fun `an hour the server could not answer for is spoken with its doubt named`() {
+        // No signal, no session left, a window that closed. The hour was real when it was written down,
+        // so silence would be the network's failure turned into the person missing their own evening.
+        assertEquals(
+            ReminderDelivery.Speak(
+                "Поход в кино",
+                "Через час — строка, которую страница написала ранее$REMINDER_NOT_VERIFIED_SUFFIX",
+            ),
+            deliveryFor(armed(), PlanReading.Unreachable, now),
+        )
+    }
+
+    @Test
+    fun `a sentence whose own hour this build cannot place speaks its doubt rather than the live hour`() {
+        // An alarm armed by an older build, still sitting on the device after an update. The live plan
+        // says an hour stands, but nothing here proves the armed sentence promises that one, so the
+        // fresh words cannot be spoken over it and the old ones cannot be offered as a checked hour.
+        val delivery = deliveryFor(
+            armed(agreedHourIso = "не-мгновение"),
+            PlanReading.Read(plan()),
+            now,
+        )
+
+        assertEquals(
+            ReminderDelivery.Speak(
+                "Поход в кино",
+                "Через час — строка, которую страница написала ранее$REMINDER_NOT_VERIFIED_SUFFIX",
+            ),
+            delivery,
+        )
     }
 }
