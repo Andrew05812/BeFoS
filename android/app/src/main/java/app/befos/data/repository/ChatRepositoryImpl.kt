@@ -225,6 +225,7 @@ internal fun planFromFrame(obj: JsonObject) = MessagePlan(
     activityId = obj["activity_id"]?.jsonPrimitive?.contentOrNull?.toIntOrNull(),
     activityTitle = obj["activity_title"]?.jsonPrimitive?.contentOrNull,
     whenIso = obj["when"]?.jsonPrimitive?.contentOrNull,
+    planId = obj["plan_id"]?.jsonPrimitive?.contentOrNull,
     isLatest = obj["is_latest"]?.jsonPrimitive?.booleanOrNull ?: false,
 )
 

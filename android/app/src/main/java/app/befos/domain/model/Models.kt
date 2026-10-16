@@ -272,6 +272,9 @@ data class MessagePlan(
     val activityId: Int?,
     val activityTitle: String?,
     val whenIso: String?,
+    // The arrangement this line records, or null for a line the plan entity never wrote. A pair can
+    // talk the same idea over more than once, so this — not the activity — is what the tap opens.
+    val planId: String?,
     val isLatest: Boolean,
 )
 
@@ -321,6 +324,69 @@ data class Recommendation(
     // The moment both halves hold: null until one row's agreement equals the other row's offer.
     val agreedTime: String?,
 )
+
+/**
+ * The states a pair's arrangement moves through, named by the server.
+ *
+ * The list is the server's own, and the screen reads it rather than re-deriving it: which hour the
+ * pair stands on, whose answer is still missing and what may still be called off are decided once by
+ * `_status` in `app/services/plan_service.py`, and a client that worked them out again would be a
+ * second state machine able to disagree with the first. A status this build does not know is drawn as
+ * itself and says it cannot be read — see `presentation/plans/PlanBuckets.kt`.
+ */
+object PlanStatuses {
+    const val PROPOSED = "proposed"
+    const val ACCEPTED = "accepted"
+    const val PLANNED = "planned"
+    const val RESCHEDULED = "rescheduled"
+    const val COMPLETED = "completed"
+    const val DECLINED = "declined"
+    const val CANCELLED = "cancelled"
+}
+
+/** What one half has said about an idea the pair is talking over. */
+object PlanDecisions {
+    const val PENDING = "pending"
+    const val JOINED = "joined"
+    const val DECLINED = "declined"
+}
+
+/**
+ * One arrangement of one pair, as both halves of it see it.
+ *
+ * The shared fields are shared: `note` and `place` are what the pair wrote, so each of them reads the
+ * same words. A person's own remark is not here, because it is not a fact about the pair. The two
+ * `*Decision` and `*Attended` pairs are one answer seen from either side, and the three flags at the
+ * end are the server's answers to the questions the screen would otherwise re-derive: whether the
+ * named hour is already behind the pair, whether it is the viewer whose answer is missing, and
+ * whether the plan may still be called off.
+ */
+data class Plan(
+    val id: String,
+    val title: String,
+    val description: String?,
+    val note: String?,
+    val place: String?,
+    val status: String,
+    // The hour the pair stands on, and the hour one of them named and the other has not answered.
+    // Both stay text: agreeing sends back exactly the instant the person read.
+    val startsAt: String?,
+    val pendingHour: String?,
+    val pendingBy: String?,
+    val myDecision: String,
+    val iAttended: Boolean,
+    val partnerId: String?,
+    val partnerName: String?,
+    val partnerDecision: String,
+    val partnerAttended: Boolean,
+    val hourPassed: Boolean,
+    val needsMyAnswer: Boolean,
+    val canCancel: Boolean,
+) {
+    /** Whether the hour waiting for an answer is the one the partner named rather than this person's. */
+    val partnerNamedTheHour: Boolean
+        get() = pendingHour != null && partnerId != null && pendingBy == partnerId
+}
 
 data class LikeOutcome(
     val matched: Boolean,

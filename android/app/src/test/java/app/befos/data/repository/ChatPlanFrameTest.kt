@@ -23,13 +23,25 @@ class ChatPlanFrameTest {
         val plan = planFromFrame(
             obj(
                 """
-                {"activity_id": 7, "activity_title": "Поход в кино",
+                {"activity_id": 7, "activity_title": "Поход в кино", "plan_id": "0e1f",
                  "when": "2026-10-17T19:00+03:00", "is_latest": true}
                 """.trimIndent(),
             ),
         )
 
-        assertEquals(MessagePlan(7, "Поход в кино", "2026-10-17T19:00+03:00", true), plan)
+        assertEquals(MessagePlan(7, "Поход в кино", "2026-10-17T19:00+03:00", "0e1f", true), plan)
+    }
+
+    @Test
+    fun `a frame from a server that writes no plan id still parses`() {
+        // The key arrived with the plan entity; a frame without it is a line of the pair's thread,
+        // not a broken one, and the tap falls back to the pair's ideas.
+        val plan = planFromFrame(
+            obj("""{"activity_id": 7, "when": "2026-10-17T19:00+03:00", "is_latest": true}"""),
+        )
+
+        assertNull(plan.planId)
+        assertEquals(7, plan.activityId)
     }
 
     @Test

@@ -380,6 +380,10 @@ data class MessagePlanDto(
     // The moment the pair agreed to, in the ISO form the backend stamps — a plan is read as an
     // instant, not as the server's clock, so the card shows it in the device's own zone.
     @SerialName("when") val whenIso: String? = null,
+    // Which arrangement the line records. A pair can talk the same idea over more than once, so the
+    // tap needs the plan itself rather than the idea it is about. Absent on a line the plan entity
+    // never wrote, and the card keeps its older way out in that case.
+    @SerialName("plan_id") val planId: String? = null,
     @SerialName("is_latest") val isLatest: Boolean = false,
 )
 
@@ -462,6 +466,43 @@ data class MeetingTimeRequest(
     // The API calls this `when`, which is a Kotlin keyword, so the property is named for what it
     // holds and the wire name is pinned instead.
     @SerialName("when") val whenIso: String,
+)
+
+// ---------- Shared plans ----------
+/**
+ * One arrangement of one pair, as the server says it to both halves.
+ *
+ * Every field here is what the pair already holds; the screen adds nothing to it. The four flags at
+ * the end are not decorations of the row but the questions the card would otherwise re-derive from
+ * the status — whose answer is still missing, whether the named hour is behind the pair, whether the
+ * plan may be called off — and the server answers them once so that no screen can grow its own copy
+ * of the state machine.
+ */
+@Serializable
+data class PlanDto(
+    val id: String,
+    val title: String = "",
+    val description: String? = null,
+    val note: String? = null,
+    val place: String? = null,
+    val status: String = "",
+    @SerialName("starts_at") val startsAt: String? = null,
+    @SerialName("pending_hour") val pendingHour: String? = null,
+    @SerialName("pending_by") val pendingBy: String? = null,
+    @SerialName("my_decision") val myDecision: String = "pending",
+    @SerialName("i_attended") val iAttended: Boolean = false,
+    @SerialName("partner_id") val partnerId: String? = null,
+    @SerialName("partner_name") val partnerName: String? = null,
+    @SerialName("partner_decision") val partnerDecision: String = "pending",
+    @SerialName("partner_attended") val partnerAttended: Boolean = false,
+    @SerialName("hour_passed") val hourPassed: Boolean = false,
+    @SerialName("needs_my_answer") val needsMyAnswer: Boolean = false,
+    @SerialName("can_cancel") val canCancel: Boolean = false,
+)
+
+@Serializable
+data class PlanListDto(
+    val plans: List<PlanDto> = emptyList(),
 )
 
 // ---------- Safety ----------

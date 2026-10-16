@@ -9,6 +9,7 @@ import app.befos.domain.model.LikeOutcome
 import app.befos.domain.model.MatchSummary
 import app.befos.domain.model.Message
 import app.befos.domain.model.OnboardingData
+import app.befos.domain.model.Plan
 import app.befos.domain.model.Profile
 import app.befos.domain.model.ProfileUpdateData
 import app.befos.domain.model.PublicProfile
@@ -81,6 +82,33 @@ interface MatchRepository {
 
     /** Agree to the hour the other half named, sending back exactly the instant that was read. */
     suspend fun acceptMeetingTime(matchId: String, activityId: Int, whenIso: String): ApiResult<Unit>
+}
+
+/**
+ * The pair's arrangements, read and moved through the plan's own routes.
+ *
+ * Every call names the plan by its id and nothing else: who is asking, and whether that person is
+ * one of the two the plan belongs to, is answered by the session on the server. A method here takes
+ * no user id and sends none, so no screen can be talked into acting for somebody else.
+ */
+interface PlanRepository {
+    suspend fun plans(matchId: String): ApiResult<List<Plan>>
+
+    /** Stand behind the idea — the same write as the tap on the pair's card, from another door. */
+    suspend fun accept(planId: String): ApiResult<Unit>
+    suspend fun decline(planId: String): ApiResult<Unit>
+    suspend fun restoreDecline(planId: String): ApiResult<Unit>
+
+    /** Name — or move — this person's hour, and agree to the one the other half named. */
+    suspend fun offerHour(planId: String, whenIso: String): ApiResult<Unit>
+    suspend fun confirmHour(planId: String, whenIso: String): ApiResult<Unit>
+
+    suspend fun cancel(planId: String): ApiResult<Unit>
+    suspend fun restore(planId: String): ApiResult<Unit>
+
+    /** This person's own word that the meeting happened; the plan is «состоялось» only for both. */
+    suspend fun markAttended(planId: String): ApiResult<Unit>
+    suspend fun undoAttended(planId: String): ApiResult<Unit>
 }
 
 interface ChatRepository {
