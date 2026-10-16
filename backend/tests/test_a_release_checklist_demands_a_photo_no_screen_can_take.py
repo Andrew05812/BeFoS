@@ -4,12 +4,18 @@
 чат (WebSocket работает именно с `wss://`-адресом), загрузка фото». Measured on this tree the last
 of the five cannot be performed at all: ``uploadPhoto`` is declared in three client files
 (``ApiService.kt``, ``ProfileRepositoryImpl.kt``, ``Repositories.kt``) and has no caller anywhere
-under ``presentation/``; ``android/app/src/main`` contains no picker, no launcher and no camera API
-(``GetContent``, ``PickVisualMedia``, ``ActivityResultContracts``,
-``rememberLauncherForActivityResult``, ``TakePicture``, ``MediaStore``, ``CameraX``, ``ImageReader``
-— zero hits each), and ``AndroidManifest.xml`` declares only ``INTERNET`` and
-``ACCESS_NETWORK_STATE`` (probe ``s72_d8_photo_unreachable_v2.txt``, 21:44:10…21:44:12 UTC, tree
-``217d3a8``). So the checklist demanded a check nobody could reproduce: an operator who ticked it
+under ``presentation/``, and ``android/app/src/main`` touches no file picker and no camera API
+(``GetContent``, ``PickVisualMedia``, ``TakePicture``, ``MediaStore``, ``CameraX``,
+``ImageReader`` — zero hits each) and declares no camera or storage permission
+(probe ``s72_d8_photo_unreachable_v2.txt``, 21:44:10…21:44:12 UTC, tree ``217d3a8``).
+
+The probe of that tree listed nine names; the six above are what a photograph needs. The two generic
+ones it also counted — ``ActivityResultContracts`` and ``rememberLauncherForActivityResult`` — carry
+no picture: since stage 95 the plans page launches one of them to ask the system for
+``POST_NOTIFICATIONS``, the third permission the manifest declares alongside ``INTERNET`` and
+``ACCESS_NETWORK_STATE``. A guard that called those two names photo APIs would have gone red on a
+reminder, which is not a camera, so the lists below were cut to the APIs whose presence would actually
+mean a screen can pick or shoot an image. So the checklist demanded a check nobody could reproduce: an operator who ticked it
 either ticked a lie or had to stop and guess what the document meant.
 
 The route beside it is alive and covered — ``POST /users/me/photo`` is declared in
@@ -39,11 +45,11 @@ _README = _ROOT / "README.md"
 
 # Every API this app would have to touch to let a person choose or shoot a picture. A screen that
 # adds upload without one of them cannot exist, so the list is the client-side half of the fact.
+# The generic activity-result launcher is deliberately absent: it is how this app asks the system for
+# a permission too, and its presence says nothing about photographs.
 _PICKER_APIS = (
     "GetContent",
     "PickVisualMedia",
-    "ActivityResultContracts",
-    "rememberLauncherForActivityResult",
     "TakePicture",
     "MediaStore",
     "CameraX",
@@ -154,9 +160,16 @@ def test_the_client_cannot_reach_the_photo_upload_itself():
     )
     reached = {api: count for api, count in _picker_hits().items() if count}
     assert not reached, f"a picker or camera API appeared in the client: {reached}"
-    assert _manifest_permissions() == {"INTERNET", "ACCESS_NETWORK_STATE"}, (
-        "the APK gained a permission; the claim that no photo can be taken from a device "
-        f"has to be re-read: {sorted(_manifest_permissions())}"
+    # A photograph arrives through a picker or a camera, never through a permission, so the set below
+    # is read as「no photo API is reachable」rather than as «the app holds no third permission»: the
+    # third one is the plans page asking to remind the pair about an hour (stage 95).
+    assert _manifest_permissions() == {
+        "INTERNET",
+        "ACCESS_NETWORK_STATE",
+        "POST_NOTIFICATIONS",
+    }, (
+        "the APK gained a permission outside the three this tree explains; the claim that no photo can "
+        f"be taken from a device has to be re-read: {sorted(_manifest_permissions())}"
     )
 
 
