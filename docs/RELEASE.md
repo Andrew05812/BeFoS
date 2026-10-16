@@ -185,8 +185,8 @@ Signer #1 certificate SHA-256 digest: 8e979e69b90e36386bfa64e547e13d0186e2419011
       экран профиля и публичный профиль читают список `photoUrls`, где аватар шапки — его первый
       элемент; порядок, в котором этот список отдаётся, описан в `docs/API.md` (раздел «Фото»).
 - [ ] Загрузки своего снимка в этом списке нет не по недосмотру: проверить её на устройстве нечем.
-      У собранного клиентского пути к `POST /users/me/photo` (`ApiService.kt:118`,
-      `ProfileRepositoryImpl.kt:26-27`, `Repositories.kt:48`) нет ни одного вызова из
+      У собранного клиентского пути к `POST /users/me/photo` (`ApiService.kt:119`,
+      `ProfileRepositoryImpl.kt:26-27`, `Repositories.kt:49`) нет ни одного вызова из
       `presentation/` — ноль мест, — и в `android/app/src/main` нет ни одного выборщика файла или
       камеры (`GetContent`, `PickVisualMedia`, `ActivityResultContracts`,
       `rememberLauncherForActivityResult`, `TakePicture`, `MediaStore`, `CameraX`, `ImageReader` —
