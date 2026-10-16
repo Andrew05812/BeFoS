@@ -19,6 +19,7 @@ import app.befos.presentation.universe.UniverseScreen
 import app.befos.presentation.editprofile.EditProfileScreen
 import app.befos.presentation.main.MainScreen
 import app.befos.presentation.onboarding.OnboardingScreen
+import app.befos.presentation.plans.PlansScreen
 import app.befos.presentation.profile.MyProfileScreen
 import app.befos.presentation.publicprofile.PublicProfileScreen
 import app.befos.presentation.recommendations.RecommendationsScreen
@@ -203,10 +204,18 @@ fun BeFosNavHost(navController: NavHostController) {
                 onBack = { navController.popBackStack() },
                 onOpenCompatibility = { navController.navigate(Routes.compatibility(matchId)) { launchSingleTop = true } },
                 onOpenRecommendations = { navController.navigate(Routes.recommendations(matchId)) { launchSingleTop = true } },
-                // A plan line names the idea it was about, and the pair tapping it wants that card,
-                // not the top of the list; an unknown idea still opens the page rather than dying.
-                onOpenPlan = { activityId ->
-                    navController.navigate(Routes.recommendations(matchId, activityId)) { launchSingleTop = true }
+                onOpenPlans = { navController.navigate(Routes.plans(matchId)) { launchSingleTop = true } },
+                // A plan line names the plan it was written about, and the pair tapping it wants that
+                // row on the page that holds the pair's plans. A line that carries no plan id — one
+                // the server wrote before the id existed — still leads somewhere: the pair's ideas.
+                onOpenPlan = { planId, activityId ->
+                    navController.navigate(
+                        if (planId != null) {
+                            Routes.plans(matchId, planId)
+                        } else {
+                            Routes.recommendations(matchId, activityId)
+                        },
+                    ) { launchSingleTop = true }
                 },
                 // Keyed by the pair, not by the person: the card of a partner who pressed
                 // «Скрыть из подбора» answers here and 404s on the deck route.
@@ -295,6 +304,26 @@ fun BeFosNavHost(navController: NavHostController) {
                 // `getInt`: an absent optional int answers 0 to the latter, and 0 is a row the page
                 // would go looking for.
                 focusActivityId = entry.arguments?.get(Routes.ACTIVITY_ARG) as? Int,
+                onBack = { navController.popBackStack() },
+            )
+        }
+
+        composable(
+            route = Routes.PLANS,
+            arguments = listOf(
+                navArgument(Routes.CHAT_ARG) { type = NavType.StringType },
+                navArgument(Routes.PLAN_ARG) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+            ),
+        ) { entry ->
+            PlansScreen(
+                matchId = entry.arguments?.getString(Routes.CHAT_ARG).orEmpty(),
+                // The plan a chat line named, or null when the page was opened from the top bar and
+                // has nothing to bring into view.
+                focusPlanId = entry.arguments?.getString(Routes.PLAN_ARG),
                 onBack = { navController.popBackStack() },
             )
         }

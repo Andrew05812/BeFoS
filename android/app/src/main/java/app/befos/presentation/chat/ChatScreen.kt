@@ -31,6 +31,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.CircularProgressIndicator
@@ -91,7 +92,10 @@ fun ChatScreen(
     onBack: () -> Unit,
     onOpenCompatibility: () -> Unit,
     onOpenRecommendations: () -> Unit,
-    onOpenPlan: (Int?) -> Unit,
+    onOpenPlans: () -> Unit,
+    // Where a plan line leads: the plan id the line names, and the idea it was about as the way out
+    // for a line written before the id existed.
+    onOpenPlan: (String?, Int?) -> Unit,
     onOpenPartnerCard: () -> Unit,
 ) {
     val vm: ChatViewModel = beFosViewModel {
@@ -134,6 +138,12 @@ fun ChatScreen(
                     }
                     IconButton(onClick = onOpenRecommendations) {
                         Icon(Icons.Filled.AutoAwesome, contentDescription = "Идеи для встречи")
+                    }
+                    // The arrangement the pair has already landed on is not an idea still being
+                    // looked for: the thread writes a line per move, and this is the page that holds
+                    // the plan those lines are about.
+                    IconButton(onClick = onOpenPlans) {
+                        Icon(Icons.Filled.Event, contentDescription = "Наши планы")
                     }
                 },
             )
@@ -245,7 +255,7 @@ fun ChatScreen(
                             Column(modifier = Modifier.padding(top = if (continues) Spacing.xs else Spacing.lg)) {
                                 if (message.isPlanEvent) {
                                     val ui = planCardUi(message, state.partnerName)
-                                    PlanEventCard(ui = ui, onClick = { onOpenPlan(ui.activityId) })
+                                    PlanEventCard(ui = ui, onClick = { onOpenPlan(ui.planId, ui.activityId) })
                                 } else {
                                     MessageBubble(
                                         body = message.body,
@@ -315,6 +325,10 @@ internal data class PlanCardUi(
     val moment: String?,
     val status: String,
     val who: String,
+    // The plan this line was written about, or null for a line the server wrote before plans had
+    // their own rows. A pair can talk the same idea over more than once, so the idea alone does not
+    // answer which plan the tap asked about — and a line without an id still leads somewhere.
+    val planId: String?,
     // The idea the card leads to, or null when the line lost it: the tap still opens the pair's
     // ideas, just without a card to bring into view.
     val activityId: Int?,
@@ -436,6 +450,7 @@ internal fun planCardUi(
             else -> words.current
         },
         who = "Вы и ${partnerName ?: "собеседник"}",
+        planId = plan?.planId,
         activityId = plan?.activityId,
         standing = latest && !passed && words.holdsAgreedHour,
     )
@@ -527,7 +542,10 @@ private fun PlanEventCard(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Text(
-            text = "Открыть идеи пары",
+            // The line's own plan when it names one, the pair's ideas when it does not: a card that
+            // promised one destination and opened the other would leave the reader to find the plan
+            // they tapped among a list of suggestions.
+            text = if (ui.planId != null) "Открыть план пары" else "Открыть идеи пары",
             style = MaterialTheme.typography.labelMedium,
             color = accent,
         )

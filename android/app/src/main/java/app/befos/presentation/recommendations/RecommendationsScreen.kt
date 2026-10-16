@@ -24,7 +24,6 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Schedule
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -39,16 +38,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.befos.core.designsystem.AppButton
 import app.befos.core.designsystem.AppButtonVariant
 import app.befos.core.designsystem.AppCard
 import app.befos.core.designsystem.AppTopBar
-import app.befos.core.designsystem.EmberDeep
-import app.befos.core.designsystem.EmberSoft
+import app.befos.core.designsystem.ChoiceChip
 import app.befos.core.designsystem.Elev
 import app.befos.core.designsystem.EmptyState
 import app.befos.core.designsystem.ErrorState
@@ -369,9 +365,6 @@ private fun RecommendationCard(
                         "Идея осталась в чате, но вы её отклонили".takeIf { selected }
                             ?: "Вы отклонили эту идею",
                         Icons.Filled.Close,
-                        MaterialTheme.colorScheme.surfaceVariant,
-                        MaterialTheme.colorScheme.onSurfaceVariant,
-                        MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     onRestore?.let { action ->
                         AppButton(
@@ -385,9 +378,7 @@ private fun RecommendationCard(
                 selected -> ChoiceChip(
                     "Эту идею выбрали вы оба".takeIf { rec.partnerSelected } ?: "Отправлено в чат",
                     Icons.Filled.CheckCircle,
-                    EmberSoft,
-                    EmberDeep,
-                    MaterialTheme.colorScheme.primary,
+                    selected = true,
                 )
                 else -> {
                     if (rec.partnerSelected) {
@@ -396,9 +387,6 @@ private fun RecommendationCard(
                         ChoiceChip(
                             "Её уже предложил партнёр",
                             Icons.AutoMirrored.Filled.Send,
-                            MaterialTheme.colorScheme.surfaceVariant,
-                            MaterialTheme.colorScheme.onSurfaceVariant,
-                            MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     AppButton(
@@ -493,9 +481,7 @@ private fun MeetingTimeSection(
             ChoiceChip(
                 planChipText(plan, now),
                 if (planPassed) Icons.Filled.Schedule else Icons.Filled.CheckCircle,
-                if (planPassed) MaterialTheme.colorScheme.surfaceVariant else EmberSoft,
-                if (planPassed) MaterialTheme.colorScheme.onSurfaceVariant else EmberDeep,
-                if (planPassed) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
+                selected = !planPassed,
             )
         }
         // An hour the pair still stands on closes the rest of the row: an offer beside a live plan
@@ -507,9 +493,6 @@ private fun MeetingTimeSection(
                 ChoiceChip(
                     "Партнёр предлагает: ${formatMeetingInstant(partnerOffer, now)}",
                     Icons.AutoMirrored.Filled.Send,
-                    MaterialTheme.colorScheme.surfaceVariant,
-                    MaterialTheme.colorScheme.onSurfaceVariant,
-                    MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 if (canAgree) {
                     // The instant goes back exactly as this card read it, so an offer the partner has
@@ -535,9 +518,6 @@ private fun MeetingTimeSection(
                 ChoiceChip(
                     "Вы предложили: ${formatMeetingInstant(mine, now)}",
                     Icons.Filled.Schedule,
-                    MaterialTheme.colorScheme.surfaceVariant,
-                    MaterialTheme.colorScheme.onSurfaceVariant,
-                    MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             if (canOffer) {
@@ -597,31 +577,5 @@ private fun MeetingTimeSection(
             // reason to doubt another one's plan.
             InlineNotice(text = failure)
         }
-    }
-}
-
-@Composable
-private fun ChoiceChip(
-    text: String,
-    icon: ImageVector,
-    surface: Color,
-    content: Color,
-    tint: Color,
-) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
-        modifier = Modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(surface)
-            .padding(horizontal = Spacing.md, vertical = Spacing.sm),
-    ) {
-        Icon(icon, contentDescription = null, tint = tint)
-        Text(
-            text,
-            color = content,
-            fontWeight = FontWeight.SemiBold,
-            style = MaterialTheme.typography.bodyMedium,
-        )
     }
 }
