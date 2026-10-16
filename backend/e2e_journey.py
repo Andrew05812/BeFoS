@@ -174,6 +174,10 @@ def agreed_hour_reaches_the_chat(match_id: str, tok_a: str, tok_b: str, activity
     from both histories: a proposal that speaks too early, an agreement that arrives twice, a promise
     that moved without the chat being told about it, and an old hour that keeps posing as current all
     fail here rather than on a phone.
+
+    The last two checks ask the question the plan entity exists to answer: the line in the chat and
+    the row in each half's list of plans have to be the same arrangement, named by the same id. Two
+    screens that each kept their own copy of a pair's plan would pass every check above.
     """
     ha = {"Authorization": f"Bearer {tok_a}"}
     hb = {"Authorization": f"Bearer {tok_b}"}
@@ -189,10 +193,15 @@ def agreed_hour_reaches_the_chat(match_id: str, tok_a: str, tok_b: str, activity
         uri_b = f"{WS_BASE}/ws/chat/{match_id}?token={tok_b}"
         async with websockets.connect(uri_b, open_timeout=5) as ws_b:
             b = Peer(ws_b)
+            opened = plan_lines(ha)
+            check([m["kind"] for m in opened] == ["plan_proposed"],
+                  "A putting the idea to the pair is said in the conversation", str(opened)[:140])
+
             proposed = await asyncio.to_thread(c.put, time_url, headers=ha, json={"when": first})
             check(proposed.status_code == 204, "A names an hour for the card", str(proposed.status_code))
             lines = plan_lines(ha)
-            check(await b.nothing("message", 1.0) and not lines,
+            check(await b.nothing("message", 1.0)
+                  and [m["id"] for m in lines] == [m["id"] for m in opened],
                   "one half naming an hour says nothing in the conversation yet", str(lines)[:140])
 
             agreed = await asyncio.to_thread(c.post, accept_url, headers=hb, json={"when": first})
@@ -203,15 +212,18 @@ def agreed_hour_reaches_the_chat(match_id: str, tok_a: str, tok_b: str, activity
                   "an open chat hears the agreement without a reload", str(frame)[:140])
 
             lines_a, lines_b = plan_lines(ha), plan_lines(hb)
-            check(len(lines_a) == 1 and len(lines_b) == 1 and lines_a[0]["id"] == lines_b[0]["id"],
-                  "both screens read the same one agreement line", f"{len(lines_a)}/{len(lines_b)}")
-            plan = lines_a[0]["plan"]
+            check([m["kind"] for m in lines_a] == ["plan_proposed", "plan_agreed"]
+                  and [m["kind"] for m in lines_b] == ["plan_proposed", "plan_agreed"]
+                  and lines_a[-1]["id"] == lines_b[-1]["id"],
+                  "both screens read the same one agreement line",
+                  f"{[m['kind'] for m in lines_a]}")
+            plan = lines_a[-1]["plan"]
             check(plan.get("activity_title") == title and "19:00" in str(plan.get("when"))
-                  and "UTC" in lines_a[0]["body"],
+                  and "UTC" in lines_a[-1]["body"],
                   "the line names the idea, the hour and the clock it is named in", str(plan)[:140])
 
             retapped = await asyncio.to_thread(c.post, accept_url, headers=hb, json={"when": first})
-            check(retapped.status_code == 204 and len(plan_lines(ha)) == 1,
+            check(retapped.status_code == 204 and len(plan_lines(ha)) == 2,
                   "a second agreement on the same hour says nothing twice", str(len(plan_lines(ha))))
 
             moved_up = await asyncio.to_thread(c.put, time_url, headers=ha, json={"when": moved})
@@ -219,6 +231,10 @@ def agreed_hour_reaches_the_chat(match_id: str, tok_a: str, tok_b: str, activity
             ended = await b.next("message", 3.0)
             check(ended is not None and ended.get("kind") == "plan_voided",
                   "the chat is told the promise ended", str(ended)[:140])
+            asked = await b.next("message", 3.0)
+            check(asked is not None and asked.get("kind") == "plan_rescheduled"
+                  and "21:00" in str((asked.get("plan") or {}).get("when")),
+                  "the moved hour is said as a question the other half answers", str(asked)[:140])
 
             landing = await asyncio.to_thread(c.post, accept_url, headers=hb, json={"when": moved})
             check(landing.status_code == 204, "B agrees to the moved hour", str(landing.status_code))
@@ -228,6 +244,23 @@ def agreed_hour_reaches_the_chat(match_id: str, tok_a: str, tok_b: str, activity
                   and "21:00" in str(newest[0]["plan"]["when"])
                   and all(m["plan"]["is_latest"] is False for m in lines_a if m is not newest[0]),
                   "the hour they moved off stops posing as current", str(newest)[:140])
+
+            # The chat, the card and the pair's list of plans are three screens over one arrangement,
+            # so the line the chat carries has to name the plan the list answers with.
+            listed = await asyncio.to_thread(
+                c.get, f"{BASE}/matches/{match_id}/plans", headers=ha)
+            plans = listed.json().get("plans", []) if listed.status_code == 200 else []
+            check(listed.status_code == 200 and len(plans) == 1
+                  and plans[0]["id"] == newest[0]["plan"]["plan_id"]
+                  and plans[0]["status"] == "planned"
+                  and "21:00" in str(plans[0]["starts_at"]),
+                  "the arrangement the chat names is the arrangement the plan list carries",
+                  str(plans)[:160])
+            mine = await asyncio.to_thread(c.get, f"{BASE}/plans", headers=hb)
+            check(mine.status_code == 200
+                  and [p["id"] for p in mine.json().get("plans", [])] == [plans[0]["id"]],
+                  "the other half's screen of plans reaches the same one plan",
+                  str(mine.json())[:160])
 
     try:
         asyncio.run(drive())
