@@ -3,6 +3,10 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- The pair's hour is reminded by this device, on this device: no messaging service is
+         contacted and no key is held, so the only permission asked for is the right to show the
+         notice the person already agreed to by arranging the hour. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:name=".BeFoSApplication"
@@ -26,6 +30,11 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- The alarm the pair's hour sets wakes this receiver; nothing outside the app may ask it to. -->
+        <receiver
+            android:name=".core.notifications.PlanReminderReceiver"
+            android:exported="false" />
     </application>
 
 </manifest>
