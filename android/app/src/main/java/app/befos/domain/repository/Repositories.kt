@@ -94,6 +94,14 @@ interface MatchRepository {
 interface PlanRepository {
     suspend fun plans(matchId: String): ApiResult<List<Plan>>
 
+    /**
+     * One plan by its own id, for the device that holds an alarm about it rather than a page of it.
+     *
+     * A reminder is armed by the plans page and spoken much later, and the pair can move that hour in
+     * between; this is the read the waking device compares its own sentence against.
+     */
+    suspend fun plan(planId: String): ApiResult<Plan>
+
     /** Stand behind the idea — the same write as the tap on the pair's card, from another door. */
     suspend fun accept(planId: String): ApiResult<Unit>
     suspend fun decline(planId: String): ApiResult<Unit>

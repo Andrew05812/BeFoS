@@ -12,6 +12,9 @@ class PlanRepositoryImpl(private val api: ApiService) : PlanRepository {
     override suspend fun plans(matchId: String): ApiResult<List<Plan>> =
         api.getMatchPlans(matchId).map { dto -> dto.plans.map { it.toDomain() } }
 
+    override suspend fun plan(planId: String): ApiResult<Plan> =
+        api.getPlan(planId).map { dto -> dto.plan.toDomain() }
+
     override suspend fun accept(planId: String): ApiResult<Unit> = api.acceptPlan(planId)
 
     override suspend fun decline(planId: String): ApiResult<Unit> = api.declinePlan(planId)

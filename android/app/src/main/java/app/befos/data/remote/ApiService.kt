@@ -20,6 +20,7 @@ import app.befos.data.model.MessagePageDto
 import app.befos.data.model.MessageRequest
 import app.befos.data.model.OnboardingRequest
 import app.befos.data.model.PassResponseDto
+import app.befos.data.model.PlanDetailDto
 import app.befos.data.model.PlanListDto
 import app.befos.data.model.ProfileDto
 import app.befos.data.model.ProfileUpdateRequest
@@ -316,6 +317,19 @@ class ApiService(private val client: HttpClient) {
         client.apiCall {
             method = HttpMethod.Get
             url(endpoint("matches/$matchId/plans"))
+        }
+
+    /**
+     * One plan by itself, for the device that holds an alarm about it and no pair page in front of it.
+     *
+     * The reminder was armed by a page the person has probably left, and the pair's hour can move
+     * behind that page; this read is what the waking device has to compare its own sentence against.
+     * Only the plan is asked for, never a person id, so the session still decides whose plan this is.
+     */
+    suspend fun getPlan(planId: String): ApiResult<PlanDetailDto> =
+        client.apiCall {
+            method = HttpMethod.Get
+            url(endpoint("plans/$planId"))
         }
 
     /** Stand behind the idea the plan is about — the same act as tapping «выбрать» on the card. */
