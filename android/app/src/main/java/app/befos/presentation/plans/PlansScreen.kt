@@ -1,5 +1,8 @@
 package app.befos.presentation.plans
 
+import android.Manifest
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -36,6 +39,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.befos.core.designsystem.AppButton
@@ -51,6 +55,7 @@ import app.befos.core.designsystem.InterestChip
 import app.befos.core.designsystem.ListSkeleton
 import app.befos.core.designsystem.Spacing
 import app.befos.core.di.beFosViewModel
+import app.befos.core.notifications.PlanReminders
 import app.befos.domain.model.Plan
 import app.befos.domain.model.PlanDecisions
 import app.befos.domain.model.PlanStatuses
@@ -86,16 +91,40 @@ fun PlansScreen(
     val state by vm.uiState.collectAsState()
     val sections = remember(state.plans) { planSections(state.plans) }
     val listState = rememberLazyListState()
+    val context = LocalContext.current
+    // The clock is read once for the visit, not once per recomposition: a card whose hour row
+    // recomputed itself mid-glance could drop a chip under the finger already aiming at it. The same
+    // single reading is what the alarms below are set against, so a card and its reminder cannot
+    // disagree about whether the hour is still ahead.
+    val now = remember { ZonedDateTime.now() }
+    // Whether a notice this app posts can reach the person is the device's answer, not this copy's, so
+    // it is re-read from the system: on the visit, after every re-read of the list, and after the
+    // permission screen hands its result back.
+    var canPost by remember { mutableStateOf(PlanReminders.canPost(context)) }
+    val askToPost = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        canPost = PlanReminders.canPost(context)
+    }
+    // An hour both halves stand on is a plan this device has promised to call. A page that holds one
+    // and cannot say it out loud names the missing permission rather than letting the person assume
+    // the reminder is set; a page with no hour to call has nothing to apologise for.
+    val reminderBlocked = !canPost && state.plans.any { reminderFor(it, now) != null }
     // A refused refresh that leaves the cards standing costs its own row over the list, so the row a
     // tap from the chat leads to is counted from the same flags the list reads.
-    val headerRows = 1 + (if (state.error != null) 1 else 0) + (if (state.outdated != null) 1 else 0)
+    val headerRows = 1 +
+        (if (state.error != null) 1 else 0) +
+        (if (state.outdated != null) 1 else 0) +
+        (if (reminderBlocked) 1 else 0)
     val focusRow = focusPlanId?.let { planFocusRow(it, sections, headerRows) }
     LaunchedEffect(focusRow, state.loading) {
         if (!state.loading && focusRow != null) listState.scrollToItem(focusRow)
     }
-    // The clock is read once for the visit, not once per recomposition: a card whose hour row
-    // recomputed itself mid-glance could drop a chip under the finger already aiming at it.
-    val now = remember { ZonedDateTime.now() }
+    // The pair's hours are put on the device's clock whenever this page reads them: a moved hour
+    // replaces its own alarm, and a plan that stopped being an agreement loses it. This is the whole
+    // delivery — the app holds no key for a messaging service and the reminder comes from this phone.
+    LaunchedEffect(state.plans) {
+        PlanReminders.sync(context, state.plans, now)
+        canPost = PlanReminders.canPost(context)
+    }
 
     Scaffold(
         topBar = { AppTopBar(title = "Наши планы", onBack = onBack) },
@@ -148,6 +177,19 @@ fun PlansScreen(
                         // new one. The cards below stay, because they are what the pair last saw the
                         // server agree on — but they are named as that, rather than as the plan now.
                         InlineNotice(text = word, actionLabel = "Перечитать", onAction = vm::load)
+                    }
+                }
+                if (reminderBlocked) {
+                    item {
+                        // Not an error: nothing failed. The row says what the device will not do until
+                        // the person allows it, and the one tap that settles it is the system's own
+                        // permission screen.
+                        InlineNotice(
+                            text = REMINDER_NEEDS_PERMISSION_WORD,
+                            isError = false,
+                            actionLabel = "Разрешить",
+                            onAction = { askToPost.launch(Manifest.permission.POST_NOTIFICATIONS) },
+                        )
                     }
                 }
                 item {
