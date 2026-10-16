@@ -78,9 +78,10 @@ const val REMINDER_NEEDS_PERMISSION_WORD = "Напоминание о часе �
 /**
  * What the device learned about the plan its alarm carries, at the moment the alarm woke it.
  *
- * The plans page is the only place that re-reads a pair's hours, and a person who agreed an evening in
- * the chat and never opened that page left the armed sentence behind them: the other half can move the
- * hour, call the plan off or let it pass while this device still holds a notice about the old one.
+ * An hour is written onto the clock by the plans page and spoken a day or two later, when the app may be
+ * nowhere near that page and nobody has opened it since. The other half can move the evening, call it
+ * off or let it pass in the meantime, and this device would still hold a notice about the hour the pair
+ * no longer stands on.
  */
 sealed interface PlanReading {
     /** The server answered for this plan, and the answer is the plan as the pair stands on it now. */
@@ -100,6 +101,16 @@ sealed interface PlanReading {
 sealed interface ReminderDelivery {
     data class Speak(val title: String, val text: String) : ReminderDelivery
 
+    /**
+     * This plan's own hour goes back onto the device's clock, and nothing is said about the old one.
+     *
+     * The alarm that woke the device was armed for an hour the pair no longer stands on, and the plans
+     * page is not open to put the new one on. Without this case the moved evening would arrive as
+     * nothing at all: the person loses the old hour to a correct silence and the new hour to a clock
+     * nobody re-armed.
+     */
+    data class Rearm(val plan: Plan) : ReminderDelivery
+
     /** No notice at all: the hour this alarm was armed for is not the hour the pair stands on. */
     data object Silent : ReminderDelivery
 }
@@ -112,14 +123,20 @@ const val REMINDER_NOT_VERIFIED_SUFFIX = "; этот час не удалось 
 /**
  * The sentence an armed alarm is allowed to speak, read against what the plan says now.
  *
- * Silence is the answer whenever the plan is known and no longer stands on the armed hour — a reminder
- * about an evening the pair moved or called off is exactly the old news a person would receive as
- * current, and their plans page is where the truth already sits. An unreadable plan is the one case
- * that speaks on its own risk: the hour was real when it was written down, and a person standing on a
- * threshold because the network was gone deserves the notice with its doubt named more than a silent
- * phone. The two hours are compared as moments rather than as the characters the server happened to
- * write them in, because a sentence this device cannot place on a timeline is no more allowed to speak
- * over a live hour than a moved one is.
+ * A plan the device can see and that still owes a call is answered in one of two ways, and which one it
+ * is comes down to a single comparison: the hour this alarm carries against the hour the pair stands on.
+ * The same moment spoken in the plan's own words ends the alarm's life; a different one says nothing
+ * about the evening nobody is standing at and puts the live hour back on the clock instead, because a
+ * silence here would be the person losing both hours at once — the old one to a correct quiet and the
+ * new one to an armed alarm that was never moved with it.
+ *
+ * Silence is the answer when the plan is known and owes no hour at all — a meeting the pair called off,
+ * kept or let pass. An unreadable plan is the one case that speaks on its own risk: the hour was real
+ * when it was written down, and a person standing on a threshold because the network was gone deserves
+ * the notice with its doubt named more than a silent phone. Nothing is armed across that gap, because an
+ * hour nobody confirmed is not a moment to wake a device for. The two hours are compared as moments
+ * rather than as the characters the server happened to write them in, because a sentence this device
+ * cannot place on a timeline is no more allowed to speak over a live hour than a moved one is.
  */
 fun deliveryFor(armed: PlanReminder, reading: PlanReading, now: ZonedDateTime): ReminderDelivery =
     when (reading) {
@@ -134,7 +151,7 @@ private fun readDelivery(armed: PlanReminder, plan: Plan, now: ZonedDateTime): R
     val armedHour = armed.agreedHourIso.toInstantOrNull() ?: return unverifiedDelivery(armed)
     return if (armedHour == current.agreedHourIso.toInstantOrNull())
         ReminderDelivery.Speak(current.title, current.text)
-    else ReminderDelivery.Silent
+    else ReminderDelivery.Rearm(plan)
 }
 
 /** The hour was real when it was written down; the device says it and names that nothing confirmed it. */
