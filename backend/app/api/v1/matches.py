@@ -197,8 +197,17 @@ async def select_recommendation(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
+    """Put an idea to the pair. The card's tap and the plan's confirmation are one verb, so the
+    pair's chat gets the same proposal card from either door.
+
+    The line arrives as a frame rather than as a sentence the app types into the message field: a
+    typed bubble carries no plan id, so the other half could not tap it to open the arrangement it
+    records.
+    """
     service = RecommendationService(session)
-    await service.mark_selected(match_id, current_user.id, activity_id)
+    events = await service.mark_selected(match_id, current_user.id, activity_id)
+    for event in events:
+        await manager.broadcast_to_match(match_id, message_frame(event))
     return None
 
 
@@ -209,14 +218,18 @@ async def decline_recommendation(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
-    """Push one idea out of the page of the person asking. Nothing goes into the chat.
+    """Push one idea out of the page of the person asking.
 
     Named by two routes rather than by a flag on the select route because the two taps mean
-    opposite things to the pair: one puts a message in front of the other half, the other edits
-    only this person's own list.
+    opposite things to the pair. What the push says out loud depends on whose idea it was: a card
+    this person never took up is an edit of their own list and stays private, while pushing away
+    an idea the other half put to the pair is an answer to them, and the answer goes into their
+    chat as a line about that plan.
     """
     service = RecommendationService(session)
-    await service.set_declined(match_id, current_user.id, activity_id, True)
+    events = await service.set_declined(match_id, current_user.id, activity_id, True)
+    for event in events:
+        await manager.broadcast_to_match(match_id, message_frame(event))
     return None
 
 
@@ -227,9 +240,15 @@ async def restore_recommendation(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
-    """Take a refusal back, which puts the card where this person's page shows it again."""
+    """Take a refusal back, which puts the card where this person's page shows it again.
+
+    The pair's chat hears about it when the refusal it undid was an answer they had received: an
+    idea they were told about and then told no comes back with a line of its own.
+    """
     service = RecommendationService(session)
-    await service.set_declined(match_id, current_user.id, activity_id, False)
+    events = await service.set_declined(match_id, current_user.id, activity_id, False)
+    for event in events:
+        await manager.broadcast_to_match(match_id, message_frame(event))
     return None
 
 

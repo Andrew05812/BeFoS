@@ -110,8 +110,9 @@ class ChatRepository:
         *,
         kind: str,
         activity_id: int,
-        when: datetime,
+        when: datetime | None,
         body: str,
+        plan_id: uuid.UUID | None = None,
     ) -> Message:
         """Write what the pair's plan did, as itself rather than as a sentence somebody typed.
 
@@ -123,6 +124,11 @@ class ChatRepository:
         The caller holds the pair lock and commits in its own transaction, which is what makes the
         plan and its record one fact: an hour that did not land cannot leave an event behind, and
         an event that landed cannot describe an hour the database does not hold.
+
+        `plan_id` is the arrangement the line is about, and it is what lets a card in the chat open
+        the plan it records. A line written by a door that has no plan row yet — the hour of a pair
+        whose plan this build has not materialised — still reads correctly on its own, so the field
+        is optional rather than a refusal.
         """
         msg = Message(
             match_id=match_id,
@@ -131,6 +137,7 @@ class ChatRepository:
             kind=kind,
             plan_activity_id=activity_id,
             plan_when=when,
+            plan_id=plan_id,
         )
         self.session.add(msg)
         await self.session.flush()
