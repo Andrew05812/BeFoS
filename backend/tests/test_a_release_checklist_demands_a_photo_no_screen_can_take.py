@@ -1,33 +1,29 @@
-"""A release checklist asked for a device check of a photograph the app cannot take.
+"""A release checklist once asked for a device check of a photograph the app could not take.
 
 ``docs/RELEASE.md`` §8 told the operator to verify on a device «вход, онбординг, подбор, пара,
-чат (WebSocket работает именно с `wss://`-адресом), загрузка фото». Measured on this tree the last
-of the five cannot be performed at all: ``uploadPhoto`` is declared in three client files
-(``ApiService.kt``, ``ProfileRepositoryImpl.kt``, ``Repositories.kt``) and has no caller anywhere
-under ``presentation/``, and ``android/app/src/main`` touches no file picker and no camera API
+чат (WebSocket работает именно с `wss://`-адресом), загрузка фото». Measured on that tree the last
+of the five could not be performed at all: ``uploadPhoto`` was declared in three client files
+(``ApiService.kt``, ``ProfileRepositoryImpl.kt``, ``Repositories.kt``) and had no caller anywhere
+under ``presentation/``, and ``android/app/src/main`` touched no file picker and no camera API
 (``GetContent``, ``PickVisualMedia``, ``TakePicture``, ``MediaStore``, ``CameraX``,
-``ImageReader`` — zero hits each) and declares no camera or storage permission
+``ImageReader`` — zero hits each) and declared no camera or storage permission
 (probe ``s72_d8_photo_unreachable_v2.txt``, 21:44:10…21:44:12 UTC, tree ``217d3a8``).
 
-The probe of that tree listed nine names; the six above are what a photograph needs. The two generic
-ones it also counted — ``ActivityResultContracts`` and ``rememberLauncherForActivityResult`` — carry
-no picture: since stage 95 the plans page launches one of them to ask the system for
-``POST_NOTIFICATIONS``, the third permission the manifest declares alongside ``INTERNET`` and
-``ACCESS_NETWORK_STATE``. A guard that called those two names photo APIs would have gone red on a
-reminder, which is not a camera, so the lists below were cut to the APIs whose presence would actually
-mean a screen can pick or shoot an image. So the checklist demanded a check nobody could reproduce: an operator who ticked it
-either ticked a lie or had to stop and guess what the document meant.
+Stage 99 closed that gap: the profile tab now opens the system's picture chooser
+(``ActivityResultContracts.PickVisualMedia``, declared in
+``presentation/profile/ProfileScreen.kt``), sends what came back through the route that was already
+there, and paints the answer. The checklist item this file was written to police is therefore a
+check an operator can actually perform, and the checks below turned to hold the new shape: that the
+client really reaches the upload from a screen, that it still holds no camera and asked for no new
+permission to get a picture, that §8 asks for the device check exactly when the client can perform
+it, that the citations §8 and ``README.md`` use still name the symbols they are cited for, and that
+the two halves of one refusal — the formats the server re-encodes, the formats the client is willing
+to send — have not drifted apart.
 
-The route beside it is alive and covered — ``POST /users/me/photo`` is declared in
-``app/api/v1/users.py`` and called from three backend test files — which is why the gap is a missing
-screen and not a dead endpoint, and why ``README.md`` already counts it as a product gap: a person
-who registers today reaches the deck without any photograph.
-
-What the checks below pin: the reachability fact itself; that the route is nevertheless live and
-tested; that §8 asks for the upload exactly when the client is able to perform it, and while it is
-not, that §8 names the route and the absent caller instead of dropping the item in silence; that
-§11 keeps the gap listed as a product gap rather than a release step; and that every ``.kt:NN``
-citation the checklist uses still points at the line carrying the symbol it is cited for.
+What remains open is stated in §8 and §11 rather than in the client: nothing in ``presentation/``
+removes or reorders a photograph, because no route does either
+(``delete_stored_photo`` is reached only when an account is purged), and ``e2e_journey.py`` still
+never touches a picture.
 """
 
 from __future__ import annotations
@@ -38,15 +34,16 @@ import re
 _ROOT = pathlib.Path(__file__).resolve().parents[2]
 _CLIENT_MAIN = _ROOT / "android" / "app" / "src" / "main"
 _PRESENTATION = _CLIENT_MAIN / "java" / "app" / "befos" / "presentation"
+_ERROR_TEXT = _CLIENT_MAIN / "java" / "app" / "befos" / "core" / "network" / "BackendErrorText.kt"
 _TESTS = _ROOT / "backend" / "tests"
 _ROUTE = _ROOT / "backend" / "app" / "api" / "v1" / "users.py"
+_PHOTO_SERVICE = _ROOT / "backend" / "app" / "services" / "photo_service.py"
 _RELEASE = _ROOT / "docs" / "RELEASE.md"
 _README = _ROOT / "README.md"
 
-# Every API this app would have to touch to let a person choose or shoot a picture. A screen that
-# adds upload without one of them cannot exist, so the list is the client-side half of the fact.
-# The generic activity-result launcher is deliberately absent: it is how this app asks the system for
-# a permission too, and its presence says nothing about photographs.
+# Every API this app would have to touch to let a person choose or shoot a picture. The generic
+# activity-result launcher is deliberately absent: it is how this app asks the system for a
+# permission too, and its presence says nothing about photographs.
 _PICKER_APIS = (
     "GetContent",
     "PickVisualMedia",
@@ -56,10 +53,18 @@ _PICKER_APIS = (
     "ImageReader",
 )
 
+# The picture arrives through the chooser, which needs no permission of ours; a manifest that grew a
+# fourth right would mean the upload stopped going through the chooser, and the copy in README.md
+# that promises no permission would have to be re-read.
+_PERMISSIONS_FOR_A_PHOTO = {"INTERNET", "ACCESS_NETWORK_STATE", "POST_NOTIFICATIONS"}
+
 _NEGATION = re.compile(r"\bне\b|\bнет\b|\bнельзя\b|\bno\b", re.IGNORECASE)
 _UPLOAD_MENTION = re.compile(r"загруз\w*", re.IGNORECASE)
 _PHOTO_MENTION = re.compile(r"фото\w*|снимк\w*", re.IGNORECASE)
 _KOTLIN_CITATION = re.compile(r"([A-Za-z]+\.kt):(\d+)(?:-(\d+))?")
+_PYTHON_SET_ENTRY = re.compile(r'"([^"]+)"')
+_KOTLIN_MAP_ENTRY = re.compile(r'^\s*"((?:[^"\\]|\\.)+)"\s+to\s', re.MULTILINE)
+_VALIDATION_RAISE = re.compile(r'ValidationError\((f?)"((?:[^"\\]|\\.)+)"')
 
 
 def _text(path: pathlib.Path) -> str:
@@ -93,6 +98,53 @@ def _route_upload_lines() -> dict[str, int]:
         count = sum(1 for line in _text(file).splitlines() if "/users/me/photo" in line)
         if count:
             out[file.name] = count
+    return out
+
+
+def _server_allowed_types() -> set[str]:
+    block = re.search(r"ALLOWED_CONTENT_TYPES = \{([^}]*)\}", _text(_PHOTO_SERVICE))
+    assert block, "photo_service.py no longer declares ALLOWED_CONTENT_TYPES as a literal set"
+    return set(_PYTHON_SET_ENTRY.findall(block.group(1)))
+
+
+def _client_allowed_types() -> set[str]:
+    block = re.search(r"PHOTO_UPLOAD_CONTENT_TYPES = setOf\(([^)]*)\)", _text(_ERROR_TEXT))
+    assert block, (
+        "BackendErrorText.kt no longer declares PHOTO_UPLOAD_CONTENT_TYPES — the client's own "
+        "refusal of a format lost the list it is supposed to match"
+    )
+    return set(_PYTHON_SET_ENTRY.findall(block.group(1)))
+
+
+def _kotlin_block(name: str) -> str:
+    """The body of one private collection in BackendErrorText.kt, up to its closing paren."""
+    lines = _text(_ERROR_TEXT).splitlines()
+    starts = [i for i, line in enumerate(lines) if line.startswith(f"private val {name}")]
+    assert starts, f"BackendErrorText.kt lost `private val {name}`"
+    body: list[str] = []
+    for line in lines[starts[0] + 1 :]:
+        if line == ")":
+            break
+        body.append(line)
+    return "\n".join(body)
+
+
+def _translated_keys() -> set[str]:
+    return {match.group(1).lower() for match in _KOTLIN_MAP_ENTRY.finditer(_kotlin_block("translated"))}
+
+
+def _translated_prefixes() -> set[str]:
+    return {match.group(1) for match in _KOTLIN_MAP_ENTRY.finditer(_kotlin_block("translatedPrefixes"))}
+
+
+def _photo_refusals() -> list[str]:
+    """Every message the upload route can answer a photograph with, straight from its raise sites."""
+    out: list[str] = []
+    for _is_fstring, message in _VALIDATION_RAISE.findall(_text(_PHOTO_SERVICE)):
+        # An f-string names data the server counted («Image exceeds {settings…} MB limit.»), so the part a
+        # wording can be matched on is its literal opening, trailing space included — the Kotlin prefix
+        # that answers it carries that same space. A plain message holds no brace, so it stays whole.
+        out.append(message.split("{", 1)[0])
     return out
 
 
@@ -130,10 +182,9 @@ def _numbered_items(section: str) -> list[str]:
 def _upload_demands(items: list[str]) -> list[str]:
     """Items that ask the operator to perform a photo upload, as opposed to explaining one away.
 
-    The split is by sentence: the defect was a bare list member («…, загрузка фото.»), and an
-    honest note about the same route always negates itself («Загрузки своего снимка в этом списке
-    нет»). A demand is therefore a sentence that mentions uploading and a photograph and says
-    nothing against it.
+    The split is by sentence: the defect was a bare list member («…, загрузка фото.»), and an honest
+    note about the same route always negates itself («Снимок можно добавить, но не убрать»). A demand
+    is therefore a sentence that mentions uploading and a photograph and says nothing against it.
     """
     demands: list[str] = []
     for item in items:
@@ -153,23 +204,33 @@ def _client_can_take_a_photo() -> bool:
     )
 
 
-def test_the_client_cannot_reach_the_photo_upload_itself():
-    assert _presentation_upload_sites() == [], (
-        "screens now reach uploadPhoto, and the docs that say no screen does have to be rewritten: "
-        + ", ".join(_presentation_upload_sites())
+def test_the_client_reaches_the_upload_from_a_screen():
+    sites = _presentation_upload_sites()
+    assert sites, (
+        "the release checklist and README.md say a person can attach a photograph from the profile "
+        "tab, and no screen reaches uploadPhoto anymore"
     )
     reached = {api: count for api, count in _picker_hits().items() if count}
-    assert not reached, f"a picker or camera API appeared in the client: {reached}"
-    # A photograph arrives through a picker or a camera, never through a permission, so the set below
-    # is read as「no photo API is reachable」rather than as «the app holds no third permission»: the
-    # third one is the plans page asking to remind the pair about an hour (stage 95).
-    assert _manifest_permissions() == {
-        "INTERNET",
-        "ACCESS_NETWORK_STATE",
-        "POST_NOTIFICATIONS",
-    }, (
-        "the APK gained a permission outside the three this tree explains; the claim that no photo can "
-        f"be taken from a device has to be re-read: {sorted(_manifest_permissions())}"
+    assert reached, (
+        "no picker or camera API is left in the client, so the upload has nothing to choose from: "
+        f"{sites}"
+    )
+    assert "PickVisualMedia" in reached, (
+        f"a photograph now arrives through {reached} rather than the system's picture chooser; "
+        "re-read the copy in README.md that promises no permission and no camera"
+    )
+
+
+def test_a_photograph_still_costs_the_client_no_permission_and_no_camera():
+    assert _manifest_permissions() == _PERMISSIONS_FOR_A_PHOTO, (
+        "the APK gained a permission beyond the three this tree explains. The chooser needs none, so "
+        "a fourth right means the picture is being taken some other way and the documents that say so "
+        f"have to be re-read: {sorted(_manifest_permissions())}"
+    )
+    shooting = {api: count for api, count in _picker_hits().items() if count and api != "PickVisualMedia"}
+    assert not shooting, (
+        f"the client touches {shooting}; README.md states there is no camera in the app and that a "
+        "picture comes from the chooser alone"
     )
 
 
@@ -200,46 +261,37 @@ def test_the_checklist_asks_for_the_upload_only_when_the_client_can_perform_it()
     )
 
 
-def test_the_guard_asks_the_checklist_back_when_a_screen_appears(monkeypatch):
+def test_the_guard_asks_the_checklist_back_when_the_screen_disappears(monkeypatch):
     """Half of this guard would be invisible without the flip, so the flip is simulated here.
 
-    The two probes that decide whether the client can take a photograph are pointed at a client
-    that can — a screen calling ``uploadPhoto`` and a picker API beside it — and the shipped §8 is
-    read unchanged. It must then carry no device demand for the upload, which is exactly the
-    failure ``test_the_checklist_asks_for_the_upload_only_when_the_client_can_perform_it`` would
-    raise: the document that today explains why it cannot ask has to be rewritten the day it can.
+    Both probes that decide whether the client can take a photograph are pointed at a client that
+    cannot — no caller in ``presentation/``, no chooser anywhere — and the shipped §8 is read
+    unchanged. It must then carry a device demand for the upload, which is exactly the failure
+    ``test_the_checklist_asks_for_the_upload_only_when_the_client_can_perform_it`` would raise on
+    that flipped tree: the checklist is allowed to ask only as long as the screen exists.
     """
-    monkeypatch.setitem(
-        globals(),
-        "_presentation_upload_sites",
-        lambda: ["android/app/src/main/java/app/befos/presentation/fake/FakeScreen.kt:1"],
-    )
-    monkeypatch.setitem(
-        globals(),
-        "_picker_hits",
-        lambda: {api: (1 if api == "PickVisualMedia" else 0) for api in _PICKER_APIS},
-    )
-    assert _client_can_take_a_photo(), "the simulated client did not become reachable"
+    monkeypatch.setitem(globals(), "_presentation_upload_sites", lambda: [])
+    monkeypatch.setitem(globals(), "_picker_hits", lambda: {api: 0 for api in _PICKER_APIS})
+    assert not _client_can_take_a_photo(), "the simulated client stayed reachable"
     demands = _upload_demands(_checklist_items(_release_section("8")))
-    assert demands == [], (
-        "the shipped §8 already demands a device check of the upload (" + " | ".join(demands) +
-        "), so the flip test proves nothing: the explanatory item has to be restored first"
+    assert demands, (
+        "the shipped §8 stopped demanding the device check of an upload it can name, so the flip "
+        "test proves nothing: the item has to be restored first"
     )
 
 
-def test_the_dropped_item_is_named_and_not_silently_removed():
+def test_the_checklist_names_the_client_path_it_asks_to_check():
     section = _release_section("8")
     assert "/users/me/photo" in section, (
-        "§8 no longer names the route whose upload it does not ask to check; the item has to be "
-        "replaced by a sentence that says what remains true"
+        "§8 no longer names the route whose upload it asks to check on a device"
     )
     assert "presentation/" in section, (
-        "§8 names the route but not the reason it is uncheckable on a device: the absent caller "
-        "from presentation/ is the fact the operator cannot verify"
+        "§8 names the route but not the screen that reaches it; the path the operator is checking "
+        "has to be named where the check lives"
     )
 
 
-def test_the_release_doc_keeps_the_gap_as_a_product_gap():
+def test_the_release_doc_keeps_the_photo_question_that_is_still_open():
     section = _release_section("11")
     assert section, "RELEASE.md §11 disappeared; the not-done list has to live somewhere"
     items = _numbered_items(section)
@@ -253,8 +305,34 @@ def test_the_release_doc_keeps_the_gap_as_a_product_gap():
         and "README" in item
     ]
     assert named, (
-        "§11 does not list the missing photo screen as a product gap naming the route, the absent "
-        "caller and the document that owns the gap"
+        "§11 does not keep the photograph question that is still open — no screen removes or "
+        "reorders a picture, and no route does either — naming the route, the absent caller in "
+        "presentation/ and the document that owns the gap"
+    )
+
+
+def test_the_client_refuses_exactly_the_formats_the_server_refuses():
+    server = _server_allowed_types()
+    client = _client_allowed_types()
+    assert server == client, (
+        f"the client sends {sorted(client)} while the pipeline re-encodes {sorted(server)}: one "
+        "of the two lists moved, and a picture the other list refuses is either a wasted uplink or "
+        "a photograph the app would not send at all"
+    )
+
+
+def test_every_photo_refusal_the_server_can_raise_has_russian_copy():
+    keys = _translated_keys()
+    prefixes = _translated_prefixes()
+    uncovered = [
+        message
+        for message in _photo_refusals()
+        if message.lower() not in keys and not any(message.startswith(prefix) for prefix in prefixes)
+    ]
+    assert not uncovered, (
+        f"the upload route refuses {uncovered} in English and the client has no Russian wording for "
+        "it; whatever falls through is answered by a status family, not by what the photo pipeline "
+        "actually objected to"
     )
 
 
@@ -280,11 +358,11 @@ def test_every_kotlin_citation_in_the_checklist_still_names_the_symbol():
         (
             block
             for block in readme.split("- **")
-            if "снимок из приложения нельзя" in block
+            if "Снимок можно добавить" in block
         ),
         "",
     )
-    assert bullet, "README.md no longer states that a photo cannot be added from the app"
+    assert bullet, "README.md no longer states what the app does and does not let a person do with a photo"
     for file_name, start, end in _KOTLIN_CITATION.findall(bullet):
         candidates = list(_CLIENT_MAIN.rglob(file_name))
         assert candidates, f"README cites {file_name}, which is gone"
