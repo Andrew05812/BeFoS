@@ -22,7 +22,7 @@ from app.models.test import (
     TestQuestion,
     TestResult,
 )
-from app.models.social import Block, Like, Match, Pass, Report
+from app.models.social import Block, Like, Match, Pass, Report, ReportReview
 from app.models.chat import Message, MessageRead
 from app.models.discovery import DiscoveryQueue
 from app.models.activity import Activity, ActivityPreference, Recommendation
@@ -54,6 +54,7 @@ __all__ = [
     "Match",
     "Block",
     "Report",
+    "ReportReview",
     "Message",
     "MessageRead",
     "DiscoveryQueue",

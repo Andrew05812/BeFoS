@@ -250,6 +250,18 @@ class BackendErrorTextTest {
     }
 
     @Test
+    fun `a full complaint budget names the budget and not the connection`() {
+        // The server counts the complaints one account may write in an hour. The status fallback reads
+        // as a general overload, which would send the person to retry the tap that worked a minute ago
+        // and blame the network for the account's own queue.
+        val expected = "Жалоб с вашего аккаунта уже много. Попробуйте позже."
+        val refusal = localizeBackendError("Too many complaints for now. Try again later.", "rate_limited", 429)
+        assertEquals(expected, refusal)
+        assertFalse(refusal.contains("интернет"))
+        assertFalse(refusal.contains("ещё раз"))
+    }
+
+    @Test
     fun `transport status copy stays untouched`() {
         assertEquals(defaultHttpMessage(401), localizeBackendError("", "", 401))
         assertEquals(defaultHttpMessage(429), localizeBackendError("", "", 429))

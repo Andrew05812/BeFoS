@@ -32,6 +32,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Event
+import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.CircularProgressIndicator
@@ -76,6 +77,7 @@ import app.befos.core.network.CHAT_CLOSED
 import app.befos.core.network.CHAT_CLOSED_DETAIL
 import app.befos.domain.model.Message
 import app.befos.domain.model.MessageKinds
+import app.befos.presentation.common.ReportDialog
 import app.befos.presentation.common.PLAN_PAST_WORD
 import app.befos.presentation.common.planMomentPassed
 import kotlinx.coroutines.delay
@@ -99,9 +101,20 @@ fun ChatScreen(
     onOpenPartnerCard: () -> Unit,
 ) {
     val vm: ChatViewModel = beFosViewModel {
-        ChatViewModel(it.chatRepository, it.matchRepository, matchId, initialDraft)
+        ChatViewModel(it.chatRepository, it.matchRepository, it.safetyRepository, matchId, initialDraft)
     }
     val state by vm.uiState.collectAsState()
+    val reportState by vm.report.state.collectAsState()
+
+    if (reportState.open) {
+        ReportDialog(
+            state = reportState,
+            onReason = vm.report::setReason,
+            onDetails = vm.report::setDetails,
+            onSubmit = vm.report::submit,
+            onDismiss = vm::closeReport,
+        )
+    }
     val listState = rememberLazyListState()
     // Following every incoming message would yank the reader back down while they are
     // still looking at older parts of the conversation.
@@ -132,6 +145,13 @@ fun ChatScreen(
                     // one whose «о себе», interests and age cannot be read a second time.
                     IconButton(onClick = onOpenPartnerCard) {
                         Icon(Icons.Filled.Person, contentDescription = "Анкета собеседника")
+                    }
+                    // The complaint belongs to the conversation, not to the composer: a thread the
+                    // server has closed for messages is exactly where the reason to report someone
+                    // was written down. What it does need is the id naming the person, and that only
+                    // arrives with the partner's card.
+                    IconButton(onClick = vm::askReport, enabled = state.partnerUserId != null) {
+                        Icon(Icons.Filled.Flag, contentDescription = "Пожаловаться")
                     }
                     IconButton(onClick = onOpenCompatibility) {
                         Icon(Icons.Filled.Insights, contentDescription = "Совместимость")

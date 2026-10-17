@@ -67,6 +67,12 @@ _probe_limiter = SlidingWindowRateLimiter(limit=60, window_seconds=60)
 # its own: one per address at the door, one per account across the life of the connection.
 _ws_handshake_limiter = SlidingWindowRateLimiter(limit=30, window_seconds=60)
 _ws_frame_limiter = SlidingWindowRateLimiter(limit=settings.rate_limit_per_minute, window_seconds=60)
+# A complaint costs its author one tap and costs whoever receives a queue entry, so the write that
+# is cheapest to make is the one that needs a window of its own. The per-address bucket every route
+# shares refills every minute, which bounds a flood only while it is running — twenty complaints
+# from one account in an hour is well above a person who has reason to report a dozen accounts and
+# well below somebody working through a list.
+_report_limiter = SlidingWindowRateLimiter(limit=20, window_seconds=3600)
 
 
 def reset_rate_limiters() -> None:
@@ -76,6 +82,17 @@ def reset_rate_limiters() -> None:
     _probe_limiter.reset()
     _ws_handshake_limiter.reset()
     _ws_frame_limiter.reset()
+    _report_limiter.reset()
+
+
+def report_budget_available(user_id: object) -> bool:
+    """Keyed by the authenticated account, the same way the socket frame budget is.
+
+    The address cannot carry this: one household behind one NAT, or one account opening a second
+    tab, would spend a budget that belongs to neither of them, and a caller who rotates addresses
+    would rotate complaint budgets with them.
+    """
+    return _report_limiter.allow(f"report:{user_id}")
 
 
 def _client_key(client: Request | WebSocket) -> str:

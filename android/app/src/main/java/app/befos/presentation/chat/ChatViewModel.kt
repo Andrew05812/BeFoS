@@ -7,6 +7,8 @@ import app.befos.domain.model.Message
 import app.befos.domain.repository.ChatEvent
 import app.befos.domain.repository.ChatRepository
 import app.befos.domain.repository.MatchRepository
+import app.befos.domain.repository.SafetyRepository
+import app.befos.presentation.common.ReportForm
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -25,6 +27,12 @@ data class ChatUiState(
     val otherOnline: Boolean = false,
     val connected: Boolean = false,
     val partnerName: String? = null,
+    /**
+     * Who the thread is with, taken from the same read that brings the name. A complaint has to name
+     * a person, and the pair id is not one; the id arrives with the partner's card, so a conversation
+     * opened while the network was down has no one to report until that card answers.
+     */
+    val partnerUserId: String? = null,
     val historyError: String? = null,
     val sendError: String? = null,
     /**
@@ -44,6 +52,7 @@ data class ChatUiState(
 class ChatViewModel(
     private val chatRepository: ChatRepository,
     private val matchRepository: MatchRepository,
+    safetyRepository: SafetyRepository,
     private val matchId: String,
     /**
      * A line another screen handed over for the pair to send, already sitting in the composer when
@@ -58,6 +67,13 @@ class ChatViewModel(
         ChatUiState(draft = initialDraft?.takeIf { it.isNotBlank() }.orEmpty())
     )
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
+
+    /**
+     * The complaint form the profile screen and the deck render too. A conversation is where a
+     * person becomes unpleasant over time, and until stage 102 the only flag in the product sat on
+     * the card — which a pair can open, but which is not where the reason to complain is read.
+     */
+    val report = ReportForm(safetyRepository, viewModelScope)
 
     private var socketJob: Job? = null
 
@@ -92,7 +108,9 @@ class ChatViewModel(
         if (_uiState.value.partnerName != null || partnerJob?.isActive == true) return
         partnerJob = viewModelScope.launch {
             when (val result = matchRepository.partner(matchId)) {
-                is ApiResult.Success -> _uiState.update { it.copy(partnerName = result.data.name) }
+                is ApiResult.Success -> _uiState.update {
+                    it.copy(partnerName = result.data.name, partnerUserId = result.data.userId)
+                }
                 // Nothing to tell the person: the header keeps its own word for a partner whose
                 // name has not arrived, and the next connection retries it.
                 is ApiResult.Error -> Unit
@@ -273,6 +291,18 @@ class ChatViewModel(
     fun dismissSendError() {
         _uiState.update { it.copy(sendError = null) }
     }
+
+    /**
+     * Opens the complaint form for the partner. Asking for a moderator is not asking to keep
+     * writing: a thread the server has closed for messages still has a person to report, and the
+     * only thing that has to have arrived first is the id naming them — the pair id is not one.
+     */
+    fun askReport() {
+        val userId = _uiState.value.partnerUserId ?: return
+        report.open(userId)
+    }
+
+    fun closeReport() = report.close()
 
     override fun onCleared() {
         super.onCleared()

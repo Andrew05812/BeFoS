@@ -1,6 +1,6 @@
 # База данных BeFoS
 
-PostgreSQL 16, SQLAlchemy 2.0 (async) + asyncpg. Миграции — Alembic (`backend/alembic/versions/`). Первичная миграция `03f0ea587029_initial_schema` создаёт 21 таблицу, `4f2a1c9d7b30_discovery_deck_and_indexes` добавляет колоду подбора и индексы, нужные горячим чтением, `9c1f5b7d2a40_message_idempotency_key` — ключ повторяемости отправки в `messages`, `b7e3d0a9c421_onboarding_completed_at` — отметку законченного онбординга в `profiles`, `c5a7d1e0b342_unique_deck_rank_per_viewer` — уникальный индекс `(viewer_id, rank)`, `d8f4b2c6a157_index_email_lookup_a_sign_in_actually_uses` — функциональный индекс `lower(email)`, а `e6b28c4a13d0_indexes_that_only_cost_writes` снимает 15 индексов, которые были левым префиксом другого ключа и чтению не служили, и `f3a07c2d5b18_the_deck_pages_the_visible_population_newest_first` даёт чтению колоды ключ в том порядке, который оно просит, `7c4f2a91be36_seven_activities_were_tagged_with_interests` правит строки каталога, не трогая схему, а `b4d8f1c07a52_the_pair_a_tap_was_made_for_is_kept` добавляет `activity_preferences.match_id`, и `f2b7c90ad341_a_pair_arranges_one_thing_that_has` поднимает `shared_plans` с `shared_plan_members` и даёт `messages.plan_id` (head на 2026-10-16, `alembic check` чист — см. счёт ниже).
+PostgreSQL 16, SQLAlchemy 2.0 (async) + asyncpg. Миграции — Alembic (`backend/alembic/versions/`). Первичная миграция `03f0ea587029_initial_schema` создаёт 21 таблицу, `4f2a1c9d7b30_discovery_deck_and_indexes` добавляет колоду подбора и индексы, нужные горячим чтением, `9c1f5b7d2a40_message_idempotency_key` — ключ повторяемости отправки в `messages`, `b7e3d0a9c421_onboarding_completed_at` — отметку законченного онбординга в `profiles`, `c5a7d1e0b342_unique_deck_rank_per_viewer` — уникальный индекс `(viewer_id, rank)`, `d8f4b2c6a157_index_email_lookup_a_sign_in_actually_uses` — функциональный индекс `lower(email)`, а `e6b28c4a13d0_indexes_that_only_cost_writes` снимает 15 индексов, которые были левым префиксом другого ключа и чтению не служили, и `f3a07c2d5b18_the_deck_pages_the_visible_population_newest_first` даёт чтению колоды ключ в том порядке, которое оно просит, `7c4f2a91be36_seven_activities_were_tagged_with_interests` правит строки каталога, не трогая схему, а `b4d8f1c07a52_the_pair_a_tap_was_made_for_is_kept` добавляет `activity_preferences.match_id`, и `f2b7c90ad341_a_pair_arranges_one_thing_that_has` поднимает `shared_plans` с `shared_plan_members` и даёт `messages.plan_id`, и `b4e7d3a8c619_a_decision_about_a_complaint_is_a_row` поднимает `report_reviews`, даёт `users.is_moderator` и меняет индекс очереди на `ix_reports_status_created_at` (head на 2026-10-17, `alembic check` чист — см. счёт ниже).
 
 Все таблицы наследуют `TimestampMixin` (`created_at`, `updated_at`), кроме чисто справочных. Первичные ключи пользователей и связанных сущностей — `UUID`; справочники — `INTEGER` (autoincrement). Внешние ключи на `users.id` используют `ON DELETE CASCADE`.
 
@@ -21,7 +21,7 @@ PostgreSQL 16, SQLAlchemy 2.0 (async) + asyncpg. Миграции — Alembic (`
 `plan_activity_id integer`; у его внешнего ключа `pg_constraint.confdeltype` = `n`. Тот же круг на
 другой копии (`s92_migration_roundtrip.log`, прогон 18:20:26…18:20:42 UTC) проходит и обратный ход:
 после `downgrade base` в схеме остаётся одна строка таблиц (`alembic_version`), а повторный
-`upgrade head` кладёт три колонки снова и сажает базу на `e3f6a81c4d90`. Счёт переснят и на хэде
+`upgrade head` кладёт три колонки снова и сажает базу на `e3f6a81c4d90`. Прежний съём — счёт на хэде
 стадии 95: пустая база, поднятая `alembic upgrade head` до `f2b7c90ad341` (прогон
 02:47:09…02:47:27 UTC 2026-10-16, артефакт `s95_schema_counts.log`), даёт 25 таблиц и 72 индекса —
 восемь из них кладёт сама ревизия: четыре у `shared_plans` (pkey, `uq_shared_plan_pair_activity`,
@@ -30,7 +30,21 @@ PostgreSQL 16, SQLAlchemy 2.0 (async) + asyncpg. Миграции — Alembic (`
 «No new upgrade operations detected», а обратный ход того же круга оставляет после `downgrade base`
 одну строку таблиц и один индекс — то есть обе таблицы с их ключами снимаются вместе с ревизией, и
 повторный `upgrade head` ставит их обратно. Обе базы съёма (`befos_schema_s95`,
-`befos_schema_s95b`) удалены после замера. Одиночный индекс
+`befos_schema_s95b`) удалены после замера. Счёт переснят и на хэде стадии 102: пустая база, поднятая
+`alembic upgrade head` до `b4e7d3a8c619` (прогон 17:17:46…17:18:26 UTC 2026-10-17, артефакт
+`s102_schema_counts.log`, база `befos_schema_s102` после съёма удалена), даёт 26 таблиц и 74 индекса
+— ревизия поднимает `report_reviews` с двумя индексами (pkey и `ix_report_reviews_report_order`),
+кладёт `ix_reports_status_created_at` и снимает одиночный `ix_reports_status`, так что очередь
+жалоб читается одним ключом, а `users.is_moderator` приходит колонкой `boolean NOT NULL` без
+default (съём `information_schema.columns` того же прогона: `column_default` пуст). `alembic check`
+на этой базе отвечает «No new upgrade operations detected», после `downgrade base` остаются одна
+строка таблиц и один индекс, а повторный `upgrade head` возвращает те же 26 и 74 — то есть таблица
+истории снимается вместе с ревизией и ставится обратно. Тот же круг (26 таблиц, 74 индекса) держит и
+рабочая база `befos`: отдельный пересчёт её схемы (18:22:39…18:22:41 UTC того же дня, артефакт
+`s102_dev_schema_counts.log`, где напечатаны сами запросы `select count(*) from pg_tables where
+schemaname='public'` и `select count(*) from pg_indexes where schemaname='public'`) даёт те же 26 и
+74 при `alembic_version = b4e7d3a8c619`; двадцать шестая таблица — `alembic_version`, моделей в
+`app/models` 25. Одиночный индекс
 по внешней колонке здесь
 есть там, где с этой колонки не начинается более длинный ключ: свайп — это `INSERT` в `passes`, и
 каждый лишний btree на этой таблице оплачивается при каждом свайпе. Замерено: 100 000 строк
@@ -50,7 +64,7 @@ users ─1:1─ profiles ─M:N─ interests   (через user_interests)
   ├─M:N─ discovery_queue (viewer, candidate — колода подбора)
   ├─M:N─ matches (user_a, user_b) ─1:N─ messages ─1:N─ message_reads
   │                                └─1:N─ shared_plans ─1:N─ shared_plan_members
-  ├─M:N─ blocks / reports
+  ├─M:N─ blocks / reports   (reports ─1:N─ report_reviews, рука модератора)
   └─1:N─ activity_preferences ─N:1─ activities ─M:N─ recommendations (per match)
                                     └─1:N─ shared_plans (тот же activity_id)
 ```
@@ -69,6 +83,7 @@ users ─1:1─ profiles ─M:N─ interests   (через user_interests)
 | password_hash | String(255) | bcrypt |
 | is_active | Boolean | default true |
 | is_verified | Boolean | default false |
+| is_moderator | Boolean | не default, nullable false — единственная привилегия продукта, и её не записывает ни один маршрут (стадия 102) |
 | is_deleted | Boolean | мягкое удаление |
 | deleted_at | timestamptz | nullable |
 
@@ -86,6 +101,19 @@ users ─1:1─ profiles ─M:N─ interests   (через user_interests)
 индекс создаётся как уникальный. Покрыто набором `backend/tests/test_db_reliability.py`
 (план чтения под `enable_seqscan=off`, попытка вставить ту же почту в другом регистре, и
 201 → 409 на второй регистрации).
+
+**`is_moderator` — колонка, у которой нет пути записи.** Миграция `b4e7d3a8c619` добавляет её с
+`server_default=false`, чтобы каждый уже существующий аккаунт получил ответ, и тут же этот default
+снимает (`op.alter_column(..., server_default=None)`): `INSERT`, который про колонку забыл, должен
+упасть, а не получить от базы заверение, что этот кто-то он чьей-то модератор. Права чтения и
+записи разделены в одну сторону: `GET /reports*` и `POST /reports/{id}/review` её читают (на каждый
+запрос, из строки, а не из токена — access-токен роли не перевозит), а не записывает её ни один
+маршрут: регистрация её не упоминает, правка профиля не имеет поля, тело решения держит статус и
+комментарий, но не фамилию руки. Это не оговорка, а проверенное утверждение: набор
+`test_an_ordinary_account_cannot_reach_the_moderation_surface.py` проверяет, что та же форма
+профиля, в которой кто-то написал `"is_moderator": true`, оставляет строку с `false` и в ответе
+этого поля не показывает, а `test_route_guard_sweep.py` перечисляет маршруты, которые вообще
+умеют менять аккаунт.
 
 ### `profiles` (1:1 с `users`)
 `user_id` (FK users, unique, cascade), `name` (String 80), `birth_date` (Date), `gender` (String 20), `city` (String 120), `about` (Text, null), `dating_goal` (String), `age_min`/`age_max` (Integer, 18/60), `gender_preference` (`ARRAY(String(20))` — массив, не JSON: пустой список сюда пишется как `'{}'::varchar[]`, и `[]'::jsonb` — это ошибка типа, а не тихая подмена), `city_preference` (String, null), `lifestyle` (JSONB, default `{}`), `is_hidden` (Boolean), `onboarding_completed_at` (timestamptz, null).
@@ -273,7 +301,12 @@ onboarding_completed_at IS NOT NULL` добавлен миграцией `f3a07c
 `blocker_id`, `blocked_id` (FK, cascade), `uq_block_pair (blocker_id, blocked_id)`; индекс `ix_blocks_blocked_id` ведёт обратное чтение — «кто меня заблокировал», — которое больше ни один ключ этой таблицы не начинает. Скрывает пару из подбора.
 
 ### `reports`
-`reporter_id`, `reported_id` (FK, cascade), `reason` (String 80), `details` (Text, null), `status` (String). `uq_report (reporter_id, reported_id, reason)`; индексы `ix_reports_reported_id` и `ix_reports_status` — очередь жалоб фильтруется статусом. Одиночный индекс по `reporter_id` удалён `e6b28c4a13d0`: он был префиксом `uq_report`.
+`reporter_id`, `reported_id` (FK, cascade), `reason` (String 80), `details` (Text, null), `status` (String 20, default `open` — `ReportStatus`: `open`, `reviewed`, `resolved`, `dismissed`; стадия 102 не ввела параллельного жизненного цикла, а дала тому же столбцу читателя и руку, которая пишет). `uq_report (reporter_id, reported_id, reason)` решает про повторной жалобой той же категории на том же человека, и решает на записи: чтение «есть ли уже» пуском быть не может, потому что второй тап приходит раньше, чем первый закоммитился; `ck_report_not_self` не пускает жалобу на себя на уровне схемы, а не только в сервисе. Индекс `ix_reports_reported_id` ведёт чтение «что про этого человека известно», которое очередь не делает, но делает карточка при решении. Одиночный `ix_reports_status` удалён `b4e7d3a8c619` и заменён индексом `ix_reports_status_created_at (status, created_at, id)` — формой, которой читает модератор: предикат по статусу, от старого к новому, и страница, которая продолжается по паре `(created_at, id)`. Прежний индекс отвечал предикат и затем сортировал весь бакет в читателе, а `status` по-прежнему остаётся левым префиксом нового ключа, поэтому его держат как часть нового, а не как второй платящий за записи индекс. (Одиночный индекс по `reporter_id` удалён раньше — `e6b28c4a13d0`: он был префиксом `uq_report`.)
+
+### `report_reviews`
+`report_id` (FK, cascade — история уходит вместе со своей жалобой), `moderator_id` (FK, **RESTRICT**: запись о том, что было решено о человеке, не должна становиться досягаемой вопросом о том, работает ли решавший ещё здесь), `from_status`/`to_status` (String 20), `comment` (Text, null), `created_at` — момент самого решения. Пара статусов хранится, а не только новый: очередь, которую читают post factum, нужно отличить жалобу, закрытую сразу, от жалобы, к которой возвращались дважды, а одна колонка оба ответа не держит; `ck_report_review_moves_status` (`from_status <> to_status`) — то же утверждение у двери, потому что строка, которая не двигает статус, решением не является и сделала бы историю нечитаемой ровно там, где она существует, чтобы быть прочитанной. `ix_report_reviews_report_order (report_id, created_at, id)` отвечает одно чтение истории на жалобу, в порядке решений. Статус и его строка пишутся в одной транзакции и коммитятся один раз, поэтому «сменился статус, а кто его сменил — не записано» здесь не случай, который может случиться: сбой до коммита не меняет ничего.
+
+И `reports`, и `report_reviews` переживают мягкое удаление аккаунта: `users` в этом продукте не удаляются жёстко, поэтому каскад по `users.id` срабатывает только на прямом `DELETE` строки, которого у продукта нет, а `RESTRICT` на `moderator_id` держит историю и тогда, когда кто-то решит убрать аккаунт модератора руками. Замер стадии 102 (`backend/tests/test_the_moderation_row_is_priced_as_a_page_not_as_the_whole_queue.py`, артефакт `s102_perf_run3.log`, 2026-10-17T16:52:32…16:53:05Z, HEAD `d8a0957`): страница очереди платит тремя обращениями к базе и при 20, и при 1000 строках в `reports` (плоская цена, а не цена размера очереди), а деталь жалобы — пятью, из которых ровно одно читает `report_reviews`; план обхода при `enable_seqscan = off` идёт по `ix_reports_status_created_at`, без `Seq Scan on reports`.
 
 ## Чат
 

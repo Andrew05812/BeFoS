@@ -121,6 +121,10 @@ private val translated: Map<String, String> = mapOf(
     "you have not blocked this user." to "Вы этого человека не блокировали. Обновите список.",
     "you cannot report yourself." to "Нельзя применить это к себе.",
     "you have already reported this user for the same reason." to "Такая жалоба уже отправлена.",
+    // The hourly budget counts complaints this account wrote, so the line says which of the
+    // account's own actions is full. The status fallback would read as a general overload and send
+    // the person to retry the tap that just worked for a different complaint.
+    "too many complaints for now. try again later." to "Жалоб с вашего аккаунта уже много. Попробуйте позже.",
 
     // test
     "no answers provided." to "Ответьте хотя бы на один вопрос.",

@@ -31,6 +31,11 @@ class User(TimestampMixin, Base):
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # The one privilege the product has, and no route writes it: registration never mentions it,
+    # the profile update has no field for it, and the moderation routes read it but do not touch
+    # it. It moves only when an operator changes the column, which is what makes the moderation
+    # surface a role rather than a screen somebody could reach by typing into a form.
+    is_moderator: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

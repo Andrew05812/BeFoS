@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.pager.HorizontalPager
@@ -46,11 +45,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import app.befos.core.designsystem.AppButton
 import app.befos.core.designsystem.AppButtonVariant
 import app.befos.core.designsystem.AppCard
-import app.befos.core.designsystem.AppTextField
 import app.befos.core.designsystem.AppTopBar
 import app.befos.core.designsystem.Elev
 import app.befos.core.designsystem.GlassScoreBadge
@@ -71,7 +68,7 @@ import app.befos.core.di.beFosViewModel
 import app.befos.domain.model.PublicProfile
 import app.befos.presentation.common.BandGapRow
 import app.befos.presentation.common.CategoryScoreList
-import app.befos.presentation.common.ReportReasonLabels
+import app.befos.presentation.common.ReportDialog
 import app.befos.presentation.common.bandGap
 import app.befos.presentation.common.identityLine
 import app.befos.presentation.common.pairBandsCaption
@@ -100,6 +97,7 @@ fun PublicProfileScreen(
         )
     }
     val state by vm.uiState.collectAsState()
+    val reportState by vm.report.state.collectAsState()
     val haptics = rememberHaptics()
 
     LaunchedEffect(state.gone) { if (state.gone && state.match == null) onBack() }
@@ -128,12 +126,9 @@ fun PublicProfileScreen(
         )
     }
 
-    if (state.reportDialog) {
+    if (reportState.open) {
         ReportDialog(
-            reason = state.reportReason,
-            details = state.reportDetails,
-            error = state.reportError,
-            sending = state.busy,
+            state = reportState,
             onReason = vm::setReportReason,
             onDetails = vm::onReportDetails,
             onSubmit = vm::submitReport,
@@ -447,69 +442,6 @@ private fun BlockDialog(name: String?, onConfirm: () -> Unit, onDismiss: () -> U
             }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
-    )
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun ReportDialog(
-    reason: String,
-    details: String,
-    error: String?,
-    sending: Boolean,
-    onReason: (String) -> Unit,
-    onDetails: (String) -> Unit,
-    onSubmit: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        // The dialog has a text field, so the keyboard belongs to it: without this the
-        // «Отправить» row stays where it was and a wide keyboard parks itself on top of
-        // the only way to finish the report.
-        modifier = Modifier.imePadding(),
-        properties = DialogProperties(decorFitsSystemWindows = false),
-        title = { Text("Пожаловаться") },
-        text = {
-            Column(
-                modifier = Modifier.verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(Spacing.md),
-            ) {
-                Text(
-                    "Что не так с анкетой?",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
-                    verticalArrangement = Arrangement.spacedBy(Spacing.sm),
-                ) {
-                    ReportReasonLabels.forEach { (slug, label) ->
-                        InterestChip(
-                            label = label,
-                            selected = reason == slug,
-                            onClick = { onReason(slug) },
-                        )
-                    }
-                }
-                AppTextField(
-                    value = details,
-                    onValueChange = onDetails,
-                    label = "Подробности (необязательно)",
-                    error = error,
-                    singleLine = false,
-                    minLines = 2,
-                    maxLines = 4,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onSubmit, enabled = !sending) {
-                Text(if (sending) "Отправляем…" else "Отправить")
-            }
-        },
-        dismissButton = { TextButton(onClick = onDismiss, enabled = !sending) { Text("Отмена") } },
     )
 }
 

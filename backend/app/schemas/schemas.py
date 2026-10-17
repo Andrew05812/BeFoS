@@ -584,4 +584,79 @@ class BlockedUsersResponse(BaseModel):
     blocked: list[BlockedUserSummary]
 
 
+# ---------- Moderation ----------
+class ReportedAccountSummary(BaseModel):
+    """Whom the complaint names, and only what a decision is made on.
+
+    The questionnaire, the photographs and the email address are absent because the reviewer has no
+    use for them at this point: the row they are about to close says who is accused, whether that
+    account is still visible to anybody, and whether it already holds the privilege they are about
+    to use against it.
+    """
+
+    user_id: str
+    name: str | None
+    age: int | None
+    city: str | None
+    is_deleted: bool
+    is_hidden: bool
+    is_moderator: bool
+
+
+class ReporterSummary(BaseModel):
+    user_id: str
+    name: str | None
+
+
+class ReportReviewRow(BaseModel):
+    """One move of one complaint, with the hand that moved it and the note it left."""
+
+    id: str
+    moderator_id: str
+    moderator_name: str | None
+    from_status: str
+    to_status: str
+    comment: str | None
+    decided_at: datetime
+
+
+class ReportCard(BaseModel):
+    id: str
+    reason: str
+    details: str | None
+    status: str
+    created_at: datetime
+    reported: ReportedAccountSummary
+    reporter: ReporterSummary
+
+
+class ReportsPage(BaseModel):
+    reports: list[ReportCard]
+    next_cursor: str | None
+    has_more: bool
+
+
+class ReportDetail(ReportCard):
+    updated_at: datetime
+    reviews: list[ReportReviewRow]
+
+
+class ReviewIn(BaseModel):
+    """The status a complaint is moved to and the comment recorded with it.
+
+    The moderator is not in this body: the row that writes history takes the hand from the session
+    that authenticated, so a payload naming somebody else changes nothing about whose name ends up
+    on the line.
+    """
+
+    status: str = Field(min_length=2, max_length=20)
+    comment: str | None = Field(default=None, max_length=1000)
+
+
+class ReviewResult(BaseModel):
+    id: str
+    status: str
+    updated_at: datetime
+
+
 AuthResponse.model_rebuild()

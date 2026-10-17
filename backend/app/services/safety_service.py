@@ -24,7 +24,23 @@ from app.repositories.user_repo import UserRepository
 from app.services import photo_service
 from app.websocket.manager import manager
 
-VALID_REASONS = {"spam", "harassment", "inappropriate", "fake", "minor", "other"}
+# The categories a complaint may name. `reason` is a plain column and not an enum, so a value
+# already stored by an older build keeps reading exactly as it did: adding the last two entries
+# changed nothing about the rows that exist, only about what a new one may be written with. The
+# two that were missing are the two a person reaches for when the account itself is the problem —
+# somebody pretending to be someone else, and somebody whose message they do not want to read
+# twice — and a complaint about either had to be filed as «other», which is the row a reviewer
+# learns least from.
+VALID_REASONS = {
+    "spam",
+    "harassment",
+    "inappropriate",
+    "fake",
+    "minor",
+    "impersonation",
+    "threats",
+    "other",
+}
 
 # What a column that no longer describes anyone holds. `birth_date`, `gender` and
 # `dating_goal` are NOT NULL, so erasure writes a value that is nobody's real answer and

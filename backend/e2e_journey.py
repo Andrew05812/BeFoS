@@ -1,8 +1,10 @@
 """Real end-to-end journey against the running Docker backend (localhost:8000).
 
 Exercises the full BeFoS value chain with two fresh users who mutually like each
-other so a real match + chat + recommendations flow is produced. Every step
-asserts on live backend data; nothing is mocked or hardcoded. Both accounts are
+other so a real match + chat + recommendations flow is produced. A third account is
+created, given the moderator role the way the operator does it, and used to walk one
+complaint from the tap that writes it to the decision that closes it. Every step
+asserts on live backend data; nothing is mocked or hardcoded. All three accounts are
 deleted at the end, so a run leaves no probe rows in the development database.
 """
 from __future__ import annotations
@@ -10,8 +12,10 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import subprocess
 import sys
 import time
+import uuid
 
 import httpx
 import websockets  # comes with uvicorn[standard], the same server that answers here
@@ -266,6 +270,136 @@ def agreed_hour_reaches_the_chat(match_id: str, tok_a: str, tok_b: str, activity
         asyncio.run(drive())
     except Exception as exc:  # a socket that will not open is a failure, not a traceback
         check(False, "the pair's agreement is said in their conversation", f"{type(exc).__name__}: {exc}")
+
+
+def _grant_moderator(user_id: str) -> str:
+    """Run the operator's own promotion step, on the container this journey is already talking to.
+
+    The product has no route that hands the role out — a public way to register a moderator would
+    be the front door of the queue it is meant to guard — so the walk follows the documented step
+    and sets the flag with SQL on one probe account that the run deletes again at the end. The text
+    psql answers with is checked rather than trusted, because a statement that updated nobody would
+    otherwise look like a moderator who simply had nothing to read.
+    """
+    if not re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", user_id):
+        return "refused: not a user id"
+    done = subprocess.run(
+        ["docker", "exec", "befos_postgres", "psql", "-U", "befos", "-d", "befos", "-tA",
+         "-c", f"UPDATE users SET is_moderator = true WHERE id = '{user_id}'"],
+        capture_output=True, text=True, timeout=30,
+    )
+    return (done.stdout + done.stderr).strip()
+
+
+def complaint_reaches_a_moderator(c, ha: dict, hb: dict, uid_a: str, uid_b: str,
+                                  email_d: str, pw: str) -> dict:
+    """Walk one complaint from the tap that writes it to the hand that is allowed to close it.
+
+    REST says the row exists; only this walk says who may read it. The ordinary account that wrote
+    the complaint is turned away from the queue before and after the decision, the moderator's card
+    is read for what it must not carry, and every move leaves a history row behind it.
+    """
+    written = c.post(f"{BASE}/users/{uid_b}/report", headers=ha,
+                     json={"reason": "harassment", "details": "E2E: one sentence that was not a question."})
+    check(written.status_code == 200 and written.json() == {"reported": True, "reason": "harassment"},
+          "a complaint is written", f"{written.status_code} {str(written.json())[:80]}")
+
+    twice = c.post(f"{BASE}/users/{uid_b}/report", headers=ha, json={"reason": "harassment"})
+    check(twice.status_code == 409 and "already reported" in twice.json()["error"]["message"],
+          "the same tap twice writes no second complaint", str(twice.status_code))
+
+    invented = c.post(f"{BASE}/users/{uid_b}/report", headers=ha, json={"reason": "villainy"})
+    refused_reason = invented.json().get("error", {}).get("message", "")
+    check(invented.status_code == 422 and "Invalid report reason" in refused_reason,
+          "a reason the server does not know is refused by naming its list", refused_reason[:120])
+
+    about_self = c.post(f"{BASE}/users/{uid_a}/report", headers=ha, json={"reason": "spam"})
+    check(about_self.status_code == 422, "a complaint about yourself is not a complaint", str(about_self.status_code))
+
+    queue_for_a = c.get(f"{BASE}/reports", headers=ha)
+    check(queue_for_a.status_code == 403, "the person who complained is not shown the queue",
+          str(queue_for_a.status_code))
+    anon_queue = c.get(f"{BASE}/reports")
+    check(anon_queue.status_code == 401, "the queue is not open to an anonymous reader", str(anon_queue.status_code))
+    # A number that belongs to nobody is answered 403, not 404: the door is closed before the
+    # number is looked at, so the moderation surface cannot be used to ask which complaints exist.
+    invented_id = str(uuid.uuid4())
+    review_for_a = c.post(f"{BASE}/reports/{invented_id}/review", headers=ha,
+                          json={"status": "resolved", "comment": "E2E: an ordinary account deciding."})
+    check(review_for_a.status_code == 403, "an ordinary account decides nothing, named number or not",
+          str(review_for_a.status_code))
+
+    rd = c.post(f"{BASE}/auth/register", json={"email": email_d, "password": pw, "password_confirm": pw})
+    uid_d = rd.json()["user"]["id"]
+    hd = {"Authorization": f"Bearer {rd.json()['tokens']['access_token']}"}
+    granted = _grant_moderator(uid_d)
+    check(granted == "UPDATE 1", "the operator's step makes one account a moderator, and only one", granted[:80])
+
+    # The token above was minted before the flag was set and still opens the queue: the role is read
+    # off the row per request, which is also how taking it away stops a stolen token at once.
+    page = c.get(f"{BASE}/reports", params={"status": "open"}, headers=hd)
+    cards = page.json().get("reports", []) if page.status_code == 200 else []
+    card = next((r for r in cards
+                 if r["reported"]["user_id"] == uid_b and r["reporter"]["user_id"] == uid_a), None)
+    check(page.status_code == 200 and card is not None,
+          "the queue a token from before the role reads names both halves of it", f"{len(cards)} open")
+    if card is None:
+        return {"uid_d": uid_d, "hd": hd, "report_id": None}
+
+    shown = json.dumps(card, ensure_ascii=False)
+    check(set(card["reported"]) == {"user_id", "name", "age", "city", "is_deleted", "is_hidden", "is_moderator"},
+          "the card names the account, not the life behind it", str(sorted(card["reported"]))[:120])
+    check(not re.search(r'"(email|about|birth_date|photo|phone)"', shown),
+          "nothing on the card reaches past what a decision needs", shown[:120])
+
+    rid = card["id"]
+    rushed = c.post(f"{BASE}/reports/{rid}/review", headers=hd, json={"status": "resolved"})
+    check(rushed.status_code == 422 and "needs a comment" in rushed.json()["error"]["message"],
+          "a complaint cannot be closed without saying why", str(rushed.status_code))
+    untouched = c.get(f"{BASE}/reports/{rid}", headers=hd).json()
+    check(untouched.get("status") == "open" and untouched.get("reviews") == [],
+          "a refused decision moved nothing and wrote no history", str([untouched.get("status"),
+                                                                        len(untouched.get("reviews", []))]))
+
+    moved = c.post(f"{BASE}/reports/{rid}/review", headers=hd,
+                   json={"status": "reviewed", "comment": "E2E: read by the moderator."})
+    check(moved.status_code == 200 and moved.json()["status"] == "reviewed",
+          "open becomes reviewed", f"{moved.status_code} {str(moved.json())[:60]}")
+    closed = c.post(f"{BASE}/reports/{rid}/review", headers=hd,
+                    json={"status": "resolved", "comment": "E2E: the account was warned."})
+    check(closed.status_code == 200 and closed.json()["status"] == "resolved",
+          "reviewed becomes resolved", f"{closed.status_code} {str(closed.json())[:60]}")
+
+    again = c.post(f"{BASE}/reports/{rid}/review", headers=hd,
+                   json={"status": "resolved", "comment": "E2E: a second closing."})
+    check(again.status_code == 409, "a closed complaint does not close twice", str(again.status_code))
+    back = c.post(f"{BASE}/reports/{rid}/review", headers=hd,
+                  json={"status": "open", "comment": "E2E: take the decision back."})
+    check(back.status_code == 422, "a decision the history already records is not rewritten",
+          str(back.json())[:100])
+
+    detail = c.get(f"{BASE}/reports/{rid}", headers=hd).json()
+    chain = [(r["from_status"], r["to_status"]) for r in detail["reviews"]]
+    check(chain == [("open", "reviewed"), ("reviewed", "resolved")],
+          "the history is the moves, in the order they happened", str(chain))
+    check(all(r["moderator_id"] == uid_d and r["comment"] for r in detail["reviews"]),
+          "every row of the history names the hand and says what it thought", str(len(detail["reviews"])))
+
+    about_d = c.post(f"{BASE}/users/{uid_d}/report", headers=hb,
+                     json={"reason": "other", "details": "E2E: a complaint about the moderator."})
+    check(about_d.status_code == 200, "another account can complain about a moderator", str(about_d.status_code))
+    d_cards = [r for r in c.get(f"{BASE}/reports", params={"status": "open"}, headers=hd).json().get("reports", [])
+               if r["reported"]["user_id"] == uid_d]
+    decided = c.post(f"{BASE}/reports/{d_cards[0]['id']}/review", headers=hd,
+                     json={"status": "dismissed", "comment": "E2E: deciding about myself."}) if d_cards else None
+    check(bool(d_cards) and decided.status_code == 403,
+          "a moderator cannot close a complaint about their own account",
+          str(decided.json())[:100] if decided else "no complaint about the moderator in the queue")
+
+    after = c.get(f"{BASE}/reports", headers=ha)
+    check(after.status_code == 403,
+          "the person who complained is still not told what became of it", str(after.status_code))
+    return {"uid_d": uid_d, "hd": hd, "report_id": rid}
 
 
 def onboard_payload(name: str, gender: str, pref: list[str], interests: list[str]) -> dict:
@@ -552,6 +686,10 @@ def main() -> int:
     check(map_now["overall"] == comp_now["overall"],
           "the map follows the re-taken test", f"map={map_now['overall']} live={comp_now['overall']}")
 
+    # 12d. a complaint, from the same pair, into the one door that can read it. The journey has
+    # walked the tap that writes a report ever since stage 96; it never walked what happens after it.
+    mod = complaint_reaches_a_moderator(c, ha, hb, uid_a, uid_b, f"e2e.d.{stamp}@befosmail.com", pw)
+
     # 13. IDOR: B cannot read A's private match with someone else / cross-account safety
     # A blocked-user flow
     blk = c.post(f"{BASE}/users/{uid_b}/block", headers=ha)
@@ -594,6 +732,26 @@ def main() -> int:
     # 19. the journey leaves no account behind: both halves of it are probe data
     deb = c.delete(f"{BASE}/users/me", headers=hb)
     check(deb.status_code == 200, "delete account B", str(deb.status_code))
+
+    # 19b. what a complaint keeps after both accounts it names are gone. The row and its history are
+    # the record of a decision about a person; an erasure that took them would leave the queue with
+    # no way to answer the next complaint about the same name.
+    if mod["report_id"]:
+        kept = c.get(f"{BASE}/reports/{mod['report_id']}", headers=mod["hd"])
+        body = kept.json() if kept.status_code == 200 else {}
+        check(kept.status_code == 200 and body.get("status") == "resolved"
+              and body.get("reported", {}).get("is_deleted") is True
+              and body.get("reported", {}).get("age") is None,
+              "the complaint outlives the accounts it names",
+              f"{kept.status_code} {str(body.get('reported'))[:120]}")
+        check(len(body.get("reviews", [])) == 2, "and the history of the decision outlives them too",
+              str(len(body.get("reviews", []))))
+
+        # 19c. the role goes with the account that held it: a deleted moderator opens nothing.
+        dd = c.delete(f"{BASE}/users/me", headers=mod["hd"])
+        check(dd.status_code == 200, "the moderator probe account is deleted again", str(dd.status_code))
+        keyless = c.get(f"{BASE}/reports", headers=mod["hd"])
+        check(keyless.status_code == 401, "a deleted account keeps no key to the queue", str(keyless.status_code))
 
     c.close()
     passed = sum(1 for ok, _ in results if ok)
