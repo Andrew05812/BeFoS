@@ -31,6 +31,12 @@ What remains open after that is stated in §8 and §11 rather than in the client
 app promises a ceiling on how many photographs an account holds — the route takes a picture until the
 person stops sending them — and ``e2e_journey.py`` still never touches one, so the row a person now
 manages is covered by the two test sets and not by the live path.
+
+The citation check is scoped to the bullets that name the photograph row. §8 gained a second client
+path with stage 101 — the blocked list and its removal, cited on the settings screen — and a screen
+sentence like «Разблокировать …?» is a line an operator reads, not a write; the settings bullets are
+policed for their own symbols by
+``test_a_block_made_by_mistake_can_be_seen_and_taken_back.py``.
 """
 
 from __future__ import annotations
@@ -573,23 +579,34 @@ def test_every_photo_refusal_the_server_can_raise_has_russian_copy():
 
 def test_every_kotlin_citation_in_the_checklist_still_names_the_symbol():
     section = _release_section("8")
+    # §8 grew a second client path with stage 101 — the blocked list and its removal, cited on the
+    # settings screen. Those bullets are policed by test_a_block_made_by_mistake_can_be_seen_and_taken_back.py,
+    # which knows the symbols of that row. This file keeps demanding its own: a bullet that names the
+    # photograph row has to cite lines that still carry one of the four writes that row is made of.
+    bullets = [
+        bullet
+        for bullet in section.split("- [ ]")
+        if "сним" in bullet and _KOTLIN_CITATION.search(bullet)
+    ]
+    assert bullets, "§8 no longer cites the client path of a photograph row at all"
     checked = 0
     named: set[str] = set()
-    for file_name, start, end in _KOTLIN_CITATION.findall(section):
-        candidates = list(_CLIENT_MAIN.rglob(file_name))
-        assert candidates, f"§8 cites {file_name}, which is not in the client anymore"
-        lines = _text(candidates[0]).splitlines()
-        last = int(end or start)
-        assert last <= len(lines), f"§8 cites {file_name}:{last}, the file has {len(lines)} lines"
-        window = lines[int(start) - 1 : last]
-        writes = {name for name in _PHOTO_WRITES if any(name in line for line in window)}
-        assert writes, (
-            f"§8 cites {file_name}:{start}-{last} as a client path, and that window no longer carries "
-            "any of the four writes a photograph row is made of — the line moved and the citation "
-            "followed nothing"
-        )
-        named |= writes
-        checked += 1
+    for bullet in bullets:
+        for file_name, start, end in _KOTLIN_CITATION.findall(bullet):
+            candidates = list(_CLIENT_MAIN.rglob(file_name))
+            assert candidates, f"§8 cites {file_name}, which is not in the client anymore"
+            lines = _text(candidates[0]).splitlines()
+            last = int(end or start)
+            assert last <= len(lines), f"§8 cites {file_name}:{last}, the file has {len(lines)} lines"
+            window = lines[int(start) - 1 : last]
+            writes = {name for name in _PHOTO_WRITES if any(name in line for line in window)}
+            assert writes, (
+                f"§8 cites {file_name}:{start}-{last} as a photograph path, and that window no longer "
+                "carries any of the four writes a photograph row is made of — the line moved and the "
+                "citation followed nothing"
+            )
+            named |= writes
+            checked += 1
     assert checked >= 3, f"§8 cites {checked} Kotlin lines; the client path lost its citations"
     assert named == set(_PHOTO_WRITES), (
         f"§8 cites the client path for {sorted(named)} only, so one of the four writes a person "
