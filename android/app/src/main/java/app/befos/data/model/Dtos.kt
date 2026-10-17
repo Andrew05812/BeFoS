@@ -84,6 +84,11 @@ data class ProfileDto(
 )
 
 @Serializable
+data class PhotoOrderRequest(
+    @SerialName("photo_ids") val photoIds: List<String>,
+)
+
+@Serializable
 data class OnboardingRequest(
     val name: String,
     @SerialName("birth_date") val birthDate: String,

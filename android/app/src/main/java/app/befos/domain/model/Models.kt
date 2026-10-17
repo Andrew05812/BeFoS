@@ -6,6 +6,15 @@ data class Interest(
     val category: String,
 )
 
+/**
+ * One photograph the person owns, under the number the server gave it.
+ *
+ * The number is what makes the row manageable: removing, leading with and reordering are all writes
+ * about a specific photograph, and a bare url cannot name one — two uploads of the same file would
+ * be the same string to the server and different rows.
+ */
+data class ProfilePhoto(val id: String, val url: String)
+
 data class Profile(
     val userId: String,
     val name: String,
@@ -14,7 +23,7 @@ data class Profile(
     val gender: String,
     val about: String?,
     val datingGoal: String,
-    val photoUrls: List<String>,
+    val photos: List<ProfilePhoto>,
     val interests: List<Interest>,
     val lifestyle: Map<String, String>,
     val ageMin: Int,
@@ -22,6 +31,9 @@ data class Profile(
     val genderPreference: List<String>,
     val isHidden: Boolean = false,
 ) {
+    /** The row the way every screen reads it: urls, in the order the owner's writes left them. */
+    val photoUrls: List<String> get() = photos.map { it.url }
+
     val primaryPhoto: String? get() = photoUrls.firstOrNull()
 }
 

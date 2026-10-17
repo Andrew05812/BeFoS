@@ -20,6 +20,7 @@ import app.befos.data.model.MessagePageDto
 import app.befos.data.model.MessageRequest
 import app.befos.data.model.OnboardingRequest
 import app.befos.data.model.PassResponseDto
+import app.befos.data.model.PhotoOrderRequest
 import app.befos.data.model.PlanDetailDto
 import app.befos.data.model.PlanListDto
 import app.befos.data.model.ProfileDto
@@ -146,6 +147,25 @@ class ApiService(private val client: HttpClient) {
             }
         }
     }
+
+    suspend fun deletePhoto(photoId: String): ApiResult<ProfileDto> =
+        client.apiCall {
+            method = HttpMethod.Delete
+            url(endpoint("users/me/photo/$photoId"))
+        }
+
+    suspend fun makePhotoPrimary(photoId: String): ApiResult<ProfileDto> =
+        client.apiCall {
+            method = HttpMethod.Post
+            url(endpoint("users/me/photo/$photoId/primary"))
+        }
+
+    suspend fun reorderPhotos(photoIds: List<String>): ApiResult<ProfileDto> =
+        client.apiCall {
+            method = HttpMethod.Patch
+            url(endpoint("users/me/photo/order"))
+            setBody(PhotoOrderRequest(photoIds))
+        }
 
     // ---------- Tests ----------
     suspend fun getTests(): ApiResult<TestListDto> =
