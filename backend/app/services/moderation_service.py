@@ -42,7 +42,7 @@ class ModerationService:
     """Reading the complaint queue and closing a complaint, for the one role that may do either.
 
     The service never learns who may call it: every entry point sits behind `get_moderator`
-    (`app/auth/deps.py:46`), which reads the flag off the account row per request. What this class
+    (`app/auth/deps.py:56`), which reads the flag off the account row per request. What this class
     does hold is the lifecycle — the transition table above, the comment a closing needs, and the
     rule that the hand which writes a status is the account the route authenticated, never a number
     somebody typed into a body.

@@ -13,7 +13,7 @@ from app.models import Profile, Report, ReportReview, User
 class ModerationRepository:
     """The reads and the two writes the moderation surface is built on.
 
-    Nothing here resolves a permission — `app/auth/deps.py:46` decides who may ask, and this
+    Nothing here resolves a permission — `app/auth/deps.py:56` decides who may ask, and this
     module answers whoever asks. The separation is the point: a route that forgot the dependency
     would still not get a row, because the row cannot be reached without going through a
     function that the moderation service calls from behind that door.
