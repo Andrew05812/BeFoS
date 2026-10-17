@@ -6,7 +6,9 @@ import app.befos.core.network.ApiResult
 import app.befos.domain.model.DiscoveryCard
 import app.befos.domain.model.LikeOutcome
 import app.befos.domain.repository.DiscoveryRepository
+import app.befos.domain.repository.SafetyRepository
 import app.befos.domain.safety.AnsweredUsers
+import app.befos.presentation.common.ReportForm
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -45,11 +47,19 @@ private const val ANSWER_NOT_RECORDED = "Ответ не записан — ка
 
 class DiscoveryViewModel(
     private val discoveryRepository: DiscoveryRepository,
+    safetyRepository: SafetyRepository,
     answeredUsers: AnsweredUsers,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(DiscoveryUiState())
     val uiState: StateFlow<DiscoveryUiState> = _uiState.asStateFlow()
+
+    /**
+     * The complaint form, the same one the profile screen and a conversation render. A card is the
+     * one place a person is seen without their profile being opened, and until stage 102 the only way
+     * to complain about them was to open the profile and find the flag there.
+     */
+    val report = ReportForm(safetyRepository, viewModelScope)
 
     private val pageLimit = 20
 
@@ -157,6 +167,23 @@ class DiscoveryViewModel(
         _uiState.update { it.copy(match = null) }
         advance()
     }
+
+    /**
+     * Opens the complaint form for the card on screen. The id is taken from the card the person is
+     * looking at, here rather than when the form sends: the deck moves on its own once an answer
+     * lands, and a complaint written after that would name whoever slid into the slot.
+     */
+    fun askReport() {
+        val card = _uiState.value.current ?: return
+        report.open(card.userId)
+    }
+
+    /**
+     * Closes the form. Nothing else happens: a complaint is not an answer about the person, so the
+     * card stays where it was — the viewer still has to like or pass them, and the deck still shows
+     * them until one of those is recorded.
+     */
+    fun closeReport() = report.close()
 
     private fun advance() {
         _uiState.update { state -> state.copy(index = state.index + 1) }

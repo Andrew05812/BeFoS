@@ -35,11 +35,17 @@ fun identityLine(city: String, goalCode: String): String =
     listOf(city.trim(), goalLabel(goalCode)).filter { it.isNotBlank() }.joinToString(" · ")
 
 // Mirrors backend VALID_REASONS in safety_service.py: the API accepts only these slugs.
+// The two that name the account itself rather than one of its messages — somebody posing as a
+// person they are not, and somebody whose message you do not want to read twice — sit before
+// «Другое» because a category a person has to describe in free text instead of choosing is the
+// one a reviewer learns least from.
 val ReportReasonLabels = linkedMapOf(
     "spam" to "Спам",
     "harassment" to "Оскорбления",
     "inappropriate" to "Неподходящие фото",
     "fake" to "Ненастоящая анкета",
     "minor" to "Анкета несовершеннолетнего",
+    "impersonation" to "Имитирует другого человека",
+    "threats" to "Угрозы или преследование",
     "other" to "Другое",
 )

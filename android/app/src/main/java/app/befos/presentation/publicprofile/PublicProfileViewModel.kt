@@ -12,7 +12,7 @@ import app.befos.domain.repository.ProfileRepository
 import app.befos.domain.repository.SafetyRepository
 import app.befos.domain.repository.TestRepository
 import app.befos.domain.safety.AnsweredUsers
-import app.befos.presentation.common.ReportReasonLabels
+import app.befos.presentation.common.ReportForm
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -26,10 +26,6 @@ data class PublicProfileUiState(
     val busy: Boolean = false,
     val match: LikeOutcome? = null,
     val blockDialog: Boolean = false,
-    val reportDialog: Boolean = false,
-    val reportReason: String = "",
-    val reportDetails: String = "",
-    val reportError: String? = null,
     val gone: Boolean = false,
     val partner: Boolean = false,
     // The reader's own section counts, asked only when a band of this card came out without data.
@@ -56,6 +52,13 @@ class PublicProfileViewModel(
 
     private val _uiState = MutableStateFlow(PublicProfileUiState(partner = matchId != null))
     val uiState: StateFlow<PublicProfileUiState> = _uiState.asStateFlow()
+
+    /**
+     * The complaint, held by the form the deck and a conversation reach too. The screen keeps its
+     * own methods because the id the complaint names comes from `peerId`, which a pair route fills
+     * in only after the card arrives.
+     */
+    val report = ReportForm(safetyRepository, viewModelScope)
 
     init {
         load()
@@ -155,31 +158,24 @@ class PublicProfileViewModel(
      */
     private fun answeredOnce() = answeredUsers.publish(peerId)
 
-    fun openReport() = _uiState.update { it.copy(reportDialog = true, reportError = null) }
-    fun closeReport() = _uiState.update { it.copy(reportDialog = false, reportError = null) }
-    fun setReportReason(slug: String) = _uiState.update { it.copy(reportReason = slug, reportError = null) }
-    fun onReportDetails(v: String) = _uiState.update { it.copy(reportDetails = v) }
+    fun openReport() = report.open(peerId)
 
-    fun submitReport() {
-        val s = _uiState.value
-        if (s.busy) return
-        if (!ReportReasonLabels.containsKey(s.reportReason)) {
-            _uiState.update { it.copy(reportError = "Выберите причину из списка.") }
-            return
-        }
-        _uiState.update { it.copy(busy = true, reportError = null) }
-        viewModelScope.launch {
-            val result = safetyRepository.report(
-                userId = peerId,
-                reason = s.reportReason,
-                details = s.reportDetails.trim().ifBlank { null },
-            )
-            when (result) {
-                is ApiResult.Success -> _uiState.update { it.copy(busy = false, reportDialog = false, gone = true) }
-                is ApiResult.Error -> _uiState.update { it.copy(busy = false, reportError = result.message) }
-            }
-        }
+    /**
+     * Closes the dialog, and only a complaint the server accepted leaves the card. The send used to
+     * pop the screen by itself, which meant the person who reported someone never learned whether
+     * the complaint went out; now the dialog says it first and this is the moment the screen is done.
+     */
+    fun closeReport() {
+        val sent = report.sent
+        report.close()
+        if (sent) _uiState.update { it.copy(gone = true) }
     }
+
+    fun setReportReason(slug: String) = report.setReason(slug)
+
+    fun onReportDetails(value: String) = report.setDetails(value)
+
+    fun submitReport() = report.submit()
 
     fun dismissMatch() = _uiState.update { it.copy(match = null, gone = true) }
 

@@ -27,6 +27,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.PersonOutline
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -84,6 +85,7 @@ import app.befos.core.designsystem.scoreColor
 import app.befos.core.di.beFosViewModel
 import app.befos.domain.model.DiscoveryCard
 import app.befos.domain.model.LikeOutcome
+import app.befos.presentation.common.ReportDialog
 import app.befos.presentation.common.identityLine
 import kotlinx.coroutines.launch
 
@@ -99,9 +101,20 @@ private const val DRAG_RESISTANCE = 0.35f
 @Composable
 fun DiscoveryScreen(onOpenMatch: (String) -> Unit, onOpenProfile: (String) -> Unit) {
     val vm: DiscoveryViewModel = beFosViewModel {
-        DiscoveryViewModel(it.discoveryRepository, it.answeredUsers)
+        DiscoveryViewModel(it.discoveryRepository, it.safetyRepository, it.answeredUsers)
     }
     val state by vm.uiState.collectAsState()
+    val reportState by vm.report.state.collectAsState()
+
+    if (reportState.open) {
+        ReportDialog(
+            state = reportState,
+            onReason = vm.report::setReason,
+            onDetails = vm.report::setDetails,
+            onSubmit = vm.report::submit,
+            onDismiss = vm::closeReport,
+        )
+    }
 
     state.match?.let { outcome ->
         outcome.matchId?.let { matchId ->
@@ -286,7 +299,7 @@ private fun DiscoveryContent(state: DiscoveryUiState, vm: DiscoveryViewModel, on
             CardPhoto(
                 DiscoveryCardData(photoUrl = card.photoUrl, name = card.name),
                 onOpenProfile = { onOpenProfile(card.userId) },
-                content = { CardOverlay(card, onOpenProfile = { onOpenProfile(card.userId) }) },
+                content = { CardOverlay(card, onOpenProfile = { onOpenProfile(card.userId) }, onReport = vm::askReport) },
             )
             SwipeOverlay(dragX = dragX.value, thresholdPx = thresholdPx, modifier = Modifier.matchParentSize())
         }
@@ -369,7 +382,7 @@ private fun CardPhoto(
 
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-private fun CardOverlay(card: DiscoveryCard, onOpenProfile: () -> Unit) {
+private fun CardOverlay(card: DiscoveryCard, onOpenProfile: () -> Unit, onReport: () -> Unit) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
         // Four chips fit on a 392dp phone at normal text size but stack into four rows
         // on a 320dp one, and the bottom block then grows up into the score badge.
@@ -390,13 +403,27 @@ private fun CardOverlay(card: DiscoveryCard, onOpenProfile: () -> Unit) {
                 .align(Alignment.TopEnd)
                 .padding(Spacing.lg),
         )
-        // Detail shortcut, top-left.
-        OverlayIconButton(
-            onClick = onOpenProfile,
-            contentDescription = "Открыть профиль",
-            modifier = Modifier.align(Alignment.TopStart).padding(Spacing.lg),
+        // Detail shortcut and the complaint, stacked in the same top-left corner. A drag that
+        // starts on either still belongs to the card: the parent reads horizontal drags before the
+        // button does, so the pair of them costs the deck no swipe room.
+        Column(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(Spacing.lg),
+            verticalArrangement = Arrangement.spacedBy(Spacing.sm),
         ) {
-            Icon(Icons.Filled.PersonOutline, contentDescription = null, tint = Color.White)
+            OverlayIconButton(
+                onClick = onOpenProfile,
+                contentDescription = "Открыть профиль",
+            ) {
+                Icon(Icons.Filled.PersonOutline, contentDescription = null, tint = Color.White)
+            }
+            OverlayIconButton(
+                onClick = onReport,
+                contentDescription = "Пожаловаться",
+            ) {
+                Icon(Icons.Filled.Flag, contentDescription = null, tint = Color.White)
+            }
         }
 
         // Bottom editorial block over the scrim.
