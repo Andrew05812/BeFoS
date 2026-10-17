@@ -17,7 +17,10 @@ let it. So every promise here is a refusal:
 * the role is read off the row per request, so taking it away stops the account at the next call
   with the same token it was already using;
 * the complaint budget is spent on the attempt, not on the row, and the complaint plus its history
-  outlive both accounts they name.
+  outlive both accounts they name;
+* the person who filed a complaint is answered with the fact that it was kept and the reason it was
+  kept under, and nothing about what is decided inside it — the note a moderator writes reaches the
+  queue and no other account.
 """
 
 from __future__ import annotations
@@ -41,6 +44,7 @@ from .test_a_moderator_reads_the_queue_and_closes_a_complaint import (
     _grant_moderator_role,
     _history,
     _moderator,
+    _page,
     _row,
 )
 
@@ -342,3 +346,41 @@ async def test_an_ordinary_account_cannot_close_a_complaint_it_holds_no_role_for
 
     assert (await _row(report_id)).status == "open"
     assert await _history(report_id) == []
+
+
+async def test_the_answer_a_reporter_receives_names_nothing_about_the_decision(
+    client: AsyncClient,
+) -> None:
+    """The brief's rule on the reporter's side, checked on the only body they are ever given.
+
+    «Не раскрывай пользователю статус рассмотрения и внутренние решения модератора» has no route to
+    enforce it, because a person who filed a complaint is never handed a page of it. So the promise
+    lives in two places: one response body, which carries that the complaint was kept and the reason
+    it was kept under and nothing else, and one closed door — the author of a complaint is turned
+    away from its detail by the same 403 a stranger gets, after a moderator has written the note
+    inside it.
+    """
+    reporter = await _account(client, "quiet-witness@befos.app", "Свидетель")
+    accused = await _account(client, "quiet-accused@befos.app", "Обвиняемый")
+    filed = await client.post(
+        f"/api/v1/users/{accused['user_id']}/report",
+        json={"reason": "harassment", "details": "Пишет оскорбления"},
+        headers=auth_headers(reporter["token"]),
+    )
+    assert filed.status_code == 200, filed.text
+    assert set(filed.json()) == {"reported", "reason"}, (
+        f"the answer to a complaint carries {sorted(filed.json())}"
+    )
+
+    moderator = await _moderator(client, "quiet-hand@befos.app", "Ревизор")
+    report_id = next(
+        row["id"]
+        for row in await _page(client, moderator, status="open")
+        if row["reported"]["user_id"] == accused["user_id"]
+    )
+    closed = await _decide(client, moderator, report_id, "resolved", "анкета проверена, пара распущена")
+    assert closed.status_code == 200, closed.text
+
+    refused = await client.get(f"{QUEUE}/{report_id}", headers=auth_headers(reporter["token"]))
+    assert refused.status_code == 403, refused.text
+    assert "resolved" not in refused.text and "анкета" not in refused.text
