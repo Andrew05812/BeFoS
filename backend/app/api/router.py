@@ -2,7 +2,18 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
-from app.api.v1 import auth, chat, discover, health, matches, plans, safety, tests, users
+from app.api.v1 import (
+    auth,
+    chat,
+    discover,
+    health,
+    matches,
+    moderation,
+    plans,
+    safety,
+    tests,
+    users,
+)
 from app.core.rate_limit import rate_limit_dependency
 
 api_router = APIRouter()
@@ -27,3 +38,7 @@ api_router.include_router(plans.router, dependencies=[Depends(rate_limit_depende
 api_router.include_router(plans.pair_router, dependencies=[Depends(rate_limit_dependency)])
 api_router.include_router(chat.router, dependencies=[Depends(rate_limit_dependency)])
 api_router.include_router(safety.router, dependencies=[Depends(rate_limit_dependency)])
+# `/reports` is the one route family whose caller is decided by a column rather than by
+# membership in a pair, and it shares the default per-address bucket with the rest: a moderator
+# flooding it is a moderator with a script, which the operator can see and revoke.
+api_router.include_router(moderation.router, dependencies=[Depends(rate_limit_dependency)])

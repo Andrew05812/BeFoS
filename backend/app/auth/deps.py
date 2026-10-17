@@ -8,7 +8,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_session
-from app.core.exceptions import UnauthorizedError
+from app.core.exceptions import ForbiddenError, UnauthorizedError
 from app.core.logging import get_logger
 from app.core.security import decode_token
 from app.repositories.user_repo import UserRepository
@@ -50,4 +50,19 @@ async def get_current_user(
 
 
 async def require_current_user(user=Depends(get_current_user)):
+    return user
+
+
+async def get_moderator(user=Depends(get_current_user)):
+    """The door every administrative route is behind, and the only place the role is read.
+
+    The answer comes from the row `get_current_user` just loaded, not from the token: a JWT
+    carries no role, so taking the flag away from an account stops it at the next request
+    instead of at the next hour, which is how long a stolen moderator token would otherwise be
+    worth. A caller who is signed in but not a moderator gets 403 rather than 401 — the session
+    is fine and the permission is not, and a client that cannot tell the two apart would keep
+    refreshing in front of a door that no refresh opens.
+    """
+    if not user.is_moderator:
+        raise ForbiddenError("Moderator role is required.")
     return user

@@ -44,6 +44,19 @@ class UnauthorizedError(AppError):
     message = "Not authenticated."
 
 
+class ForbiddenError(AppError):
+    """The caller is who they say they are and still not allowed through this door.
+
+    Kept apart from 401 because the moderation routes answer the two differently and the client
+    has to be able to tell them apart: an expired session is worth a refresh, while a signed-in
+    account that simply is not a moderator will never get through by trying again.
+    """
+
+    status_code = status.HTTP_403_FORBIDDEN
+    code = "forbidden"
+    message = "Not allowed."
+
+
 class ValidationError(AppError):
     status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
     code = "validation_error"

@@ -3,7 +3,16 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, ForeignKey, String, Text, UniqueConstraint, CheckConstraint
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -107,10 +116,50 @@ class Report(TimestampMixin, Base):
     reason: Mapped[str] = mapped_column(String(80), nullable=False)
     details: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(
-        String(20), default=ReportStatus.OPEN.value, nullable=False, index=True
+        String(20), default=ReportStatus.OPEN.value, nullable=False
     )
 
     __table_args__ = (
         UniqueConstraint("reporter_id", "reported_id", "reason", name="uq_report"),
         CheckConstraint("reporter_id <> reported_id", name="ck_report_not_self"),
+        # The moderation queue asks for exactly this shape: one status, oldest first, and a page
+        # that continues after a (created_at, id) pair. `ix_reports_status` answered the predicate
+        # and then sorted the whole bucket in the reader; the ordering columns belong in the key,
+        # and status alone is its left prefix, so the old index is dropped rather than kept as a
+        # write cost that no read asks for.
+        Index("ix_reports_status_created_at", "status", "created_at", "id"),
+    )
+
+
+class ReportReview(TimestampMixin, Base):
+    """One status change of one complaint, written by the hand that moved it.
+
+    `reports.status` says where a complaint stands now; this says how it got there and who said
+    so. The pair (previous, new) is stored rather than only the new value because a queue read
+    after the fact has to be able to tell a complaint that was dismissed straight away from one
+    that was looked at twice, and a single column cannot hold both answers.
+    """
+
+    __tablename__ = "report_reviews"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    report_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("reports.id", ondelete="CASCADE"), nullable=False
+    )
+    moderator_id: Mapped[uuid.UUID] = mapped_column(
+        # RESTRICT and not CASCADE: a row that records what was decided about a person must not
+        # disappear because the account that decided it stopped being one, and accounts are never
+        # hard-deleted anyway, so nothing in the product has the power to take it with them.
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    from_status: Mapped[str] = mapped_column(String(20), nullable=False)
+    to_status: Mapped[str] = mapped_column(String(20), nullable=False)
+    comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    __table_args__ = (
+        CheckConstraint("from_status <> to_status", name="ck_report_review_moves_status"),
+        # One history read per complaint, in the order the decisions were made, and the cursor of
+        # a page of the queue is a (created_at, id) pair of this same shape.
+        Index("ix_report_reviews_report_order", "report_id", "created_at", "id"),
     )
