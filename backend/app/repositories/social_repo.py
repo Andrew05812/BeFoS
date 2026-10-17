@@ -179,6 +179,25 @@ class SocialRepository:
         ).scalar()
         return dissolved
 
+    async def remove_block(self, blocker_id: uuid.UUID, blocked_id: uuid.UUID) -> bool:
+        """Delete the one directed block this account placed on that one, if it is there.
+
+        Direction is what makes this write safe. `is_blocked_either` reads the pair and asks
+        whether either side holds a row, because the deck and the like route care about the
+        relationship; undoing a block can only undo the row the caller themselves wrote, or
+        one account could release the block another person placed. A row that is not there
+        and a row that belongs to somebody else answer the same way, so the route cannot be
+        used to ask whether a given pair is blocked.
+        """
+        removed = (
+            await self.session.execute(
+                delete(Block)
+                .where(Block.blocker_id == blocker_id, Block.blocked_id == blocked_id)
+                .returning(Block.id)
+            )
+        ).scalar()
+        return removed is not None
+
     async def _purge_lock_targets(self, user_id: uuid.UUID) -> list[uuid.UUID]:
         """Every peer whose pair lock a purge has to hold before reading or deleting edges.
 

@@ -114,6 +114,11 @@ private val translated: Map<String, String> = mapOf(
 
     // safety
     "you cannot block yourself." to "Нельзя применить это к себе.",
+    "you cannot unblock yourself." to "Нельзя применить это к себе.",
+    // A release tap on a row the server no longer holds — because the list went stale, or because
+    // the account behind it is gone — has to say which of the two it is, not the bare «не найдено»
+    // a stranger's profile number also earns.
+    "you have not blocked this user." to "Вы этого человека не блокировали. Обновите список.",
     "you cannot report yourself." to "Нельзя применить это к себе.",
     "you have already reported this user for the same reason." to "Такая жалоба уже отправлена.",
 

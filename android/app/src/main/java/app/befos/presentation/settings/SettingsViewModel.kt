@@ -3,6 +3,7 @@ package app.befos.presentation.settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.befos.core.network.ApiResult
+import app.befos.domain.model.BlockedUser
 import app.befos.domain.repository.AuthRepository
 import app.befos.domain.repository.ProfileRepository
 import app.befos.domain.repository.SafetyRepository
@@ -26,6 +27,18 @@ data class SettingsUiState(
     val loggedOut: Boolean = false,
     val deleted: Boolean = false,
     val confirmDelete: Boolean = false,
+    /**
+     * The people this account holds behind a block, newest first, as the server listed them.
+     *
+     * Empty is a real answer here and must not be drawn as one the screen is sure of while the read
+     * is still out — see [blocksLoaded].
+     */
+    val blocked: List<BlockedUser> = emptyList(),
+    val blocksLoaded: Boolean = false,
+    /** The read never answered, so the section cannot say either way whom the account hides. */
+    val blocksUnknown: Boolean = false,
+    val blocksBusy: Boolean = false,
+    val confirmUnblock: BlockedUser? = null,
 )
 
 class SettingsViewModel(
@@ -41,7 +54,7 @@ class SettingsViewModel(
         load()
     }
 
-    /** Sync the visibility switch with the server state on open. */
+    /** Sync the visibility switch and the blocked list with the server state on open. */
     fun load() {
         viewModelScope.launch {
             when (val result = profileRepository.me()) {
@@ -49,6 +62,30 @@ class SettingsViewModel(
                     it.copy(hidden = result.data.isHidden, visibilityUnknown = false)
                 }
                 is ApiResult.Error -> _uiState.update { it.copy(visibilityUnknown = true) }
+            }
+        }
+        loadBlocks()
+    }
+
+    /**
+     * Reads the account's own block list. The screen's «Повторить» on this section calls it
+     * directly rather than [load], so retrying a list that failed does not re-read the profile too.
+     *
+     * Kept apart from the visibility read on purpose: the two answers gate different parts of the
+     * screen, and a profile request that came back while this one did not must not put the section
+     * into the «we could not check» state it is holding.
+     */
+    fun loadBlocks() {
+        if (_uiState.value.blocksBusy) return
+        _uiState.update { it.copy(blocksBusy = true) }
+        viewModelScope.launch {
+            when (val result = safetyRepository.blockedUsers()) {
+                is ApiResult.Success -> _uiState.update {
+                    it.copy(blocksBusy = false, blocked = result.data, blocksLoaded = true, blocksUnknown = false)
+                }
+                is ApiResult.Error -> _uiState.update {
+                    it.copy(blocksBusy = false, blocksLoaded = false, blocksUnknown = true)
+                }
             }
         }
     }
@@ -96,6 +133,49 @@ class SettingsViewModel(
                     _uiState.update { it.copy(busy = false, deleted = true) }
                 }
                 is ApiResult.Error -> _uiState.update { it.copy(busy = false, messageIsError = true, message = result.message) }
+            }
+        }
+    }
+
+    /**
+     * Arms the dialog for one person. A write is already out, so the tap is dropped rather than
+     * arming a second dialog: [confirmUnblock] would return on its own guard and leave that dialog
+     * open over a list that is about to be replaced by the server's answer.
+     */
+    fun askUnblock(user: BlockedUser) {
+        if (_uiState.value.blocksBusy) return
+        _uiState.update { it.copy(confirmUnblock = user) }
+    }
+
+    fun cancelUnblock() = _uiState.update { it.copy(confirmUnblock = null) }
+
+    /**
+     * Takes one block back and paints the list the server answered with.
+     *
+     * The row is dropped from the screen by that answer rather than by the local list minus the tap:
+     * the write and the read are the same question, and a row the server still holds has to stay
+     * visible with a working tap. A refusal — a block somebody else already removed, an account that
+     * has gone — leaves the list exactly as it stood and says what the server said.
+     */
+    fun confirmUnblock() {
+        val user = _uiState.value.confirmUnblock ?: return
+        if (_uiState.value.blocksBusy) return
+        _uiState.update { it.copy(confirmUnblock = null, blocksBusy = true) }
+        viewModelScope.launch {
+            when (val result = safetyRepository.unblock(user.userId)) {
+                is ApiResult.Success -> _uiState.update {
+                    it.copy(
+                        blocksBusy = false,
+                        blocked = result.data,
+                        blocksLoaded = true,
+                        blocksUnknown = false,
+                        messageIsError = false,
+                        message = "Вы разблокировали ${user.name}. Пара и переписка не вернутся.",
+                    )
+                }
+                is ApiResult.Error -> _uiState.update {
+                    it.copy(blocksBusy = false, blocksUnknown = false, messageIsError = true, message = result.message)
+                }
             }
         }
     }

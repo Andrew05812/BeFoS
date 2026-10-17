@@ -563,4 +563,25 @@ class RecommendationListResponse(BaseModel):
     recommendations: list[RecommendationOut]
 
 
+# ---------- Safety ----------
+class BlockedUserSummary(BaseModel):
+    """One row of the list the owner built by blocking people: who they blocked, and when.
+
+    The card holds what a person recognises — a name, an age, a city, the leading photograph —
+    and the moment the block was placed, because the list is ordered by it. Interests, the
+    questionnaire and the lifestyle answers appear nowhere on it and are not read for it.
+    """
+
+    user_id: str
+    name: str
+    age: int
+    city: str
+    photo_url: str | None
+    blocked_at: datetime
+
+
+class BlockedUsersResponse(BaseModel):
+    blocked: list[BlockedUserSummary]
+
+
 AuthResponse.model_rebuild()

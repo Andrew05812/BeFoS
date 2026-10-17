@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import ConflictError, NotFoundError, ValidationError
 from app.models import (
     ActivityPreference,
+    Block,
     CompatibilityProfile,
     DiscoveryQueue,
     Photo,
@@ -16,6 +17,7 @@ from app.models import (
     TestResult,
     User,
 )
+from app.models.base import age_years, utc_today
 from app.repositories.social_repo import SocialRepository
 from app.repositories.token_repo import TokenRepository
 from app.repositories.user_repo import UserRepository
@@ -55,6 +57,67 @@ class SafetyService:
         if dissolved is not None:
             await manager.close_room(dissolved)
         return {"blocked": True, "user_id": str(blocked_id)}
+
+    async def unblock(self, blocker_id: uuid.UUID, blocked_id: uuid.UUID) -> list[dict]:
+        """Undo a block the caller placed, and answer with the list that is left.
+
+        The row goes under the same pair lock a block and a like take, so the three orders a
+        person can cause — blocking, unblocking, liking — serialise instead of leaving a pair
+        liked and blocked at once or a like reading a row the unblock is deleting.
+
+        What comes back is the owner's list, not a boolean: the screen that asked has to paint
+        the row the server actually holds after the removal, the same way the photograph row is
+        painted from the answer rather than from what the tap expected. Undoing a block returns
+        the person to the deck — the deck's anti-join stops excluding them — and does not
+        resurrect the match the block dissolved: that pair's chat was deleted, and a route that
+        quietly re-created it would be writing a relationship nobody agreed to.
+        """
+        if blocker_id == blocked_id:
+            raise ValidationError("You cannot unblock yourself.")
+        await self.social.lock_pair(blocker_id, blocked_id)
+        if not await self.social.remove_block(blocker_id, blocked_id):
+            # A number this account never blocked and a number nobody holds answer alike: the
+            # route cannot be used to ask whether some other pair is blocked.
+            raise NotFoundError("You have not blocked this user.")
+        await self.session.commit()
+        return await self.list_blocked(blocker_id)
+
+    async def list_blocked(self, user_id: uuid.UUID) -> list[dict]:
+        """The rows this account wrote into `blocks`, newest first, as cards it can recognise.
+
+        The read is one-way on purpose: a row where this account is the blocked side belongs to
+        the other person's list and is not this account's to see.
+        """
+        stmt = (
+            select(Block.blocked_id, Block.created_at)
+            .where(Block.blocker_id == user_id)
+            # `created_at` alone is not an order: two taps in the same second give two rows with
+            # one timestamp, and the list would then shuffle between two reads of the same state.
+            .order_by(Block.created_at.desc(), Block.id.desc())
+        )
+        rows = list((await self.session.execute(stmt)).all())
+        if not rows:
+            return []
+        ids = [row.blocked_id for row in rows]
+        profiles = {p.user_id: p for p in await self.users.get_profile_cards(ids)}
+        photos = await self.users.get_primary_photos(ids)
+        today = utc_today()
+        result: list[dict] = []
+        for row in rows:
+            profile = profiles.get(row.blocked_id)
+            if profile is None:
+                continue
+            result.append(
+                {
+                    "user_id": str(row.blocked_id),
+                    "name": profile.name,
+                    "age": age_years(profile.birth_date, today),
+                    "city": profile.city,
+                    "photo_url": photos.get(row.blocked_id),
+                    "blocked_at": row.created_at,
+                }
+            )
+        return result
 
     async def report(self, reporter_id: uuid.UUID, reported_id: uuid.UUID, reason: str, details: str | None) -> dict:
         if reporter_id == reported_id:

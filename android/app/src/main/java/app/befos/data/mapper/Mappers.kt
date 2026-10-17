@@ -1,6 +1,7 @@
 package app.befos.data.mapper
 
 import app.befos.core.network.ApiConfig
+import app.befos.data.model.BlockedUserDto
 import app.befos.data.model.CategoryProgressDto
 import app.befos.data.model.CategoryScoreDto
 import app.befos.data.model.CompatibilityDto
@@ -25,6 +26,7 @@ import app.befos.data.model.TraitAxisDto
 import app.befos.data.model.UniverseDto
 import app.befos.data.model.UniverseLayerDto
 import app.befos.data.model.UniverseNodeDto
+import app.befos.domain.model.BlockedUser
 import app.befos.domain.model.CategoryProgress
 import app.befos.domain.model.CategoryScore
 import app.befos.domain.model.Compatibility
@@ -196,6 +198,15 @@ fun MatchSummaryDto.toDomain() = MatchSummary(
     lastMessage = lastMessage,
     lastMessageAt = lastMessageAt,
     unread = unread,
+)
+
+fun BlockedUserDto.toDomain() = BlockedUser(
+    userId = userId,
+    name = name,
+    age = age,
+    city = city,
+    photoUrl = ApiConfig.absolute(photoUrl),
+    blockedAt = blockedAt,
 )
 
 fun MessageDto.toDomain() = Message(

@@ -40,13 +40,20 @@ import app.befos.core.designsystem.AppButton
 import app.befos.core.designsystem.AppButtonVariant
 import app.befos.core.designsystem.AppCard
 import app.befos.core.designsystem.AppTopBar
+import app.befos.core.designsystem.Avatar
 import app.befos.core.designsystem.Elev
 import app.befos.core.designsystem.InlineNotice
 import app.befos.core.designsystem.ErrorRed
 import app.befos.core.designsystem.SectionHeader
 import app.befos.core.designsystem.Motion
+import app.befos.core.designsystem.SkeletonBlock
 import app.befos.core.designsystem.Spacing
+import app.befos.domain.model.BlockedUser
 import app.befos.core.di.beFosViewModel
+import java.time.OffsetDateTime
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 @Composable
 fun SettingsScreen(onBack: () -> Unit, onLoggedOut: () -> Unit) {
@@ -71,6 +78,24 @@ fun SettingsScreen(onBack: () -> Unit, onLoggedOut: () -> Unit) {
             text = { Text("Аккаунт удалится сразу. Восстановить его не получится.") },
             confirmButton = { TextButton(onClick = vm::deleteAccount) { Text("Удалить", color = MaterialTheme.colorScheme.error) } },
             dismissButton = { TextButton(onClick = vm::cancelDelete) { Text("Отмена") } },
+        )
+    }
+
+    state.confirmUnblock?.let { user ->
+        AlertDialog(
+            onDismissRequest = vm::cancelUnblock,
+            title = { Text("Разблокировать ${user.name}?") },
+            // The promise is kept short because it is the part a person is likely to expect and the
+            // part that is not true: releasing a block opens the profile again, it does not bring back
+            // the pair and the messages the block dissolved.
+            text = {
+                Text(
+                    "Анкета снова станет открытой, и на неё можно ответить. " +
+                        "Пара и переписка, которые забрал блок, не вернутся — начать их можно новым лайком."
+                )
+            },
+            confirmButton = { TextButton(onClick = vm::confirmUnblock) { Text("Разблокировать") } },
+            dismissButton = { TextButton(onClick = vm::cancelUnblock) { Text("Отмена") } },
         )
     }
 
@@ -125,6 +150,62 @@ fun SettingsScreen(onBack: () -> Unit, onLoggedOut: () -> Unit) {
 
             state.message?.let { message ->
                 InlineNotice(message, isError = state.messageIsError)
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
+                SectionHeader("Кого вы заблокировали")
+                // The block list is the account's own, and it arrives or it does not. While the read
+                // is out the rows are placeholders; a list that never answered says so with a retry
+                // rather than showing «никого» — an empty profile and an unreadable one are different
+                // answers, and here the second one is a privacy question.
+                if (!state.blocksLoaded && !state.blocksUnknown) {
+                    SkeletonBlock(modifier = Modifier.fillMaxWidth().height(72.dp))
+                }
+                if (state.blocksUnknown) {
+                    InlineNotice(
+                        "Не удалось проверить, кого вы заблокировали.",
+                        actionLabel = "Повторить",
+                        onAction = vm::loadBlocks,
+                    )
+                }
+                if (state.blocksLoaded && state.blocked.isEmpty()) {
+                    Text(
+                        "Вы пока никого не блокировали.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                state.blocked.forEach { user ->
+                    AppCard(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(Spacing.lg),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(Spacing.md),
+                        ) {
+                            Avatar(url = user.photoUrl, size = 44.dp, initials = user.name)
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(2.dp),
+                            ) {
+                                Text(user.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    blockedRowWord(user),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            TextButton(
+                                onClick = { vm.askUnblock(user) },
+                                enabled = !state.blocksBusy,
+                                // The name sits in the sibling column, so the tap alone would read
+                                // as «Разблокировать» with nobody to unblock.
+                                modifier = Modifier.semantics { contentDescription = "Разблокировать ${user.name}" },
+                            ) {
+                                Text("Разблокировать")
+                            }
+                        }
+                    }
+                }
             }
 
             Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
@@ -201,4 +282,20 @@ private fun SectionIcon(icon: ImageVector, tint: androidx.compose.ui.graphics.Co
     ) {
         androidx.compose.material3.Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp))
     }
+}
+
+/**
+ * The row's second line: who this person is to the account and when the block was written.
+ *
+ * The day comes off the server's own moment and is dropped rather than guessed when that text cannot
+ * be read as one — a list about whom the account hides has no business inventing a date for it.
+ */
+internal fun blockedRowWord(user: BlockedUser, zone: ZoneId = ZoneId.systemDefault()): String {
+    val identity = "${user.age} · ${user.city}"
+    val day = runCatching {
+        OffsetDateTime.parse(user.blockedAt)
+            .atZoneSameInstant(zone)
+            .format(DateTimeFormatter.ofPattern("d MMMM yyyy", Locale("ru")))
+    }.getOrNull() ?: return identity
+    return "$identity · $day"
 }

@@ -416,9 +416,11 @@ private fun HeroPhoto(url: String, description: String, name: String) {
 }
 
 /**
- * The block asks first, in the same two-step the account deletion uses. The server removes
- * the match row with its messages and there is no screen in the app that puts any of it back,
- * so the dialog is the only place a mistaken tap can still be stopped.
+ * The block asks first, in the same two-step the account deletion uses. The server removes the match
+ * row with its messages, and releasing the block later — Настройки list whom the account holds behind
+ * one, and a tap takes it back — opens the profile again without putting any of that pair back. So the
+ * dialog is the place a mistaken tap can still be weighed against what it costs, and it has to name
+ * the cost rather than promise an undo.
  */
 @Composable
 private fun BlockDialog(name: String?, onConfirm: () -> Unit, onDismiss: () -> Unit) {
@@ -433,7 +435,7 @@ private fun BlockDialog(name: String?, onConfirm: () -> Unit, onDismiss: () -> U
                 )
                 Text(
                     "Если у вас есть общая пара, она и вся переписка удалятся. " +
-                        "Отменить блокировку в приложении нельзя.",
+                        "Разблокирование в «Настройках» вернёт анкету, но не пару и не сообщения.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

@@ -527,6 +527,29 @@ data class VisibilityRequest(
     val hidden: Boolean,
 )
 
+/**
+ * One row of the list a person built by blocking people.
+ *
+ * The server sends the profile fields the row paints rather than an id the client has to look up,
+ * because the client holds no cache of other people's answers to ask. `blockedAt` stays text for the
+ * same reason `last_message_at` does: the moment belongs to the server's clock, and the screen that
+ * shows it is the place to turn it into a day.
+ */
+@Serializable
+data class BlockedUserDto(
+    @SerialName("user_id") val userId: String,
+    val name: String,
+    val age: Int,
+    val city: String,
+    @SerialName("photo_url") val photoUrl: String? = null,
+    @SerialName("blocked_at") val blockedAt: String = "",
+)
+
+@Serializable
+data class BlockedUsersDto(
+    val blocked: List<BlockedUserDto> = emptyList(),
+)
+
 @Serializable
 data class OkDto(
     val ok: Boolean = true,
