@@ -3,11 +3,15 @@ package app.befos.presentation.profile
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.befos.core.network.ApiResult
+import app.befos.core.network.PHOTO_TYPES_SUPPORTED
+import app.befos.core.network.PHOTO_UPLOAD_CONTENT_TYPES
 import app.befos.domain.model.Profile
 import app.befos.domain.model.TestProgress
 import app.befos.domain.repository.AuthRepository
 import app.befos.domain.repository.ProfileRepository
 import app.befos.domain.repository.TestRepository
+import java.io.InputStream
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -27,6 +31,10 @@ data class ProfileUiState(
     val refreshError: String? = null,
     val signingOut: Boolean = false,
     val loggedOut: Boolean = false,
+    /** A picked picture is on its way to the server right now; the button holds still until it lands. */
+    val uploading: Boolean = false,
+    /** Why the last picture did not arrive, in the server's own Russian wording where it has one. */
+    val uploadError: String? = null,
 )
 
 class ProfileViewModel(
@@ -91,6 +99,50 @@ class ProfileViewModel(
         }
     }
 
+    /**
+     * Send a picture the person chose to `POST /users/me/photo`, and paint the answer.
+     *
+     * The screen hands over the label the system put on the file and a way to open it, so this class
+     * holds no `Uri` and no `ContentResolver`, and a refusal can be reasoned about without a device.
+     * Two refusals are made here, before the uplink is paid for: a file the photo pipeline cannot
+     * read is named as soon as it is named, and a file the system will not open is named too.
+     * Everything else — the size, the canvas, a body that fails to decode — the server decides, and
+     * its Russian answer is what lands in [ProfileUiState.uploadError].
+     *
+     * What appears on success is the picture list from the response, not the bytes that were sent:
+     * the route re-encodes the file, stores it under a name it picked itself, and returns the whole
+     * profile with the new photograph leading. A refusal therefore leaves the screen holding the
+     * picture the server still has, which is the honest state of that tab.
+     */
+    fun uploadPhoto(contentType: String?, open: () -> InputStream) {
+        if (_uiState.value.uploading) return
+        if (contentType == null || contentType !in PHOTO_UPLOAD_CONTENT_TYPES) {
+            _uiState.update { it.copy(uploadError = PHOTO_TYPES_SUPPORTED) }
+            return
+        }
+        _uiState.update { it.copy(uploading = true, uploadError = null) }
+        viewModelScope.launch {
+            val result = try {
+                profileRepository.uploadPhoto(open(), contentType)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // Whatever it was — a provider that would not open, a file that stopped existing
+                // mid-read — the picture never left the device, and the server has nothing to say
+                // about it. Every failure the server *does* answer arrives as an ApiResult.Error.
+                ApiResult.Error(-1, PHOTO_UNREADABLE)
+            }
+            when (result) {
+                is ApiResult.Success -> _uiState.update {
+                    it.copy(uploading = false, profile = result.data, uploadError = null)
+                }
+                is ApiResult.Error -> _uiState.update {
+                    it.copy(uploading = false, uploadError = result.message)
+                }
+            }
+        }
+    }
+
     fun logout() {
         // signingOut flips before the suspend call, so a double tap cannot sign out twice.
         if (_uiState.value.signingOut) return
@@ -101,3 +153,9 @@ class ProfileViewModel(
         }
     }
 }
+
+/**
+ * A picture the device would not hand over. Distinct from every server refusal, which reaches this
+ * screen already translated by `localizeBackendError`: this one is about the file, not the photo.
+ */
+private const val PHOTO_UNREADABLE = "Не удалось прочитать выбранное фото. Выберите его ещё раз."

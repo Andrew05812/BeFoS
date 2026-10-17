@@ -12,6 +12,8 @@ import app.befos.domain.model.ProfileUpdateData
 import app.befos.domain.model.PublicProfile
 import app.befos.domain.repository.ProfileRepository
 import java.io.InputStream
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 class ProfileRepositoryImpl(private val api: ApiService) : ProfileRepository {
 
@@ -24,7 +26,10 @@ class ProfileRepositoryImpl(private val api: ApiService) : ProfileRepository {
         api.updateProfile(data.toRequest()).map { it.toDomain() }
 
     override suspend fun uploadPhoto(input: InputStream, contentType: String): ApiResult<Profile> =
-        api.uploadPhoto(input, contentType).map { it.toDomain() }
+        // The picture a person picked is megabytes of it, and `ApiService.uploadPhoto` pulls the
+        // whole stream into memory before a byte leaves. View models run their scope on the main
+        // thread, so without this shift the file is read through the frame the person is watching.
+        withContext(Dispatchers.IO) { api.uploadPhoto(input, contentType).map { it.toDomain() } }
 
     override suspend fun interests(): ApiResult<List<Interest>> =
         api.getInterests().map { dto -> dto.interests.map { it.toDomain() } }
