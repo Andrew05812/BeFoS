@@ -18,6 +18,18 @@ import java.util.Locale
 const val CHAT_CLOSED = "Этот чат больше недоступен."
 
 /**
+ * The three formats the server's photo pipeline re-encodes, and the one wording that says so.
+ *
+ * The client needs both halves: the copy for the refusal the server sends, and the check a picked
+ * file passes before its bytes are put on the uplink. A file the pipeline cannot read costs a
+ * doomed upload otherwise. `backend/tests/test_a_release_checklist_demands_a_photo_no_screen_can_take.py`
+ * pins this list against `photo_service.ALLOWED_CONTENT_TYPES`, because the two halves drift only
+ * once the server starts taking a fourth format.
+ */
+const val PHOTO_TYPES_SUPPORTED = "Поддерживаются JPEG, PNG и WEBP."
+val PHOTO_UPLOAD_CONTENT_TYPES = setOf("image/jpeg", "image/png", "image/webp")
+
+/**
  * What a closed chat still offers its reader. The line under [CHAT_CLOSED] must not be the
  * localized refusal of the read that set the state: «Пара не найдена. Обновите список.» was
  * written for a list that can be pulled again, and on a terminal screen it is advice that cannot
@@ -60,7 +72,7 @@ private val translated: Map<String, String> = mapOf(
     "a gender preference cannot be empty." to "Пустое предпочтение по полу выбрать нельзя.",
 
     // photos
-    "unsupported image type. use jpeg, png or webp." to "Поддерживаются JPEG, PNG и WEBP.",
+    "unsupported image type. use jpeg, png or webp." to PHOTO_TYPES_SUPPORTED,
     "empty file." to "Файл пуст. Выберите другое фото.",
     "file is not a valid image." to "Не удалось прочитать фото. Выберите другое.",
     "image dimensions are too large." to "Фото слишком большое. Выберите снимок поменьше.",
