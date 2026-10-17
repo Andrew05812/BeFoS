@@ -33,6 +33,7 @@ _UNKNOWN_VALUES = {
     "plan_id": lambda: str(uuid.uuid4()),
     "activity_id": lambda: "999999",
     "photo_id": lambda: str(uuid.uuid4()),
+    "report_id": lambda: str(uuid.uuid4()),
 }
 
 _HTTP_METHODS = ("GET", "POST", "PATCH", "PUT", "DELETE")
@@ -77,10 +78,11 @@ def test_the_sweep_walks_the_whole_identifier_surface() -> None:
     The floor is not a target — it fails when a route drops out of the table (a rename, a
     removal, a parameter the mapping no longer knows), which is how a hand-written list goes
     quietly stale and how an automated one would too if nobody read the set it produced.
-    Measured on this tree: 33 calls — 6 under ``/users/{user_id}`` (both halves of the block pair
+    Measured on this tree: 35 calls — 6 under ``/users/{user_id}`` (both halves of the block pair
     among them: a route that lets one of a write and its undo through is exactly what this floor is
-    here to catch), 2 under ``/users/me/photo/{photo_id}``, 13 under ``/matches/{match_id}`` (five of
-    which also name an ``activity_id``) and 12 under ``/plans/{plan_id}``.
+    here to catch), 2 under ``/users/me/photo/{photo_id}``, 2 under ``/reports/{report_id}`` (the
+    moderation read and the decision write stage 102 mounts), 13 under ``/matches/{match_id}`` (five
+    of which also name an ``activity_id``) and 12 under ``/plans/{plan_id}``.
     """
     calls = _identifier_calls()
     paths = {path for _, path in calls}
@@ -94,6 +96,10 @@ def test_the_sweep_walks_the_whole_identifier_surface() -> None:
         # that stops being swept, takes one of these out of the set. ``/photo/`` alone would not —
         # both of them carry it, and only ``/primary`` says which of the two is which.
         "/photo/", "/primary",
+        # The decision route. ``/report`` above would not catch it disappearing: that fragment is a
+        # substring of ``/reports``, so the complaint a person files and the queue a moderator reads
+        # would answer for one another. ``/review`` names only the write that closes one.
+        "/review",
     ):
         assert any(fragment in path for path in paths), f"{fragment} is not in the swept set"
 
