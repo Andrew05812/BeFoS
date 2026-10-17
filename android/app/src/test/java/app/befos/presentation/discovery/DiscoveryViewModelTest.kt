@@ -6,6 +6,7 @@ import app.befos.domain.model.DiscoveryCard
 import app.befos.domain.model.DiscoveryPage
 import app.befos.domain.model.LikeOutcome
 import app.befos.domain.repository.DiscoveryRepository
+import app.befos.domain.repository.SafetyRepository
 import app.befos.domain.safety.AnsweredUsers
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -27,6 +28,9 @@ class DiscoveryViewModelTest {
     val mainRule = MainDispatcherRule()
 
     private val repo: DiscoveryRepository = mockk()
+    // Only the complaint form the deck now holds touches it; the cases here that do not report
+    // never stub it, and a strict mock is what keeps an unintended send from passing silently.
+    private val safety: SafetyRepository = mockk()
 
     // The real signal, not a mock: what matters here is that a card answered on another
     // screen reaches the deck through the flow the two ViewModels share.
@@ -49,7 +53,7 @@ class DiscoveryViewModelTest {
         coEvery { repo.like("a") } returns ApiResult.Success(LikeOutcome(matched = false, matchId = null, compatibility = null))
         coEvery { repo.pass(any()) } returns ApiResult.Success(Unit)
 
-        val vm = DiscoveryViewModel(repo, answered)
+        val vm = DiscoveryViewModel(repo, safety, answered)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
         assertEquals("a", vm.uiState.value.current?.userId)
 
@@ -64,7 +68,7 @@ class DiscoveryViewModelTest {
         coEvery { repo.feed(any(), any()) } returns pageOf("a", "b")
         coEvery { repo.like("a") } returns ApiResult.Success(LikeOutcome(matched = true, matchId = "m1", compatibility = 91))
 
-        val vm = DiscoveryViewModel(repo, answered)
+        val vm = DiscoveryViewModel(repo, safety, answered)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
 
         vm.like()
@@ -86,7 +90,7 @@ class DiscoveryViewModelTest {
         coEvery { repo.like("a") } returns ApiResult.Error(0, "Нет соединения")
         coEvery { repo.pass(any()) } returns ApiResult.Success(Unit)
 
-        val vm = DiscoveryViewModel(repo, answered)
+        val vm = DiscoveryViewModel(repo, safety, answered)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
 
         vm.like()
@@ -106,7 +110,7 @@ class DiscoveryViewModelTest {
         coEvery { repo.feed(any(), any()) } returns pageOf("a", "b")
         coEvery { repo.like("a") } returns ApiResult.Error(0, "Нет соединения")
 
-        val vm = DiscoveryViewModel(repo, answered)
+        val vm = DiscoveryViewModel(repo, safety, answered)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
 
         vm.like()
@@ -125,7 +129,7 @@ class DiscoveryViewModelTest {
         coEvery { repo.feed(any(), any()) } returns pageOf("a", "b")
         coEvery { repo.pass("a") } returns ApiResult.Error(-1, "Сервер недоступен")
 
-        val vm = DiscoveryViewModel(repo, answered)
+        val vm = DiscoveryViewModel(repo, safety, answered)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
 
         vm.pass()
@@ -148,7 +152,7 @@ class DiscoveryViewModelTest {
             ApiResult.Success(LikeOutcome(matched = false, matchId = null, compatibility = null)),
         )
 
-        val vm = DiscoveryViewModel(repo, answered)
+        val vm = DiscoveryViewModel(repo, safety, answered)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
 
         vm.like()
@@ -171,7 +175,7 @@ class DiscoveryViewModelTest {
         coEvery { repo.pass("a") } returns ApiResult.Error(0, "Нет соединения")
         coEvery { repo.like("a") } returns ApiResult.Success(LikeOutcome(matched = false, matchId = null, compatibility = null))
 
-        val vm = DiscoveryViewModel(repo, answered)
+        val vm = DiscoveryViewModel(repo, safety, answered)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
 
         vm.pass()
@@ -192,7 +196,7 @@ class DiscoveryViewModelTest {
         coEvery { repo.feed(any(), any()) } returns pageOf("a", "b")
         coEvery { repo.like("a") } returns ApiResult.Error(0, "Нет соединения")
 
-        val vm = DiscoveryViewModel(repo, answered)
+        val vm = DiscoveryViewModel(repo, safety, answered)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
         vm.like()
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
@@ -214,7 +218,7 @@ class DiscoveryViewModelTest {
         coEvery { repo.feed(any(), "r1") } returns pageOf("c", nextCursor = "r2", hasMore = false)
         coEvery { repo.pass(any()) } returns ApiResult.Success(Unit)
 
-        val vm = DiscoveryViewModel(repo, answered)
+        val vm = DiscoveryViewModel(repo, safety, answered)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
         assertEquals(listOf("a", "b"), vm.uiState.value.cards.map { it.userId })
 
@@ -233,7 +237,7 @@ class DiscoveryViewModelTest {
         coEvery { repo.feed(any(), any()) } returns pageOf("a", "b", nextCursor = null, hasMore = false)
         coEvery { repo.pass(any()) } returns ApiResult.Success(Unit)
 
-        val vm = DiscoveryViewModel(repo, answered)
+        val vm = DiscoveryViewModel(repo, safety, answered)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
 
         vm.pass()
@@ -250,7 +254,7 @@ class DiscoveryViewModelTest {
     @Test
     fun `feed error surfaces message`() = runTest {
         coEvery { repo.feed(any(), any()) } returns ApiResult.Error(-1, "Нет подключения к интернету.")
-        val vm = DiscoveryViewModel(repo, answered)
+        val vm = DiscoveryViewModel(repo, safety, answered)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
         assertEquals("Нет подключения к интернету.", vm.uiState.value.error)
     }
@@ -261,7 +265,7 @@ class DiscoveryViewModelTest {
         coEvery { repo.feed(any(), "r1") } returns ApiResult.Error(-1, "Сервер недоступен. Проверьте соединение и попробуйте ещё раз.")
         coEvery { repo.pass(any()) } returns ApiResult.Success(Unit)
 
-        val vm = DiscoveryViewModel(repo, answered)
+        val vm = DiscoveryViewModel(repo, safety, answered)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
 
         vm.pass()
@@ -283,7 +287,7 @@ class DiscoveryViewModelTest {
         )
         coEvery { repo.pass(any()) } returns ApiResult.Success(Unit)
 
-        val vm = DiscoveryViewModel(repo, answered)
+        val vm = DiscoveryViewModel(repo, safety, answered)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
         vm.pass()
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
@@ -303,7 +307,7 @@ class DiscoveryViewModelTest {
         coEvery { repo.feed(any(), any()) } returns pageOf("a", "b", nextCursor = null, hasMore = false)
         coEvery { repo.pass(any()) } returns ApiResult.Success(Unit)
 
-        val vm = DiscoveryViewModel(repo, answered)
+        val vm = DiscoveryViewModel(repo, safety, answered)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
         vm.pass()
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
@@ -319,7 +323,7 @@ class DiscoveryViewModelTest {
     fun `a card answered on the profile screen leaves the deck`() = runTest {
         coEvery { repo.feed(any(), any()) } returns pageOf("a", "b", "c")
 
-        val vm = DiscoveryViewModel(repo, answered)
+        val vm = DiscoveryViewModel(repo, safety, answered)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
 
         answered.publish("b")
@@ -336,7 +340,7 @@ class DiscoveryViewModelTest {
     fun `answering the card on screen slides the next one into its place`() = runTest {
         coEvery { repo.feed(any(), any()) } returns pageOf("a", "b", "c")
 
-        val vm = DiscoveryViewModel(repo, answered)
+        val vm = DiscoveryViewModel(repo, safety, answered)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
 
         answered.publish("a")
@@ -351,7 +355,7 @@ class DiscoveryViewModelTest {
         coEvery { repo.feed(any(), any()) } returns pageOf("a", "b", "c")
         coEvery { repo.pass(any()) } returns ApiResult.Success(Unit)
 
-        val vm = DiscoveryViewModel(repo, answered)
+        val vm = DiscoveryViewModel(repo, safety, answered)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
         vm.pass()
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
@@ -370,7 +374,7 @@ class DiscoveryViewModelTest {
     fun `an answer about someone the deck never held changes nothing`() = runTest {
         coEvery { repo.feed(any(), any()) } returns pageOf("a", "b", "c")
 
-        val vm = DiscoveryViewModel(repo, answered)
+        val vm = DiscoveryViewModel(repo, safety, answered)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
 
         answered.publish("someone-else")
@@ -384,7 +388,7 @@ class DiscoveryViewModelTest {
     fun `a deck whose last card was answered elsewhere ends instead of pointing past it`() = runTest {
         coEvery { repo.feed(any(), any()) } returns pageOf("a")
 
-        val vm = DiscoveryViewModel(repo, answered)
+        val vm = DiscoveryViewModel(repo, safety, answered)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
 
         answered.publish("a")

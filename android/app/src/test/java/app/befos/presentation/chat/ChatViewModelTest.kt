@@ -7,6 +7,7 @@ import app.befos.domain.model.PublicProfile
 import app.befos.domain.repository.ChatEvent
 import app.befos.domain.repository.ChatRepository
 import app.befos.domain.repository.MatchRepository
+import app.befos.domain.repository.SafetyRepository
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -40,6 +41,9 @@ class ChatViewModelTest {
     private val matchRepo: MatchRepository = mockk {
         coEvery { partner(any()) } returns ApiResult.Error(404, "no partner")
     }
+    // Held by the complaint form the thread now carries. Cases that do not report leave it
+    // unstubbed, so a send nobody asked for fails loudly instead of quietly succeeding.
+    private val safety: SafetyRepository = mockk()
 
     private fun profile(name: String) = PublicProfile(
         userId = "them", name = name, age = 27, city = "Казань", about = null,
@@ -59,7 +63,7 @@ class ChatViewModelTest {
         coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
         coEvery { repo.sendTyping(any(), any()) } returns Unit
 
-        val vm = ChatViewModel(repo, matchRepo, "m1")
+        val vm = ChatViewModel(repo, matchRepo, safety, "m1")
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
         assertEquals(listOf("1", "2"), vm.uiState.value.messages.map { it.id })
     }
@@ -71,7 +75,7 @@ class ChatViewModelTest {
         coEvery { repo.sendTyping(any(), any()) } returns Unit
         coEvery { repo.send("m1", "привет", any()) } returns ApiResult.Success(message("9", true, "привет"))
 
-        val vm = ChatViewModel(repo, matchRepo, "m1")
+        val vm = ChatViewModel(repo, matchRepo, safety, "m1")
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
 
         vm.onDraftChange("привет")
@@ -90,7 +94,7 @@ class ChatViewModelTest {
         coEvery { repo.send("m1", "too long", any()) } returns
             ApiResult.Error(422, "Сообщение слишком длинное — разбейте его на два.")
 
-        val vm = ChatViewModel(repo, matchRepo, "m1")
+        val vm = ChatViewModel(repo, matchRepo, safety, "m1")
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
 
         vm.onDraftChange("too long")
@@ -113,7 +117,7 @@ class ChatViewModelTest {
             ApiResult.Success(message("5", true, "hey"))
         }
 
-        val vm = ChatViewModel(repo, matchRepo, "m1")
+        val vm = ChatViewModel(repo, matchRepo, safety, "m1")
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
 
         vm.onDraftChange("hey")
@@ -140,7 +144,7 @@ class ChatViewModelTest {
             else ApiResult.Success(message("9", true, "again"))
         }
 
-        val vm = ChatViewModel(repo, matchRepo, "m1")
+        val vm = ChatViewModel(repo, matchRepo, safety, "m1")
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
 
         vm.onDraftChange("again")
@@ -166,7 +170,7 @@ class ChatViewModelTest {
             ApiResult.Success(message("9", true, "again")),
         )
 
-        val vm = ChatViewModel(repo, matchRepo, "m1")
+        val vm = ChatViewModel(repo, matchRepo, safety, "m1")
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
 
         vm.onDraftChange("again")
@@ -189,7 +193,7 @@ class ChatViewModelTest {
         coEvery { repo.sendTyping(any(), any()) } returns Unit
         coEvery { repo.send("m1", "hey", any()) } returns ApiResult.Success(message("5", true, "hey"))
 
-        val vm = ChatViewModel(repo, matchRepo, "m1")
+        val vm = ChatViewModel(repo, matchRepo, safety, "m1")
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
 
         vm.onDraftChange("hey")
@@ -209,7 +213,7 @@ class ChatViewModelTest {
         coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
         coEvery { repo.sendTyping(any(), any()) } returns Unit
 
-        val vm = ChatViewModel(repo, matchRepo, "m1")
+        val vm = ChatViewModel(repo, matchRepo, safety, "m1")
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
 
         events.tryEmit(ChatEvent.IncomingMessage(message("7", false, "здорово")))
@@ -224,7 +228,7 @@ class ChatViewModelTest {
         coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
         coEvery { repo.sendTyping(any(), any()) } returns Unit
 
-        val vm = ChatViewModel(repo, matchRepo, "m1")
+        val vm = ChatViewModel(repo, matchRepo, safety, "m1")
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
 
         // Not connected until the socket opens.
@@ -251,7 +255,7 @@ class ChatViewModelTest {
         coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
         coEvery { repo.sendTyping(any(), any()) } returns Unit
 
-        val vm = ChatViewModel(repo, matchRepo, "m1")
+        val vm = ChatViewModel(repo, matchRepo, safety, "m1")
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
 
         // Nothing is connected yet, so the generic line stands until the dial answers.
@@ -271,7 +275,7 @@ class ChatViewModelTest {
         coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
         coEvery { repo.sendTyping(any(), any()) } returns Unit
 
-        val vm = ChatViewModel(repo, matchRepo, "m1")
+        val vm = ChatViewModel(repo, matchRepo, safety, "m1")
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
 
         events.tryEmit(ChatEvent.Error("Сервер не отвечает. Попробуйте ещё раз."))
@@ -288,7 +292,7 @@ class ChatViewModelTest {
         coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
         coEvery { repo.sendTyping(any(), any()) } returns Unit
 
-        val vm = ChatViewModel(repo, matchRepo, "m1")
+        val vm = ChatViewModel(repo, matchRepo, safety, "m1")
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
 
         events.tryEmit(ChatEvent.Connected)
@@ -310,7 +314,7 @@ class ChatViewModelTest {
         coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
         coEvery { repo.sendTyping(any(), any()) } returns Unit
 
-        val vm = ChatViewModel(repo, matchRepo, "m1")
+        val vm = ChatViewModel(repo, matchRepo, safety, "m1")
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
         assertEquals(listOf("1"), vm.uiState.value.messages.map { it.id })
 
@@ -336,7 +340,7 @@ class ChatViewModelTest {
         coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
         coEvery { repo.sendTyping(any(), any()) } returns Unit
 
-        val vm = ChatViewModel(repo, matchRepo, "m1")
+        val vm = ChatViewModel(repo, matchRepo, safety, "m1")
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
         vm.onDraftChange("черновик")
 
@@ -354,7 +358,7 @@ class ChatViewModelTest {
         coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
         coEvery { repo.sendTyping(any(), any()) } returns Unit
 
-        val vm = ChatViewModel(repo, matchRepo, "m1")
+        val vm = ChatViewModel(repo, matchRepo, safety, "m1")
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
         coVerify(exactly = 0) { repo.markRead(any()) }
 
@@ -371,7 +375,7 @@ class ChatViewModelTest {
         coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
         coEvery { repo.sendTyping(any(), any()) } returns Unit
 
-        val vm = ChatViewModel(repo, matchRepo, "m1")
+        val vm = ChatViewModel(repo, matchRepo, safety, "m1")
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
 
         assertTrue(vm.uiState.value.historyError != null)
@@ -384,7 +388,7 @@ class ChatViewModelTest {
         coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
         coEvery { repo.sendTyping(any(), any()) } returns Unit
 
-        val vm = ChatViewModel(repo, matchRepo, "m1")
+        val vm = ChatViewModel(repo, matchRepo, safety, "m1")
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
 
         // Nothing re-reads the page here, so this receipt has no other way to travel.
@@ -417,7 +421,7 @@ class ChatViewModelTest {
             coEvery { sendTyping(any(), any()) } returns Unit
         }
 
-        val vm = ChatViewModel(dialingRepo, matchRepo, "m1")
+        val vm = ChatViewModel(dialingRepo, matchRepo, safety, "m1")
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
 
         // The dial answers. Nothing arrived while the screen waited for the page it already has.
@@ -446,7 +450,7 @@ class ChatViewModelTest {
             coEvery { sendTyping(any(), any()) } returns Unit
         }
 
-        val vm = ChatViewModel(dialingRepo, matchRepo, "m1")
+        val vm = ChatViewModel(dialingRepo, matchRepo, safety, "m1")
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
         connection.value = true
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
@@ -474,7 +478,7 @@ class ChatViewModelTest {
         coEvery { repo.sendTyping("m1", false) } throws ClosedSendChannelException("WebSocket Session is closed")
         coEvery { repo.send("m1", "hey", any()) } returns ApiResult.Success(message("9", true, "hey"))
 
-        val vm = ChatViewModel(repo, matchRepo, "m1")
+        val vm = ChatViewModel(repo, matchRepo, safety, "m1")
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
 
         vm.onDraftChange("hey")
@@ -494,7 +498,7 @@ class ChatViewModelTest {
         coEvery { repo.sendTyping("m1", false) } returns Unit
         coEvery { repo.send("m1", "hey", any()) } returns ApiResult.Success(message("9", true, "hey"))
 
-        val vm = ChatViewModel(repo, matchRepo, "m1")
+        val vm = ChatViewModel(repo, matchRepo, safety, "m1")
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
 
         vm.onDraftChange("hey")
@@ -522,7 +526,7 @@ class ChatViewModelTest {
         coEvery { repo.send("m1", "too long", any()) } returns
             ApiResult.Error(422, "Сообщение слишком длинное — разбейте его на два.")
 
-        val vm = ChatViewModel(repo, matchRepo, "m1")
+        val vm = ChatViewModel(repo, matchRepo, safety, "m1")
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
 
         vm.onDraftChange("too long")
@@ -546,7 +550,7 @@ class ChatViewModelTest {
             else ApiResult.Success(message("9", true, "again"))
         }
 
-        val vm = ChatViewModel(repo, matchRepo, "m1")
+        val vm = ChatViewModel(repo, matchRepo, safety, "m1")
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
 
         vm.onDraftChange("again")
@@ -571,7 +575,7 @@ class ChatViewModelTest {
         coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
         coEvery { repo.sendTyping(any(), any()) } returns Unit
 
-        val vm = ChatViewModel(repo, matchRepo, "m1")
+        val vm = ChatViewModel(repo, matchRepo, safety, "m1")
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
         events.tryEmit(ChatEvent.Connected)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
@@ -599,7 +603,7 @@ class ChatViewModelTest {
         coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
         coEvery { repo.sendTyping(any(), any()) } returns Unit
 
-        val vm = ChatViewModel(repo, matchRepo, "m1")
+        val vm = ChatViewModel(repo, matchRepo, safety, "m1")
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
         events.tryEmit(ChatEvent.Connected)
         vm.onDraftChange("черновик")
@@ -623,7 +627,7 @@ class ChatViewModelTest {
         coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
         coEvery { repo.sendTyping(any(), any()) } returns Unit
 
-        val vm = ChatViewModel(repo, matchRepo, "m1")
+        val vm = ChatViewModel(repo, matchRepo, safety, "m1")
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
         events.tryEmit(ChatEvent.Connected)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
@@ -649,7 +653,7 @@ class ChatViewModelTest {
         coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
         coEvery { repo.sendTyping(any(), any()) } returns Unit
 
-        val vm = ChatViewModel(repo, matchRepo, "m1")
+        val vm = ChatViewModel(repo, matchRepo, safety, "m1")
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
         events.tryEmit(ChatEvent.Connected)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
@@ -675,7 +679,7 @@ class ChatViewModelTest {
         coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
         coEvery { repo.sendTyping(any(), any()) } returns Unit
 
-        val vm = ChatViewModel(repo, matchRepo, "m1")
+        val vm = ChatViewModel(repo, matchRepo, safety, "m1")
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
         events.tryEmit(ChatEvent.Connected)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
@@ -702,7 +706,7 @@ class ChatViewModelTest {
             ApiResult.Success(profile("Аня")),
         )
 
-        val vm = ChatViewModel(repo, matchRepo, "m1")
+        val vm = ChatViewModel(repo, matchRepo, safety, "m1")
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
         assertNull(vm.uiState.value.partnerName)
 
@@ -722,7 +726,7 @@ class ChatViewModelTest {
             ApiResult.Success(profile("Аня")),
         )
 
-        val vm = ChatViewModel(repo, matchRepo, "m1")
+        val vm = ChatViewModel(repo, matchRepo, safety, "m1")
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
 
         events.tryEmit(ChatEvent.Disconnected)
@@ -740,7 +744,7 @@ class ChatViewModelTest {
         coEvery { repo.sendTyping(any(), any()) } returns Unit
         coEvery { matchRepo.partner("m1") } returns ApiResult.Success(profile("Аня"))
 
-        val vm = ChatViewModel(repo, matchRepo, "m1")
+        val vm = ChatViewModel(repo, matchRepo, safety, "m1")
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
         assertEquals("Аня", vm.uiState.value.partnerName)
 
@@ -758,7 +762,7 @@ class ChatViewModelTest {
         coEvery { repo.sendTyping(any(), any()) } returns Unit
         coEvery { matchRepo.partner("m1") } returns ApiResult.Error(-1, "Сервер недоступен.")
 
-        val vm = ChatViewModel(repo, matchRepo, "m1")
+        val vm = ChatViewModel(repo, matchRepo, safety, "m1")
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
 
         assertEquals(listOf("1"), vm.uiState.value.messages.map { it.id })
@@ -778,7 +782,7 @@ class ChatViewModelTest {
             ApiResult.Success(profile("Аня")),
         )
 
-        val vm = ChatViewModel(repo, matchRepo, "m1")
+        val vm = ChatViewModel(repo, matchRepo, safety, "m1")
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
 
         events.tryEmit(ChatEvent.Connected)
@@ -798,7 +802,7 @@ class ChatViewModelTest {
         coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
         coEvery { repo.sendTyping(any(), any()) } returns Unit
 
-        val vm = ChatViewModel(repo, matchRepo, "m1")
+        val vm = ChatViewModel(repo, matchRepo, safety, "m1")
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
 
         // Measured on the live stand (`s72_d11_block_pair.txt`, 03:17:13…03:17:16 UTC): once one
@@ -817,7 +821,7 @@ class ChatViewModelTest {
         coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
         coEvery { repo.sendTyping(any(), any()) } returns Unit
 
-        val vm = ChatViewModel(repo, matchRepo, "m1")
+        val vm = ChatViewModel(repo, matchRepo, safety, "m1")
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
 
         // Only a refusal that names the pair ends the thread: the transport codes the client
@@ -835,7 +839,7 @@ class ChatViewModelTest {
         coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
         coEvery { repo.sendTyping(any(), any()) } returns Unit
 
-        val vm = ChatViewModel(repo, matchRepo, "m1")
+        val vm = ChatViewModel(repo, matchRepo, safety, "m1")
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
         events.tryEmit(ChatEvent.Connected)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
@@ -858,7 +862,7 @@ class ChatViewModelTest {
         coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
         coEvery { repo.sendTyping(any(), any()) } returns Unit
 
-        val vm = ChatViewModel(repo, matchRepo, "m1")
+        val vm = ChatViewModel(repo, matchRepo, safety, "m1")
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
         assertTrue(vm.uiState.value.gone)
 
@@ -883,7 +887,7 @@ class ChatViewModelTest {
         coEvery { repo.send("m1", "привет", any()) } returns
             ApiResult.Error(404, "Пара не найдена. Обновите список.")
 
-        val vm = ChatViewModel(repo, matchRepo, "m1")
+        val vm = ChatViewModel(repo, matchRepo, safety, "m1")
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
         vm.onDraftChange("привет")
         vm.send()
@@ -903,7 +907,7 @@ class ChatViewModelTest {
         coEvery { repo.sendTyping(any(), any()) } returns Unit
         val carried = "Хочу спросить: Как вы решаете конфликты?"
 
-        val vm = ChatViewModel(repo, matchRepo, "m1", carried)
+        val vm = ChatViewModel(repo, matchRepo, safety, "m1", carried)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
 
         // The map hands over a draft, not a message: sending it on the pair's behalf would put
@@ -920,7 +924,7 @@ class ChatViewModelTest {
         coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
         coEvery { repo.sendTyping(any(), any()) } returns Unit
 
-        val vm = ChatViewModel(repo, matchRepo, "m1", "   ")
+        val vm = ChatViewModel(repo, matchRepo, safety, "m1", "   ")
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
 
         // A route can only carry a string, so the empty case arrives as spaces. The send button is
@@ -937,7 +941,7 @@ class ChatViewModelTest {
         val own = "Как ты решаешь конфликты?"
         coEvery { repo.send("m1", own, any()) } returns ApiResult.Success(message("9", true, own))
 
-        val vm = ChatViewModel(repo, matchRepo, "m1", carried)
+        val vm = ChatViewModel(repo, matchRepo, safety, "m1", carried)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
         vm.onDraftChange(own)
         vm.send()
