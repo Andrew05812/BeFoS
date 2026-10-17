@@ -2,6 +2,7 @@ package app.befos.domain.repository
 
 import app.befos.core.network.ApiResult
 import app.befos.core.network.StoredAuth
+import app.befos.domain.model.BlockedUser
 import app.befos.domain.model.Compatibility
 import app.befos.domain.model.DiscoveryPage
 import app.befos.domain.model.Interest
@@ -135,6 +136,14 @@ interface ChatRepository {
 
 interface SafetyRepository {
     suspend fun block(userId: String): ApiResult<Unit>
+
+    /**
+     * Takes one of this account's own blocks back. The answer is the list that stands after the
+     * write, because the screen has to paint what the server holds rather than what the tap named.
+     */
+    suspend fun unblock(userId: String): ApiResult<List<BlockedUser>>
+    suspend fun blockedUsers(): ApiResult<List<BlockedUser>>
+
     suspend fun report(userId: String, reason: String, details: String?): ApiResult<Unit>
     suspend fun setVisibility(hidden: Boolean): ApiResult<Unit>
     suspend fun deleteAccount(): ApiResult<Unit>

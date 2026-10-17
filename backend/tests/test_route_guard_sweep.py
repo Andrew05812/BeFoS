@@ -77,9 +77,10 @@ def test_the_sweep_walks_the_whole_identifier_surface() -> None:
     The floor is not a target — it fails when a route drops out of the table (a rename, a
     removal, a parameter the mapping no longer knows), which is how a hand-written list goes
     quietly stale and how an automated one would too if nobody read the set it produced.
-    Measured on this tree: 32 calls — 5 routes under ``/users/{user_id}``, 2 under
-    ``/users/me/photo/{photo_id}``, 13 under ``/matches/{match_id}`` (five of which also name an
-    ``activity_id``) and 12 under ``/plans/{plan_id}``.
+    Measured on this tree: 33 calls — 6 under ``/users/{user_id}`` (both halves of the block pair
+    among them: a route that lets one of a write and its undo through is exactly what this floor is
+    here to catch), 2 under ``/users/me/photo/{photo_id}``, 13 under ``/matches/{match_id}`` (five of
+    which also name an ``activity_id``) and 12 under ``/plans/{plan_id}``.
     """
     calls = _identifier_calls()
     paths = {path for _, path in calls}

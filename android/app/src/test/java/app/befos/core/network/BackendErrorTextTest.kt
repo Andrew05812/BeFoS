@@ -235,6 +235,21 @@ class BackendErrorTextTest {
     }
 
     @Test
+    fun `a block that cannot be released says why in the list's own words`() {
+        // The settings list offers one tap per row and two answers can refuse it: the number is the
+        // person's own, or the row is no longer there. Falling back to the status line would tell the
+        // reader «анкету удалили» when what happened is that this account never placed that block.
+        val cases = mapOf(
+            "You cannot unblock yourself." to "Нельзя применить это к себе.",
+            "You have not blocked this user." to "Вы этого человека не блокировали. Обновите список.",
+        )
+        cases.forEach { (backend, expected) ->
+            assertEquals(expected, localizeBackendError(backend, "validation_error", 422))
+            assertEquals(expected, localizeBackendError(backend, "not_found", 404))
+        }
+    }
+
+    @Test
     fun `transport status copy stays untouched`() {
         assertEquals(defaultHttpMessage(401), localizeBackendError("", "", 401))
         assertEquals(defaultHttpMessage(429), localizeBackendError("", "", 429))

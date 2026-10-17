@@ -6,6 +6,7 @@ import app.befos.core.network.apiCall
 import app.befos.core.network.apiCallUnit
 import app.befos.data.model.AnswersRequest
 import app.befos.data.model.AuthResponseDto
+import app.befos.data.model.BlockedUsersDto
 import app.befos.data.model.CompatibilityDto
 import app.befos.data.model.UniverseDto
 import app.befos.data.model.DiscoveryPageDto
@@ -421,6 +422,22 @@ class ApiService(private val client: HttpClient) {
         client.apiCallUnit {
             method = HttpMethod.Post
             url(endpoint("users/$userId/block"))
+        }
+
+    /**
+     * Takes one block back. The answer is the list that survives the write, not a bare ok: the
+     * screen paints the rows the server holds rather than the row it hoped to delete.
+     */
+    suspend fun unblock(userId: String): ApiResult<BlockedUsersDto> =
+        client.apiCall {
+            method = HttpMethod.Delete
+            url(endpoint("users/$userId/block"))
+        }
+
+    suspend fun blockedUsers(): ApiResult<BlockedUsersDto> =
+        client.apiCall {
+            method = HttpMethod.Get
+            url(endpoint("users/me/blocks"))
         }
 
     suspend fun report(userId: String, reason: String, details: String?): ApiResult<Unit> =

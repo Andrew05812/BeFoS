@@ -130,8 +130,9 @@ class PublicProfileViewModel(
     fun cancelBlock() = _uiState.update { it.copy(blockDialog = false) }
 
     /**
-     * The block itself. It is reached only from the dialog, because the server deletes the
-     * pair with its whole message history and the app has no way to undo any of that.
+     * The block itself. It is reached only from the dialog, because the server deletes the pair with
+     * its whole message history; the settings list releases the block afterwards, and that does not
+     * put the pair or the messages back.
      */
     fun confirmBlock() {
         if (_uiState.value.busy) return

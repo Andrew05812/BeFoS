@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.deps import get_current_user
 from app.core.database import get_session
 from app.models import User
+from app.schemas.schemas import BlockedUserSummary, BlockedUsersResponse
 from app.services.safety_service import SafetyService
 
 router = APIRouter(tags=["safety"])
@@ -31,6 +32,27 @@ async def block_user(
 ):
     service = SafetyService(session)
     return await service.block(current_user.id, user_id)
+
+
+@router.delete("/users/{user_id}/block", response_model=BlockedUsersResponse)
+async def unblock_user(
+    user_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    service = SafetyService(session)
+    blocked = await service.unblock(current_user.id, user_id)
+    return BlockedUsersResponse(blocked=[BlockedUserSummary(**row) for row in blocked])
+
+
+@router.get("/users/me/blocks", response_model=BlockedUsersResponse)
+async def list_blocked_users(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    service = SafetyService(session)
+    blocked = await service.list_blocked(current_user.id)
+    return BlockedUsersResponse(blocked=[BlockedUserSummary(**row) for row in blocked])
 
 
 @router.post("/users/{user_id}/report", status_code=200)

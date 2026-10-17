@@ -249,6 +249,24 @@ data class MatchSummary(
 )
 
 /**
+ * One person the account holds behind a block, as the server lists them.
+ *
+ * The block was written by this account and only this account's list reads it back, which is the
+ * whole reason the screen exists: a tap that dissolved a pair used to be the end of the story, and
+ * a person who blocked the wrong card had no way to find out which card it was. `blockedAt` is the
+ * server's instant kept as text — the day is what the row shows, and the row shows nothing when the
+ * text cannot be read as one.
+ */
+data class BlockedUser(
+    val userId: String,
+    val name: String,
+    val age: Int,
+    val city: String,
+    val photoUrl: String?,
+    val blockedAt: String,
+)
+
+/**
  * The kinds a conversation line arrives with.
  *
  * `text` is a sentence somebody typed; the rest are what the pair's plan wrote into the thread, one
