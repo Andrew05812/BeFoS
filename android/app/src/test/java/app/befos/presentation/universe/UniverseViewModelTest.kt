@@ -81,7 +81,7 @@ class UniverseViewModelTest {
 
     private fun profile(userId: String, name: String) = Profile(
         userId = userId, name = name, age = 30, city = "Москва", gender = "female",
-        about = null, datingGoal = "relation", photoUrls = emptyList(),
+        about = null, datingGoal = "relation", photos = emptyList(),
         interests = listOf(Interest("hiking", "Хайкинг", "outdoor")),
         lifestyle = emptyMap(), ageMin = 25, ageMax = 40, genderPreference = listOf("male"),
     )

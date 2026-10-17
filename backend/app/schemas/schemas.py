@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
 from typing import Any, Generic, TypeVar
 
@@ -113,6 +114,17 @@ class ProfileUpdate(BaseModel):
     age_max: int | None = Field(default=None, ge=18, le=99)
     gender_preference: list[str] | None = None
     is_hidden: bool | None = None
+
+
+class PhotoOrderUpdate(BaseModel):
+    """The whole row of photographs, in the order the owner wants readers to see it.
+
+    A full order rather than a move: `position` and `is_primary` are written from one list, so a
+    request naming only the pair being swapped would still have to say where the rest of the row
+    stands — and a client that guessed wrong would move a photograph into an order nobody chose.
+    """
+
+    photo_ids: list[uuid.UUID] = Field(min_length=1)
 
 
 class OnboardingProfile(BaseModel):

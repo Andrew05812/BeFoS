@@ -7,13 +7,13 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -24,9 +24,16 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.AddAPhoto
+import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.StarBorder
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -62,6 +69,7 @@ import app.befos.core.designsystem.answersWord
 import app.befos.core.designsystem.rememberHaptics
 import app.befos.core.designsystem.tabularDigits
 import app.befos.core.di.beFosViewModel
+import app.befos.domain.model.ProfilePhoto
 import app.befos.presentation.common.goalLabel
 import app.befos.presentation.common.myProfileEntryWord
 import java.io.FileNotFoundException
@@ -126,14 +134,23 @@ fun ProfileScreen(
                 ProfileHero(profile.primaryPhoto, "${profile.name}, ${profile.age}", profile.city, goalLabel(profile.datingGoal))
 
                 PhotoSection(
-                    photos = profile.photoUrls.filter { it.isNotBlank() },
+                    photos = profile.photos,
                     uploading = state.uploading,
-                    error = state.uploadError,
+                    busy = state.photoBusy,
+                    uploadError = state.uploadError,
+                    photoError = state.photoError,
+                    pendingDeletion = state.pendingDeletion,
                     onPick = {
                         pickPhoto.launch(
                             PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
                         )
                     },
+                    onRefresh = vm::refreshSilently,
+                    onMove = vm::movePhoto,
+                    onMakePrimary = vm::makePhotoPrimary,
+                    onAskDelete = vm::askDeletePhoto,
+                    onCancelDelete = vm::cancelDeletePhoto,
+                    onConfirmDelete = vm::confirmDeletePhoto,
                 )
 
                 if (!profile.about.isNullOrBlank()) {
@@ -234,25 +251,46 @@ private fun ProfileHero(photoUrl: String?, title: String, city: String, goal: St
 }
 
 /**
- * The photographs the server holds for this person, in the order it sent them, and the one action
- * that adds to the list.
+ * The photographs the server holds for this person, in the order it sent them, and the four things
+ * the owner can do to that row: add one, lead with one, move one, remove one.
  *
- * Everything painted here came back from `POST /users/me/photo` or `GET /users/me`: the bytes the
- * picker handed over are never shown as a preview, because the server re-encodes the file and keeps
- * the copy, so a preview would promise a picture the pair may never be shown. A refusal keeps the
- * list standing and names what the server said, and the action that starts another send is also the
- * way out of the notice.
+ * Everything painted here came back from the server — `POST /users/me/photo`, `GET /users/me`, or the
+ * answer to one of the three management writes. The bytes the picker handed over are never shown as a
+ * preview, because the route re-encodes the file and keeps the copy, so a preview would promise a
+ * picture the pair may never be shown.
+ *
+ * A row rather than a strip of tiles: every control needs a real touch target, and four of them side
+ * by side do not fit over a 104dp tile on the narrowest screen this app is checked on. Read
+ * top-down, the list is also the order — the first row is the photograph the deck opens with.
  */
 @Composable
 private fun PhotoSection(
-    photos: List<String>,
+    photos: List<ProfilePhoto>,
     uploading: Boolean,
-    error: String?,
+    busy: Boolean,
+    uploadError: String?,
+    photoError: String?,
+    pendingDeletion: String?,
     onPick: () -> Unit,
+    onRefresh: () -> Unit,
+    onMove: (String, Int) -> Unit,
+    onMakePrimary: (String) -> Unit,
+    onAskDelete: (String) -> Unit,
+    onCancelDelete: () -> Unit,
+    onConfirmDelete: () -> Unit,
 ) {
+    // One gate for every control: two writes to the same row cannot travel together, and the answer
+    // that comes back is the row the server now holds — so nothing else may be started until it lands.
+    val settled = !uploading && !busy
+    val pendingIndex = pendingDeletion?.let { id -> photos.indexOfFirst { it.id == id } } ?: -1
     Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
         SectionHeader("Фото")
-        error?.let { InlineNotice(it, actionLabel = "Выбрать заново", onAction = onPick) }
+        uploadError?.let { InlineNotice(it, actionLabel = "Выбрать заново", onAction = onPick) }
+        photoError?.let {
+            // The row on screen is the row the server still holds. «Обновить» reads that row back,
+            // so a refusal that came from a stale screen is settled by the same tap that answers it.
+            InlineNotice(it, actionLabel = "Обновить", onAction = onRefresh)
+        }
         if (photos.isEmpty()) {
             // The deck a person is swiped through carries no face until this row is filled, so
             // the empty state says what is missing rather than only offering a button.
@@ -262,44 +300,154 @@ private fun PhotoSection(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         } else {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(Spacing.md),
-            ) {
-                photos.forEachIndexed { index, url ->
-                    PhotoTile(url = url, label = "Фото ${index + 1} из ${photos.size}")
+            Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                photos.forEachIndexed { index, photo ->
+                    PhotoRow(
+                        photo = photo,
+                        position = index,
+                        total = photos.size,
+                        enabled = settled,
+                        onMove = { delta -> onMove(photo.id, delta) },
+                        onMakePrimary = { onMakePrimary(photo.id) },
+                        onAskDelete = { onAskDelete(photo.id) },
+                    )
                 }
+            }
+            if (photos.size > 1) {
+                Text(
+                    "Первый снимок — главный: его видит подбор и анкета, которую открыла пара.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
         AppButton(
             text = "Загрузить фото",
             onClick = onPick,
             loading = uploading,
-            enabled = !uploading,
+            enabled = settled,
             variant = AppButtonVariant.Tonal,
             leadingIcon = Icons.Outlined.AddAPhoto,
             modifier = Modifier.fillMaxWidth(),
         )
     }
-}
-
-/** One accepted photograph over the branded layer that serves as its loader and its fallback. */
-@Composable
-private fun PhotoTile(url: String, label: String) {
-    Box(
-        modifier = Modifier
-            .size(width = 104.dp, height = 132.dp)
-            .clip(MaterialTheme.shapes.medium)
-            .background(EmberGradient),
-    ) {
-        RemotePhoto(
-            url = url,
-            contentDescription = label,
-            modifier = Modifier.matchParentSize(),
+    // Shown only while the asked-about photograph is still on the row: a background read that
+    // removed it underneath the question has already answered the question.
+    if (pendingIndex >= 0) {
+        DeletePhotoDialog(
+            position = pendingIndex,
+            total = photos.size,
+            onConfirm = onConfirmDelete,
+            onDismiss = onCancelDelete,
         )
     }
+}
+
+/**
+ * One photograph, the place it holds in the row, and what the owner may do to it.
+ *
+ * A control that cannot apply to this row stays visible and disabled rather than vanishing: the row
+ * keeps its width as the person scrolls, and a button that is dimmed says the action exists and is
+ * simply not available here (nothing moves above the first row, nothing leads with the last).
+ */
+@Composable
+private fun PhotoRow(
+    photo: ProfilePhoto,
+    position: Int,
+    total: Int,
+    enabled: Boolean,
+    onMove: (Int) -> Unit,
+    onMakePrimary: () -> Unit,
+    onAskDelete: () -> Unit,
+) {
+    val isFirst = position == 0
+    val isLast = position == total - 1
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(width = 64.dp, height = 80.dp)
+                    .clip(MaterialTheme.shapes.medium)
+                    .background(EmberGradient),
+            ) {
+                RemotePhoto(
+                    url = photo.url,
+                    contentDescription = "Снимок ${position + 1} из $total",
+                    modifier = Modifier.matchParentSize(),
+                )
+            }
+            Text(
+                text = if (isFirst) "Главная" else "Снимок ${position + 1}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Spacer(Modifier.weight(1f))
+        IconButton(onClick = onMakePrimary, enabled = !isFirst && enabled) {
+            Icon(
+                imageVector = if (isFirst) Icons.Filled.Star else Icons.Outlined.StarBorder,
+                contentDescription = if (isFirst) "Это главный снимок" else "Сделать главным",
+            )
+        }
+        IconButton(onClick = { onMove(-1) }, enabled = !isFirst && enabled) {
+            Icon(Icons.Filled.KeyboardArrowUp, contentDescription = "Переставить выше")
+        }
+        IconButton(onClick = { onMove(1) }, enabled = !isLast && enabled) {
+            Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Переставить ниже")
+        }
+        // Any row can go, including the only one: an empty photograph row is a state the server
+        // holds and the screens already paint («подбор показывает вас без снимка»).
+        IconButton(onClick = onAskDelete, enabled = enabled) {
+            Icon(Icons.Outlined.Delete, contentDescription = "Удалить снимок")
+        }
+    }
+}
+
+/**
+ * Removal asks first, in the same two-step the account deletion and the block use. The route deletes
+ * the stored file, and nothing in the app puts a removed photograph back — the dialog is the only
+ * place a mistaken tap can still be stopped, so it names what this particular removal costs.
+ */
+@Composable
+private fun DeletePhotoDialog(
+    position: Int,
+    total: Int,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Удалить фото?") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                Text(
+                    when {
+                        total == 1 -> "Это единственный снимок — анкета останется без фото, и подбор покажет вас без него."
+                        position == 0 -> "Это главный снимок. Главным станет следующий по порядку."
+                        else -> "Снимок ${position + 1} исчезнет из подборки и из анкеты, которую видят другие."
+                    },
+                )
+                Text(
+                    "Отменить удаление нельзя — фото придётся загружать заново.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text("Удалить", color = MaterialTheme.colorScheme.error)
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
+    )
 }
 
 @Composable

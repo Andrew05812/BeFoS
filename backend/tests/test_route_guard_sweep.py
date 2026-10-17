@@ -32,6 +32,7 @@ _UNKNOWN_VALUES = {
     "match_id": lambda: str(uuid.uuid4()),
     "plan_id": lambda: str(uuid.uuid4()),
     "activity_id": lambda: "999999",
+    "photo_id": lambda: str(uuid.uuid4()),
 }
 
 _HTTP_METHODS = ("GET", "POST", "PATCH", "PUT", "DELETE")
@@ -76,9 +77,9 @@ def test_the_sweep_walks_the_whole_identifier_surface() -> None:
     The floor is not a target — it fails when a route drops out of the table (a rename, a
     removal, a parameter the mapping no longer knows), which is how a hand-written list goes
     quietly stale and how an automated one would too if nobody read the set it produced.
-    Measured on this tree: 30 calls — 5 routes under ``/users/{user_id}``, 13 under
-    ``/matches/{match_id}`` (five of which also name an ``activity_id``) and 12 under
-    ``/plans/{plan_id}``.
+    Measured on this tree: 32 calls — 5 routes under ``/users/{user_id}``, 2 under
+    ``/users/me/photo/{photo_id}``, 13 under ``/matches/{match_id}`` (five of which also name an
+    ``activity_id``) and 12 under ``/plans/{plan_id}``.
     """
     calls = _identifier_calls()
     paths = {path for _, path in calls}
@@ -88,6 +89,10 @@ def test_the_sweep_walks_the_whole_identifier_surface() -> None:
         "/like", "/pass", "/block", "/report", "/messages", "/read",
         "/compatibility", "/recommendations", "/select", "/time", "/time/accept",
         "/plans", "/accept", "/hour", "/hour/confirm", "/cancel", "/complete", "/note",
+        # The two writes that name a photograph: a route that stops taking the number, or a number
+        # that stops being swept, takes one of these out of the set. ``/photo/`` alone would not —
+        # both of them carry it, and only ``/primary`` says which of the two is which.
+        "/photo/", "/primary",
     ):
         assert any(fragment in path for path in paths), f"{fragment} is not in the swept set"
 

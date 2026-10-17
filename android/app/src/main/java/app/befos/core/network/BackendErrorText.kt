@@ -76,6 +76,13 @@ private val translated: Map<String, String> = mapOf(
     "empty file." to "Файл пуст. Выберите другое фото.",
     "file is not a valid image." to "Не удалось прочитать фото. Выберите другое.",
     "image dimensions are too large." to "Фото слишком большое. Выберите снимок поменьше.",
+    // The three refusals of the management writes. The row's number comes from the server, so a
+    // number it does not accept is its own row having changed under the screen — the advice is to
+    // read it again, never to name a stranger's photograph.
+    "no photograph with this number is in your profile." to
+        "Этого снимка в вашем профиле нет. Обновите экран.",
+    "a photo order cannot name the same photograph twice." to
+        "Один и тот же снимок в порядке встречается дважды. Обновите экран.",
 
     // chat
     "message cannot be empty." to "Напишите сообщение.",
@@ -150,6 +157,10 @@ private val translatedPrefixes: List<Pair<String, String>> = listOf(
     "Invalid dating goal" to "Выберите цель знакомства.",
     // The server names the whole rule in one sentence about two cities; the screen says what to do.
     "Meeting time must carry a UTC offset" to "Не удалось понять, в каком поясе этот час.",
+    // A refused order names how many photographs the screen left out, so its constant part is the
+    // opening. What the person can do is re-read the row, which is what the copy says.
+    "A photo order must name every photograph the profile holds" to
+        "Список снимков изменился. Обновите экран и переставьте заново.",
 )
 
 /** Second layer: the envelope's machine code covers messages this file has never seen. */

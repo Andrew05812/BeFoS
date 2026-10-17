@@ -41,7 +41,7 @@ class OnboardingViewModelTest {
     /** What the server hands back for a profile that has been written. */
     private fun savedProfile(): Profile = Profile(
         userId = "me", name = "Вера", age = 29, city = "Москва", gender = "female",
-        about = null, datingGoal = "relationship", photoUrls = emptyList(),
+        about = null, datingGoal = "relationship", photos = emptyList(),
         interests = emptyList(), lifestyle = emptyMap(), ageMin = 20, ageMax = 45,
         genderPreference = emptyList(),
     )

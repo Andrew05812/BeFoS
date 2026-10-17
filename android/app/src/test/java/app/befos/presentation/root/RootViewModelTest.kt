@@ -33,7 +33,7 @@ class RootViewModelTest {
         gender = "male",
         about = null,
         datingGoal = goal,
-        photoUrls = emptyList(),
+        photos = emptyList(),
         interests = List(interests) { Interest("slug-$it", "Интерес $it", "hobby") },
         lifestyle = emptyMap(),
         ageMin = 18,

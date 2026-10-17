@@ -31,7 +31,7 @@ class ProfileViewModelTest {
 
     private fun profile(name: String = "Анна") = Profile(
         userId = "me", name = name, age = 28, city = "Москва", gender = "female",
-        about = "О себе", datingGoal = "relationship", photoUrls = emptyList(),
+        about = "О себе", datingGoal = "relationship", photos = emptyList(),
         interests = emptyList(), lifestyle = emptyMap(), ageMin = 25, ageMax = 35,
         genderPreference = listOf("male"),
     )

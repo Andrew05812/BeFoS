@@ -47,6 +47,12 @@ interface ProfileRepository {
     suspend fun onboarding(data: OnboardingData): ApiResult<Profile>
     suspend fun update(data: ProfileUpdateData): ApiResult<Profile>
     suspend fun uploadPhoto(input: InputStream, contentType: String): ApiResult<Profile>
+    /** Remove one photograph the person owns, by the number the server gave it. */
+    suspend fun deletePhoto(photoId: String): ApiResult<Profile>
+    /** Move one photograph to the head of the row, so it is the one readers are shown first. */
+    suspend fun makePhotoPrimary(photoId: String): ApiResult<Profile>
+    /** Write the whole row in the order named; a photograph left out of the list refuses the write. */
+    suspend fun reorderPhotos(photoIds: List<String>): ApiResult<Profile>
     suspend fun interests(): ApiResult<List<Interest>>
     suspend fun publicProfile(userId: String): ApiResult<PublicProfile>
 }

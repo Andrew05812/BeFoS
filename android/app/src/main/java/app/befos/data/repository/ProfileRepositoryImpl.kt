@@ -34,6 +34,17 @@ class ProfileRepositoryImpl(private val api: ApiService) : ProfileRepository {
     override suspend fun interests(): ApiResult<List<Interest>> =
         api.getInterests().map { dto -> dto.interests.map { it.toDomain() } }
 
+    // Each of the three answers with the whole profile, as the upload route does, so a screen that
+    // removed or moved a photograph paints the row the server holds rather than the row it asked for.
+    override suspend fun deletePhoto(photoId: String): ApiResult<Profile> =
+        api.deletePhoto(photoId).map { it.toDomain() }
+
+    override suspend fun makePhotoPrimary(photoId: String): ApiResult<Profile> =
+        api.makePhotoPrimary(photoId).map { it.toDomain() }
+
+    override suspend fun reorderPhotos(photoIds: List<String>): ApiResult<Profile> =
+        api.reorderPhotos(photoIds).map { it.toDomain() }
+
     override suspend fun publicProfile(userId: String): ApiResult<PublicProfile> =
         api.getPublicProfile(userId).map { it.toDomain() }
 }

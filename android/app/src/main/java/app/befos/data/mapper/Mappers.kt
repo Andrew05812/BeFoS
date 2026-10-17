@@ -38,6 +38,7 @@ import app.befos.domain.model.MessagePlan
 import app.befos.domain.model.OnboardingData
 import app.befos.domain.model.Option
 import app.befos.domain.model.Profile
+import app.befos.domain.model.ProfilePhoto
 import app.befos.domain.model.ProfileUpdateData
 import app.befos.domain.model.PublicProfile
 import app.befos.domain.model.Question
@@ -61,7 +62,11 @@ fun ProfileDto.toDomain() = Profile(
     gender = gender,
     about = about,
     datingGoal = datingGoal,
-    photoUrls = photos.mapNotNull { ApiConfig.absolute(it.url) },
+    photos = photos.mapNotNull { photo ->
+        // A url this build cannot resolve is dropped rather than sent on as a broken tile; its
+        // number goes with it, so the row the screen manages is the row it can actually paint.
+        ApiConfig.absolute(photo.url)?.let { ProfilePhoto(id = photo.id, url = it) }
+    },
     interests = interests.map { it.toDomain() },
     lifestyle = lifestyle,
     ageMin = ageMin,

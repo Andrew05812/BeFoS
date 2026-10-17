@@ -35,6 +35,23 @@ data class ProfileUiState(
     val uploading: Boolean = false,
     /** Why the last picture did not arrive, in the server's own Russian wording where it has one. */
     val uploadError: String? = null,
+    /**
+     * A management write — remove, lead with, reorder — is on its way right now.
+     *
+     * One flag for all three, because all three rewrite the same row: a reorder travelling while a
+     * removal is still landing would answer with a row that holds neither order the person chose.
+     */
+    val photoBusy: Boolean = false,
+    /** Why the last change to the photograph row did not land, in the server's Russian wording. */
+    val photoError: String? = null,
+    /**
+     * The number of the photograph the person has been asked about and has not answered yet.
+     *
+     * Held here rather than in the screen's local state, because the promise it carries — a removal
+     * needs an answer before it happens, and backing out of the question sends nothing — is a promise
+     * about this class's behaviour, and this is the half of the screen this repository can execute.
+     */
+    val pendingDeletion: String? = null,
 )
 
 class ProfileViewModel(
@@ -42,6 +59,18 @@ class ProfileViewModel(
     private val testRepository: TestRepository,
     private val authRepository: AuthRepository,
 ) : ViewModel() {
+
+    /**
+     * Counts the writes this class has started to the photograph row: an upload, a removal, a new head,
+     * a reorder.
+     *
+     * A background refresh reads that row and paints whatever it is handed, and on this screen the read
+     * and a write can be in flight together: the refresh's answer — a row from before the picture was
+     * added, or one still holding a picture the server has deleted — can land after the write's own
+     * answer and undo it on the screen. So the refresh notes the count before it leaves and drops its
+     * profile once the count has moved. The write's answer is the newer row, and it is the one kept.
+     */
+    private var rowWrites = 0
 
     private val _uiState = MutableStateFlow(ProfileUiState())
     val uiState: StateFlow<ProfileUiState> = _uiState.asStateFlow()
@@ -66,19 +95,22 @@ class ProfileViewModel(
 
     /** Re-fetch after returning from edit-profile; keeps current content on screen. */
     fun refreshSilently() {
-        if (_uiState.value.loading) return
+        if (_uiState.value.loading || _uiState.value.uploading || _uiState.value.photoBusy) return
         viewModelScope.launch {
+            val writesBefore = rowWrites
             val me = profileRepository.me()
             val progress = testRepository.progress()
             _uiState.update { state ->
                 var next = state.copy(refreshError = null)
-                when (me) {
-                    is ApiResult.Success -> next = next.copy(profile = me.data, error = null)
-                    is ApiResult.Error -> next = if (next.profile == null) {
-                        // Nothing cached: the failure is the screen, not a note about it.
-                        next.copy(error = me.message)
-                    } else {
-                        next.copy(refreshError = me.message)
+                if (rowWrites == writesBefore) {
+                    when (me) {
+                        is ApiResult.Success -> next = next.copy(profile = me.data, error = null)
+                        is ApiResult.Error -> next = if (next.profile == null) {
+                            // Nothing cached: the failure is the screen, not a note about it.
+                            next.copy(error = me.message)
+                        } else {
+                            next.copy(refreshError = me.message)
+                        }
                     }
                 }
                 when (progress) {
@@ -115,12 +147,13 @@ class ProfileViewModel(
      * picture the server still has, which is the honest state of that tab.
      */
     fun uploadPhoto(contentType: String?, open: () -> InputStream) {
-        if (_uiState.value.uploading) return
+        if (_uiState.value.uploading || _uiState.value.photoBusy) return
         if (contentType == null || contentType !in PHOTO_UPLOAD_CONTENT_TYPES) {
             _uiState.update { it.copy(uploadError = PHOTO_TYPES_SUPPORTED) }
             return
         }
         _uiState.update { it.copy(uploading = true, uploadError = null) }
+        rowWrites++
         viewModelScope.launch {
             val result = try {
                 profileRepository.uploadPhoto(open(), contentType)
@@ -138,6 +171,73 @@ class ProfileViewModel(
                 }
                 is ApiResult.Error -> _uiState.update {
                     it.copy(uploading = false, uploadError = result.message)
+                }
+            }
+        }
+    }
+
+    /** Ask whether this photograph should go. Nothing leaves the device until the question is answered. */
+    fun askDeletePhoto(photoId: String) {
+        if (_uiState.value.uploading || _uiState.value.photoBusy) return
+        _uiState.update { it.copy(pendingDeletion = photoId, photoError = null) }
+    }
+
+    /** The person backed out of the question, so the row stays exactly as the server holds it. */
+    fun cancelDeletePhoto() {
+        _uiState.update { it.copy(pendingDeletion = null) }
+    }
+
+    fun confirmDeletePhoto() {
+        val photoId = _uiState.value.pendingDeletion ?: return
+        if (_uiState.value.photoBusy) return
+        _uiState.update { it.copy(pendingDeletion = null) }
+        writeRow { profileRepository.deletePhoto(photoId) }
+    }
+
+    /** Put one photograph at the head of the row — the one the deck and the pair screens paint. */
+    fun makePhotoPrimary(photoId: String) {
+        if (_uiState.value.uploading || _uiState.value.photoBusy) return
+        // The head is already this photograph: the write would answer the row it already holds, and
+        // a button that promises a change and sends nothing but a round trip is a button to leave off.
+        if (_uiState.value.profile?.photos?.firstOrNull()?.id == photoId) return
+        writeRow { profileRepository.makePhotoPrimary(photoId) }
+    }
+
+    /**
+     * Move one photograph [delta] places along the row this screen holds, and send the whole order.
+     *
+     * The route takes the full row rather than a move, because `position` and `is_primary` are written
+     * from one list: a request naming only the pair being swapped would have to guess where the rest
+     * stands, and guessing wrong moves a photograph into an order nobody chose. So the order is built
+     * from what the server last answered, and any photograph the person added meanwhile arrives in the
+     * next answer rather than being silently dropped from this one.
+     */
+    fun movePhoto(photoId: String, delta: Int) {
+        if (_uiState.value.uploading || _uiState.value.photoBusy) return
+        val held = _uiState.value.profile?.photos.orEmpty()
+        val from = held.indexOfFirst { it.id == photoId }
+        val to = from + delta
+        // A photograph this screen no longer holds, and a photograph already at the end it was asked
+        // to leave: neither is a move, and neither is worth an uplink or an error the person did not
+        // cause.
+        if (from < 0 || to < 0 || to >= held.size) return
+        val wanted = held.toMutableList().apply { add(to, removeAt(from)) }
+        writeRow { profileRepository.reorderPhotos(wanted.map { it.id }) }
+    }
+
+    /** One in-flight write to the photograph row, answered by the row the server now holds. */
+    private fun writeRow(call: suspend () -> ApiResult<Profile>) {
+        rowWrites++
+        _uiState.update { it.copy(photoBusy = true, photoError = null) }
+        viewModelScope.launch {
+            when (val result = call()) {
+                is ApiResult.Success -> _uiState.update {
+                    it.copy(photoBusy = false, profile = result.data, photoError = null)
+                }
+                is ApiResult.Error -> _uiState.update {
+                    // The row on screen is the row the server still has, so the tiles stay where they
+                    // are and the refusal names what the server objected to.
+                    it.copy(photoBusy = false, photoError = result.message)
                 }
             }
         }

@@ -3,14 +3,20 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, File, UploadFile
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.deps import get_current_user
 from app.core.config import settings
 from app.core.database import get_session
-from app.models import PHOTO_DISPLAY_ORDER, User
+from app.models import PHOTO_DISPLAY_ORDER, Photo, User
 from app.repositories.user_repo import UserRepository
-from app.schemas.schemas import OnboardingProfile, ProfileOut, ProfileUpdate
+from app.schemas.schemas import (
+    OnboardingProfile,
+    PhotoOrderUpdate,
+    ProfileOut,
+    ProfileUpdate,
+)
 from app.services import photo_service
 from app.services.profile_service import ProfileService
 
@@ -37,6 +43,26 @@ def _profile_to_out(profile, photos: list) -> ProfileOut:
         gender_preference=profile.gender_preference or [],
         is_hidden=bool(profile.is_hidden),
     )
+
+
+async def _owner_answer(session: AsyncSession, user_id: uuid.UUID) -> ProfileOut:
+    """What every write to this profile answers with: the profile and the photograph row as left.
+
+    The row is read back rather than assembled from what the write was asked to do, so a person
+    moving or removing a picture sees the order the server actually holds — including the flag that
+    moved to the next photograph when the leading one was removed.
+    """
+    repo = UserRepository(session)
+    photos = list(
+        (
+            await session.execute(
+                select(Photo).where(Photo.user_id == user_id).order_by(*PHOTO_DISPLAY_ORDER)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return _profile_to_out(await repo.get_profile(user_id), photos)
 
 
 @router.get("/me", response_model=ProfileOut)
@@ -119,6 +145,43 @@ async def upload_photo(
         .all()
     )
     return _profile_to_out(profile, photos)
+
+
+@router.delete("/me/photo/{photo_id}", response_model=ProfileOut)
+async def delete_photo(
+    photo_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    service = ProfileService(session)
+    url = await service.delete_photo(current_user.id, photo_id)
+    # The row is committed and gone, so the file it named belongs to nobody now. Removing it after
+    # the commit is what keeps a refused delete — a stranger's number, an absent one — from
+    # destroying a photograph that is still in somebody's list.
+    photo_service.delete_stored_photo(url)
+    return await _owner_answer(session, current_user.id)
+
+
+@router.post("/me/photo/{photo_id}/primary", response_model=ProfileOut)
+async def make_photo_primary(
+    photo_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    service = ProfileService(session)
+    await service.set_primary_photo(current_user.id, photo_id)
+    return await _owner_answer(session, current_user.id)
+
+
+@router.patch("/me/photo/order", response_model=ProfileOut)
+async def reorder_photos(
+    payload: PhotoOrderUpdate,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    service = ProfileService(session)
+    await service.reorder_photos(current_user.id, payload.photo_ids)
+    return await _owner_answer(session, current_user.id)
 
 
 @router.get("/interests")

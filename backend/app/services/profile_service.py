@@ -3,11 +3,12 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime, timezone
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.compatibility.traits import GOAL_KEYS
 from app.core.exceptions import NotFoundError, ValidationError
-from app.models import Interest, Photo, Profile
+from app.models import Interest, PHOTO_DISPLAY_ORDER, Photo, Profile
 from app.models.base import age_years, utc_today
 from app.repositories.activity_repo import ActivityRepository
 from app.repositories.social_repo import DiscoveryRepository
@@ -19,6 +20,10 @@ VALID_GENDERS = {"male", "female", "nonbinary", "other"}
 # and missing from `_GOAL_COMPAT` is stored, read back by the route as an answer, and scored 0.0 —
 # the engine cannot tell an unscored goal from an opposite one.
 VALID_GOALS = GOAL_KEYS
+
+# Refused for a row that is not the caller's, whether it is absent or belongs to somebody else: an
+# answer that distinguished the two would confirm a stranger's photograph exists.
+_MISSING_PHOTO_MESSAGE = "No photograph with this number is in your profile."
 
 
 def _rejected_goal(goal: object) -> ValidationError:
@@ -290,13 +295,84 @@ class ProfileService:
         return cleaned
 
     async def add_photo(self, user_id: uuid.UUID, url: str, make_primary: bool = False) -> Photo:
-        if make_primary:
-            await self.session.execute(
-                Photo.__table__.update()
-                .where(Photo.user_id == user_id)
-                .values(is_primary=False)
-            )
-        photo = Photo(user_id=user_id, url=url, is_primary=make_primary, position=0)
+        held = await self._photos_of(user_id)
+        photo = Photo(user_id=user_id, url=url, is_primary=False, position=0)
         self.session.add(photo)
-        await self.session.commit()
+        await self.session.flush()
+        # The new picture leads when the person asked for it to be theirs to show, and holds its
+        # place at the end otherwise; either way the whole row is renumbered, because a photograph
+        # added beside a list whose positions are 0..n-1 would otherwise sit outside that row.
+        ordered = ([photo] + held) if make_primary else (held + [photo])
+        await self._write_photo_order(ordered)
         return photo
+
+    async def delete_photo(self, user_id: uuid.UUID, photo_id: uuid.UUID) -> str:
+        """Remove one of the owner's photographs, renumber what is left, answer its stored file.
+
+        The head of the row is the avatar every reader paints, so removing it is not a hole: the
+        photograph that followed it takes the flag in the same write. Removing the last photograph
+        is a profile with no photographs, which is what the person asked for and what every reader
+        already answers as its own empty state.
+        """
+        held = await self._photos_of(user_id, for_update=True)
+        target = next((photo for photo in held if photo.id == photo_id), None)
+        if target is None:
+            raise NotFoundError(_MISSING_PHOTO_MESSAGE)
+        await self.session.delete(target)
+        await self.session.flush()
+        await self._write_photo_order([photo for photo in held if photo.id != photo_id])
+        return target.url
+
+    async def set_primary_photo(self, user_id: uuid.UUID, photo_id: uuid.UUID) -> None:
+        held = await self._photos_of(user_id, for_update=True)
+        target = next((photo for photo in held if photo.id == photo_id), None)
+        if target is None:
+            raise NotFoundError(_MISSING_PHOTO_MESSAGE)
+        await self._write_photo_order([target] + [photo for photo in held if photo.id != photo_id])
+
+    async def reorder_photos(self, user_id: uuid.UUID, photo_ids: list[uuid.UUID]) -> None:
+        """Write the order the owner named, or refuse the list — never a part of it.
+
+        A submitted order that names a stranger's row is refused as a row that is not there, the way
+        every other route here refuses it: confirming the photograph exists is what 403 does. An order
+        that leaves one of the owner's photographs out is refused rather than applied, because writing
+        half a permutation is exactly how `position` and `is_primary` come apart: the left-out row
+        would keep an index the rest of the row has been renumbered past.
+        """
+        held = await self._photos_of(user_id, for_update=True)
+        if len(photo_ids) != len(set(photo_ids)):
+            raise ValidationError("A photo order cannot name the same photograph twice.")
+        held_ids = {photo.id for photo in held}
+        if not held_ids.issuperset(photo_ids):
+            raise NotFoundError(_MISSING_PHOTO_MESSAGE)
+        missing = held_ids - set(photo_ids)
+        if missing:
+            raise ValidationError(
+                f"A photo order must name every photograph the profile holds; it leaves out {len(missing)}."
+            )
+        by_id = {photo.id: photo for photo in held}
+        await self._write_photo_order([by_id[photo_id] for photo_id in photo_ids])
+
+    async def _photos_of(self, user_id: uuid.UUID, *, for_update: bool = False) -> list[Photo]:
+        """The owner's photographs in the one order readers see them, optionally held for a write."""
+        stmt = select(Photo).where(Photo.user_id == user_id).order_by(*PHOTO_DISPLAY_ORDER)
+        if for_update:
+            # Two management requests from one account can land together — a tap on «Удалить» next
+            # to a drag — and both would read the same row and write a renumbering of it. Holding the
+            # rows makes the second wait for the first's commit instead of racing it, so the order
+            # that reaches disk is one of the two the person asked for, never a blend.
+            stmt = stmt.with_for_update()
+        return list((await self.session.execute(stmt)).scalars().all())
+
+    async def _write_photo_order(self, photos: list[Photo]) -> list[Photo]:
+        """The only writer of `position` and `is_primary`, so the two cannot drift apart.
+
+        Both come out of one list in one pass: the position is the row's index in the order the owner
+        chose, and `is_primary` holds of that order's head alone — of nothing at all when the list is
+        empty, which is the honest state of a profile whose last photograph was removed.
+        """
+        for index, photo in enumerate(photos):
+            photo.position = index
+            photo.is_primary = index == 0
+        await self.session.commit()
+        return photos

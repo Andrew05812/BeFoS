@@ -26,7 +26,7 @@ class SettingsViewModelTest {
 
     private fun profile(hidden: Boolean) = Profile(
         userId = "me", name = "Анна", age = 29, city = "Москва", gender = "female",
-        about = null, datingGoal = "relationship", photoUrls = emptyList(),
+        about = null, datingGoal = "relationship", photos = emptyList(),
         interests = emptyList(), lifestyle = emptyMap(), ageMin = 25, ageMax = 35,
         genderPreference = emptyList(), isHidden = hidden,
     )

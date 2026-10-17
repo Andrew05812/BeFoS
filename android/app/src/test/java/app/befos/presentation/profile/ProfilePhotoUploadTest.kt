@@ -4,6 +4,7 @@ import app.befos.MainDispatcherRule
 import app.befos.core.network.ApiResult
 import app.befos.core.network.PHOTO_TYPES_SUPPORTED
 import app.befos.domain.model.Profile
+import app.befos.domain.model.ProfilePhoto
 import app.befos.domain.model.TestProgress
 import app.befos.domain.repository.AuthRepository
 import app.befos.domain.repository.ProfileRepository
@@ -46,7 +47,8 @@ class ProfilePhotoUploadTest {
 
     private fun profile(vararg photos: String) = Profile(
         userId = "me", name = "Анна", age = 28, city = "Москва", gender = "female",
-        about = "О себе", datingGoal = "relationship", photoUrls = photos.toList(),
+        about = "О себе", datingGoal = "relationship",
+        photos = photos.mapIndexed { index, url -> ProfilePhoto(id = "photo-$index", url = url) },
         interests = emptyList(), lifestyle = emptyMap(), ageMin = 25, ageMax = 35,
         genderPreference = listOf("male"),
     )
