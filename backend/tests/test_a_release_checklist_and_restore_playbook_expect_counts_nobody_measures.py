@@ -52,7 +52,10 @@ _VERIFICATION_HEADINGS = re.compile(r"^#{2,3}\s+(.+?)\s*$", re.MULTILINE)
 _TABLE_ROW = re.compile(r"^\| (?P<name>[^|]*) \| (?P<result>.*) \| `(?P<cmd>[^`]*)` \|$")
 _PASSED_COUNT = re.compile(r"\*\*(\d+) passed, 0 failed\*\* — замер (\d{4}-\d{2}-\d{2})")
 _JOURNEY_COUNT = re.compile(r"\*\*(\d+)\s*/\s*(\d+) проверок\*\* — замер (\d{4}-\d{2}-\d{2})")
-_ARTIFACT = re.compile(r"`s\d\d_[a-z0-9_]+(?:\.\w+)?`")
+# Three digits because the stage numbering passed 99: a row naming `s100_backend_full_run.log` is a
+# row with an artifact, and a pattern that stopped at two digits would report it as an unattributed
+# number — the guard would then red-flag the very measurement it exists to check.
+_ARTIFACT = re.compile(r"`s\d{2,3}_[a-z0-9_]+(?:\.\w+)?`")
 _UTC_WINDOW = re.compile(r"\d\d:\d\d:\d\d…\d\d:\d\d:\d\d UTC")
 _BLOCK_LINE = re.compile(r"^(?P<cmd>[^#]+?)\s+#\s*(?P<count>\d+)\b")
 _RELEASE_CLAIM = re.compile(
