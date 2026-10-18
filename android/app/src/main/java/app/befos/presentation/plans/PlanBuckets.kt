@@ -101,18 +101,57 @@ fun planSections(plans: List<Plan>): List<PlanSection> =
 fun planStatusWord(plan: Plan): String = when (plan.status) {
     PlanStatuses.CANCELLED -> "отменена"
     PlanStatuses.COMPLETED -> "встреча состоялась"
-    PlanStatuses.DECLINED ->
-        if (plan.myDecision == PlanDecisions.DECLINED) "вы отклонили" else "партнёр отклонил"
-    PlanStatuses.PLANNED -> if (plan.hourPassed) "час прошёл" else "договорились"
+    PlanStatuses.DECLINED -> when {
+        plan.myDecision == PlanDecisions.DECLINED && plan.partnerDecision == PlanDecisions.DECLINED ->
+            "вы оба отклонили"
+        plan.myDecision == PlanDecisions.DECLINED -> "вы отклонили"
+        else -> "партнёр отклонил"
+    }
+    PlanStatuses.PLANNED -> when {
+        // The hour the pair stood on is still the row's hour, but this person no longer stands behind
+        // it — the answer they changed outranks the arrangement it came after, which is what the
+        // server's own status rule says and what the card has to say with it.
+        plan.myDecision == PlanDecisions.DECLINED -> "вы отказались от договорённости"
+        plan.hourPassed -> "час прошёл"
+        else -> "договорились"
+    }
     PlanStatuses.RESCHEDULED ->
         if (plan.needsMyAnswer) "новый час ждёт вашего ответа" else "новый час ждёт ответа партнёра"
     PlanStatuses.PROPOSED -> when {
         plan.myDecision == PlanDecisions.DECLINED -> "вы отклонили, идея осталась у партнёра"
+        // Whose word is in, and whose is missing, are one sentence rather than two fields the reader
+        // has to line up: half a confirmation is the state the pair is actually in.
+        plan.myDecision == PlanDecisions.JOINED -> "подтвердили вы, ждём ответа партнёра"
         plan.needsMyAnswer -> "ждёт вашего ответа"
         else -> "ждёт ответа партнёра"
     }
     PlanStatuses.ACCEPTED -> "подтверждена обоими, час не назван"
     else -> "состояние, которое эта версия приложения не читает"
+}
+
+/**
+ * Whether this person's own answer is still being taken.
+ *
+ * One rule for both doors, because the pair's plan is closed to answers by the same event for both of
+ * them: a plan the pair called off, or already lived through, is not something to stand behind again.
+ * The server refuses these two taps with the same sentence it gives the plan's words, so the card hides
+ * the doors rather than handing the person a tap that can only be refused — and stays silent about a
+ * refusal this person has not made yet, which is theirs to make from the recommendation deck whatever
+ * the plan's status.
+ */
+fun canAnswerPlan(plan: Plan): Boolean =
+    plan.status != PlanStatuses.CANCELLED && plan.status != PlanStatuses.COMPLETED
+
+/**
+ * Why the answer doors are shut, or null while they are open.
+ *
+ * The card without buttons needs a sentence rather than an absence: «отменена» on the badge says what
+ * the plan is, not that the person's own word was asked for and can no longer be given.
+ */
+fun planAnswerWord(plan: Plan): String? = when (plan.status) {
+    PlanStatuses.CANCELLED -> "План отменён — подтверждать его больше нечего"
+    PlanStatuses.COMPLETED -> "Встреча состоялась — подтверждать её больше нечего"
+    else -> if (canAnswerPlan(plan)) null else "План закрыт — отвечать на него больше нечего"
 }
 
 /**
@@ -192,12 +231,35 @@ fun planHourWord(plan: Plan, now: ZonedDateTime): String? {
     // The instant the wire carries is read on this person's calendar; a row this build cannot parse
     // is still shown as the server sent it rather than as an empty agreement.
     val moment = formatMeetingInstant(hour, now, now.zone).ifBlank { hour }
+    val standing = planHourIsThePairWord(plan, now)
     val passed = planMomentPassed(hour, now)
-    return when (plan.status) {
-        PlanStatuses.COMPLETED -> "Встреча была: $moment"
-        PlanStatuses.RESCHEDULED -> "Прежний час: $moment"
-        else -> if (passed) "Договорились: $moment · $PLAN_PAST_WORD" else "Договорились: $moment"
+    return when {
+        plan.status == PlanStatuses.COMPLETED -> "Встреча была: $moment"
+        // The hour stands in the pair's rows while the pair no longer stands on it: an answer changed
+        // after the agreement leaves the moment behind, and a card that called it «договорились»
+        // would promise an evening to a person who has just said they are not coming.
+        plan.status == PlanStatuses.RESCHEDULED -> "Прежний час: $moment"
+        !standing && passed -> "Договорились: $moment · $PLAN_PAST_WORD"
+        !standing -> "Час был назван: $moment"
+        else -> "Договорились: $moment"
     }
+}
+
+/**
+ * Whether the hour the row holds is the hour the pair currently stands on.
+ *
+ * The card marks that hour with a check and leaves it selected; an evening that has been replaced,
+ * outlived or refused is the plan's history rather than its promise, and the same reading has to hold
+ * whatever the chip is drawn with.
+ */
+fun planHourIsThePairWord(plan: Plan, now: ZonedDateTime): Boolean {
+    val hour = plan.startsAt ?: return false
+    if (plan.status == PlanStatuses.RESCHEDULED || plan.status == PlanStatuses.DECLINED ||
+        plan.status == PlanStatuses.COMPLETED || plan.myDecision == PlanDecisions.DECLINED
+    ) {
+        return false
+    }
+    return !planMomentPassed(hour, now)
 }
 
 /**
