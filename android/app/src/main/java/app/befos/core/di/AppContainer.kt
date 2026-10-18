@@ -8,6 +8,7 @@ import app.befos.data.repository.AuthRepositoryImpl
 import app.befos.data.repository.ChatRepositoryImpl
 import app.befos.data.repository.DiscoveryRepositoryImpl
 import app.befos.data.repository.MatchRepositoryImpl
+import app.befos.data.repository.ModerationRepositoryImpl
 import app.befos.data.repository.PlanRepositoryImpl
 import app.befos.data.repository.ProfileRepositoryImpl
 import app.befos.data.repository.SafetyRepositoryImpl
@@ -16,6 +17,7 @@ import app.befos.domain.repository.AuthRepository
 import app.befos.domain.repository.ChatRepository
 import app.befos.domain.repository.DiscoveryRepository
 import app.befos.domain.repository.MatchRepository
+import app.befos.domain.repository.ModerationRepository
 import app.befos.domain.repository.PlanRepository
 import app.befos.domain.repository.ProfileRepository
 import app.befos.domain.repository.SafetyRepository
@@ -48,6 +50,7 @@ class AppContainer(context: Context) {
     val matchRepository: MatchRepository by lazy { MatchRepositoryImpl(api) }
     val planRepository: PlanRepository by lazy { PlanRepositoryImpl(api) }
     val safetyRepository: SafetyRepository by lazy { SafetyRepositoryImpl(api) }
+    val moderationRepository: ModerationRepository by lazy { ModerationRepositoryImpl(api) }
     val chatRepository: ChatRepository by lazy {
         ChatRepositoryImpl(api, httpClient, tokenStore, appScope)
     }

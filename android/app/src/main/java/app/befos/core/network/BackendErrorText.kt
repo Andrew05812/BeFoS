@@ -126,6 +126,17 @@ private val translated: Map<String, String> = mapOf(
     // the person to retry the tap that just worked for a different complaint.
     "too many complaints for now. try again later." to "Жалоб с вашего аккаунта уже много. Попробуйте позже.",
 
+    // moderation. The queue is a screen a moderator opens, so all four speak to the hand that
+    // decides rather than to a person who filed something.
+    "moderator role is required." to "Очередь модерации доступна только модератору.",
+    "report not found." to "Этой жалобы уже нет в очереди. Обновите список.",
+    "report cursor not found." to "Очередь изменилась, пока вы читали. Загрузите её заново.",
+    "this complaint already carries that status." to "Жалоба уже в этом статусе.",
+    "a moderator cannot decide a complaint about their own account." to
+        "Свою жалобу вы решить не можете — её должен рассмотреть другой модератор.",
+    "a complaint that is being closed needs a comment saying why." to
+        "Закрывая жалобу, надо записать причину. Без записи решение не сохраняется.",
+
     // test
     "no answers provided." to "Ответьте хотя бы на один вопрос.",
     "invalid input." to "Проверьте введённые данные.",
@@ -170,6 +181,12 @@ private val translatedPrefixes: List<Pair<String, String>> = listOf(
     // opening. What the person can do is re-read the row, which is what the copy says.
     "A photo order must name every photograph the profile holds" to
         "Список снимков изменился. Обновите экран и переставьте заново.",
+    // A refused transition names the two statuses the row actually holds and was asked to take. The
+    // screen cannot repair that pair — the queue moved under the reader — so the copy sends them back
+    // to the row rather than repeating the server's own sentence about it.
+    "A complaint cannot move from " to "Жалоба уже не переходит в этот статус. Обновите очередь.",
+    "Invalid report status. Allowed:" to "Такого статуса жалоба не принимает.",
+    "That comment is longer than " to "Запись слишком длинная. Сократите её.",
 )
 
 /** Second layer: the envelope's machine code covers messages this file has never seen. */

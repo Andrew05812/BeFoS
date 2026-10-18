@@ -56,7 +56,7 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 @Composable
-fun SettingsScreen(onBack: () -> Unit, onLoggedOut: () -> Unit) {
+fun SettingsScreen(onBack: () -> Unit, onLoggedOut: () -> Unit, onOpenModeration: () -> Unit) {
     val vm: SettingsViewModel = beFosViewModel { SettingsViewModel(it.safetyRepository, it.authRepository, it.profileRepository) }
     val state by vm.uiState.collectAsState()
 
@@ -150,6 +150,23 @@ fun SettingsScreen(onBack: () -> Unit, onLoggedOut: () -> Unit) {
 
             state.message?.let { message ->
                 InlineNotice(message, isError = state.messageIsError)
+            }
+
+            // The door is drawn from the role the server read off this account's own row. It is the
+            // only place in the client that mentions the queue, and it opens nothing by itself: the
+            // three moderation routes answer 403 to any session whose row lacks the flag, so an entry
+            // reached by other means — a restored back stack, a hand-built route — meets a refusal
+            // rather than a list.
+            if (state.isModerator) {
+                Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
+                    SectionHeader("Модерация")
+                    AppButton(
+                        text = "Очередь жалоб",
+                        onClick = onOpenModeration,
+                        variant = AppButtonVariant.Tonal,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
             }
 
             Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {

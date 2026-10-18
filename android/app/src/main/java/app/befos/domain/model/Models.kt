@@ -30,6 +30,12 @@ data class Profile(
     val ageMax: Int,
     val genderPreference: List<String>,
     val isHidden: Boolean = false,
+    /**
+     * Whether this account may open the moderation queue. The answer comes from the owner's own
+     * profile, and it only decides where to put a door on the screen: the queue routes read the role
+     * off the row per request, so an account that draws its way in is stopped by the server.
+     */
+    val isModerator: Boolean = false,
 ) {
     /** The row the way every screen reads it: urls, in the order the owner's writes left them. */
     val photoUrls: List<String> get() = photos.map { it.url }
@@ -452,3 +458,73 @@ data class ProfileUpdateData(
     val genderPreference: List<String>? = null,
     val isHidden: Boolean? = null,
 )
+
+/**
+ * The account a complaint names, as the queue draws it.
+ *
+ * `age` is null rather than zero for an erased account: the birth date an erasure writes belongs to
+ * nobody, and a card that printed «0» for it would put a number on the screen that a person never
+ * was. The two flags say what the queue has to say about a row it cannot open as a profile — hidden
+ * from the deck, or gone from it altogether.
+ */
+data class ReportedAccount(
+    val userId: String,
+    val name: String?,
+    val age: Int?,
+    val city: String?,
+    val isDeleted: Boolean,
+    val isHidden: Boolean,
+    val isModerator: Boolean,
+)
+
+/** The account that filed the complaint. The queue names it to the moderator and to nobody else. */
+data class Reporter(val userId: String, val name: String?)
+
+data class ReportCard(
+    val id: String,
+    val reason: String,
+    val details: String?,
+    val status: String,
+    val createdAt: String,
+    val reported: ReportedAccount,
+    val reporter: Reporter,
+)
+
+/**
+ * One page of the queue, oldest complaint first.
+ *
+ * `nextCursor` is the id of the last row this page answered with, and `hasMore` says whether a row
+ * stands behind it. A screen that read `hasMore` off the page being shorter than the limit would
+ * stop looking for complaints in the middle of the queue whenever the last page happened to land
+ * exactly on the bound.
+ */
+data class ReportsPage(
+    val reports: List<ReportCard>,
+    val nextCursor: String?,
+    val hasMore: Boolean,
+)
+
+data class ReportReviewRow(
+    val id: String,
+    val moderatorId: String,
+    val moderatorName: String?,
+    val fromStatus: String,
+    val toStatus: String,
+    val comment: String?,
+    val decidedAt: String,
+)
+
+/**
+ * One complaint with the whole history of how it was decided, and the statuses it may still be moved
+ * to. The choices come from the server's own transition table rather than from a list the client
+ * keeps, so a screen cannot offer a tap the write route was always going to refuse.
+ */
+data class ReportDetail(
+    val card: ReportCard,
+    val updatedAt: String,
+    val reviews: List<ReportReviewRow>,
+    val allowedNextStatuses: List<String>,
+)
+
+/** The status the row holds now, as the write route answered it after its own commit. */
+data class ReviewOutcome(val id: String, val status: String, val updatedAt: String)

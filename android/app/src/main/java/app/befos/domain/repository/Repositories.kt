@@ -15,6 +15,9 @@ import app.befos.domain.model.Profile
 import app.befos.domain.model.ProfileUpdateData
 import app.befos.domain.model.PublicProfile
 import app.befos.domain.model.Recommendation
+import app.befos.domain.model.ReportDetail
+import app.befos.domain.model.ReportsPage
+import app.befos.domain.model.ReviewOutcome
 import app.befos.domain.model.TestCatalog
 import app.befos.domain.model.TestProfile
 import app.befos.domain.model.TestProgress
@@ -147,4 +150,31 @@ interface SafetyRepository {
     suspend fun report(userId: String, reason: String, details: String?): ApiResult<Unit>
     suspend fun setVisibility(hidden: Boolean): ApiResult<Unit>
     suspend fun deleteAccount(): ApiResult<Unit>
+}
+
+/**
+ * The moderation queue, read and decided through the three routes stage 102 put behind
+ * `get_moderator`.
+ *
+ * None of these three answers is a permission check the client can substitute for: the role is read
+ * off the account row on every request, so an account that reached this screen without holding it
+ * gets 403 from the server rather than a queue. What the screen does with that 403 is say so out
+ * loud, not pretend the row it asked about does not exist.
+ */
+interface ModerationRepository {
+    /** One page of the queue, oldest complaint first; a null status asks for every status. */
+    suspend fun page(status: String?, afterId: String?): ApiResult<ReportsPage>
+
+    /** One complaint with the history of how it was decided and the statuses still open to it. */
+    suspend fun detail(reportId: String): ApiResult<ReportDetail>
+
+    /**
+     * Moves one complaint to one status.
+     *
+     * The answer is the status the row holds after the write's own commit, which is the status that
+     * was asked for only when the transition was still legal at the moment the row was locked — a
+     * second moderator deciding the same complaint in the same second is the case this returns
+     * rather than the one it prevents.
+     */
+    suspend fun review(reportId: String, status: String, comment: String?): ApiResult<ReviewOutcome>
 }
