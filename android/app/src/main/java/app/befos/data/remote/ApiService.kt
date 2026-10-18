@@ -23,6 +23,7 @@ import app.befos.data.model.OnboardingRequest
 import app.befos.data.model.PassResponseDto
 import app.befos.data.model.PhotoOrderRequest
 import app.befos.data.model.PlanDetailDto
+import app.befos.data.model.PlanEditRequest
 import app.befos.data.model.PlanListDto
 import app.befos.data.model.ProfileDto
 import app.befos.data.model.ProfileUpdateRequest
@@ -426,6 +427,28 @@ class ApiService(private val client: HttpClient) {
         client.apiCallUnit {
             method = HttpMethod.Delete
             url(endpoint("plans/$planId/complete"))
+        }
+
+    /**
+     * Write the pair's place and their note about it, or take one of them back.
+     *
+     * Only these two words, and only through these two flags: the hour belongs to both halves and
+     * moves through the hour routes, while a place that was written and then erased has to be said as
+     * an erasure — an omitted field means «не трогать», not «пусто». The answer carries the plan as it
+     * now stands and is dropped here on purpose: the page that sent the tap reads its whole list back,
+     * so no card can be repainted from one response and disagree with the section it sits in.
+     */
+    suspend fun editPlanWords(
+        planId: String,
+        place: String?,
+        note: String?,
+        clearPlace: Boolean,
+        clearNote: Boolean,
+    ): ApiResult<Unit> =
+        client.apiCallUnit {
+            method = HttpMethod.Patch
+            url(endpoint("plans/$planId"))
+            setBody(PlanEditRequest(place, note, clearPlace, clearNote))
         }
 
     // ---------- Safety ----------

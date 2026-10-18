@@ -130,6 +130,55 @@ fun canOfferHour(plan: Plan): Boolean =
         plan.myDecision != PlanDecisions.DECLINED
 
 /**
+ * Whether this person may still write the pair's own words about the arrangement.
+ *
+ * Read off the buckets rather than off a status list: the two sections the pair still reads as
+ * ahead of them have something left to arrange, and the meeting that happened or was called off does
+ * not. The server keeps its own refusal of a closed plan for the case this screen could not see —
+ * the other half cancelling while this card was open.
+ */
+fun canEditPlanWords(plan: Plan): Boolean =
+    planBucketOf(plan) == PlanBucket.AHEAD || planBucketOf(plan) == PlanBucket.AGREED
+
+/**
+ * The two words of the pair, as the write that carries them.
+ *
+ * A field the person left as it was says nothing at all: the wire omits it, and the server reads an
+ * omitted field as «не трогать». Erasing what is already written is a different act from writing
+ * nothing, so it is said by its own flag rather than by an empty string — the server refuses a place
+ * that is blank on purpose, and a card that sent one would turn «снять место» into a failed tap.
+ */
+data class PlanWordsEdit(
+    val place: String? = null,
+    val note: String? = null,
+    val clearPlace: Boolean = false,
+    val clearNote: Boolean = false,
+) {
+    /** True when neither field moved, so there is no request to send and no line to report. */
+    val nothingChanged: Boolean get() = place == null && note == null && !clearPlace && !clearNote
+}
+
+/**
+ * What the tap sends for the text this person just left in the two fields of the card.
+ *
+ * Compared against the row the page holds, not against empty: the card prefills both fields with what
+ * the plan already says, so a person who edited only the note would otherwise send the place back
+ * unchanged and turn a one-field save into a write over both. Whitespace is the same case from the
+ * other side — a field rubbed clean leaves no text behind, and sending it as `""` would be the blank
+ * place the server refuses; what happened is the erasure below.
+ */
+fun planWordsEdit(plan: Plan, placeText: String, noteText: String): PlanWordsEdit {
+    val place = placeText.trim()
+    val note = noteText.trim()
+    return PlanWordsEdit(
+        place = place.takeIf { it.isNotEmpty() && it != plan.place?.trim() },
+        note = note.takeIf { it.isNotEmpty() && it != plan.note?.trim() },
+        clearPlace = place.isEmpty() && !plan.place.isNullOrBlank(),
+        clearNote = note.isEmpty() && !plan.note.isNullOrBlank(),
+    )
+}
+
+/**
  * What the card calls the hour the row holds.
  *
  * The same instant means a different thing per state: on a plan the pair stands on it is the hour

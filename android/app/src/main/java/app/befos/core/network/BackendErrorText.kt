@@ -112,6 +112,16 @@ private val translated: Map<String, String> = mapOf(
     "a meeting is arranged within the next year, not beyond it." to
         "Договориться можно только о встрече в ближайший год.",
 
+    // Shared plans. The card lets the pair write its own place and note, so the two refusals the
+    // save can meet have to be said in the card's terms. A row the server no longer holds is the
+    // answer every plan verb gives to an outsider too, so the line sends the reader back to the list
+    // rather than explaining whose plan it was.
+    "plan not found." to "Этого плана в вашей паре уже нет. Обновите список.",
+    // Reached when the partner closed the plan while this card was open: the words did not fail to
+    // fit, there is simply nothing left to write on. «Это уже сделано.» would call it a save.
+    "this plan is closed, so there is nothing left to change." to
+        "Эта встреча уже закрыта — отменена, состоялась или отклонена. Менять в ней нечего.",
+
     // safety
     "you cannot block yourself." to "Нельзя применить это к себе.",
     "you cannot unblock yourself." to "Нельзя применить это к себе.",

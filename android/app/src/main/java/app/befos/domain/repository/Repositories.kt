@@ -127,6 +127,19 @@ interface PlanRepository {
     suspend fun offerHour(planId: String, whenIso: String): ApiResult<Unit>
     suspend fun confirmHour(planId: String, whenIso: String): ApiResult<Unit>
 
+    /**
+     * Write the pair's own words about the arrangement — its place and their note — or take one of
+     * them back. Both halves hold the same two lines, so either may write them; the clearing flags
+     * exist because an omitted field means «не трогать» and only a said erasure removes a place.
+     */
+    suspend fun editWords(
+        planId: String,
+        place: String?,
+        note: String?,
+        clearPlace: Boolean,
+        clearNote: Boolean,
+    ): ApiResult<Unit>
+
     suspend fun cancel(planId: String): ApiResult<Unit>
     suspend fun restore(planId: String): ApiResult<Unit>
 

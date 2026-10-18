@@ -27,6 +27,14 @@ class PlanRepositoryImpl(private val api: ApiService) : PlanRepository {
     override suspend fun confirmHour(planId: String, whenIso: String): ApiResult<Unit> =
         api.confirmPlanHour(planId, whenIso)
 
+    override suspend fun editWords(
+        planId: String,
+        place: String?,
+        note: String?,
+        clearPlace: Boolean,
+        clearNote: Boolean,
+    ): ApiResult<Unit> = api.editPlanWords(planId, place, note, clearPlace, clearNote)
+
     override suspend fun cancel(planId: String): ApiResult<Unit> = api.cancelPlan(planId)
 
     override suspend fun restore(planId: String): ApiResult<Unit> = api.restorePlan(planId)
