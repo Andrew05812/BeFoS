@@ -547,6 +547,75 @@ def main() -> int:
     check(isinstance(hl, str) and len(hl) > 0, "discovery card has data-derived highlight", str(hl)[:60])
     check(0 <= card["compatibility"] <= 100, "card compatibility is real %", str(card["compatibility"]))
 
+    # 5b. the search city a person can name. Until stage 104 the deck could already be filtered by
+    # `city_preference` and no route in the product could write it — the column was the read's promise
+    # and nobody's answer. This walk is the first time the filter arrives through the front door:
+    # named, read back by the profile itself, obeyed by the deck, erased, and obeyed no more.
+    def deck(headers: dict) -> list[dict]:
+        cards: list[dict] = []
+        page_cursor = None
+        while True:
+            params: dict = {"limit": 50}
+            if page_cursor:
+                params["cursor"] = page_cursor
+            page = c.get(f"{BASE}/discover", headers=headers, params=params).json()
+            batch = page.get("items", [])
+            cards.extend(batch)
+            if not page.get("has_more") or not batch:
+                return cards
+            page_cursor = page.get("next_cursor")
+
+    own = c.get(f"{BASE}/users/me", headers=ha).json()
+    check(own.get("city_preference") is None,
+          "an account that never named a search city reads none", str(own.get("city_preference")))
+
+    # A deck remembers whom it has already shown, so the narrowing cannot be demonstrated on the
+    # reader who just paged through the whole wide deck — it gets a fresh one.
+    rc = c.post(f"{BASE}/auth/register", json={"email": f"e2e.city.{stamp}@befosmail.com", "password": pw, "password_confirm": pw})
+    tok_c = rc.json()["tokens"]["access_token"]
+    hc = {"Authorization": f"Bearer {tok_c}"}
+    oc = c.post(f"{BASE}/users/me/onboarding", headers=hc,
+                json=onboard_payload("Вера", "other", ["female", "male"], shared))
+    c.post(f"{BASE}/tests/answers", headers=hc,
+           json={"answers": [{"question_id": q["id"], "option_id": q["options"][0]["id"]} for q in qs if q["options"]]})
+    cc = c.post(f"{BASE}/tests/complete", headers=hc)
+    check(oc.status_code == 200 and cc.status_code == 200, "the search city step gets its own fresh reader",
+          f"onboarding {oc.status_code}, test {cc.status_code}")
+
+    chosen = me["city"]  # A's own city, so the narrowed deck cannot be asked to conjure candidates
+    named = c.patch(f"{BASE}/users/me", headers=hc, json={"city_preference": chosen})
+    check(named.status_code == 200 and named.json().get("city_preference") == chosen,
+          "the named city is read back by the profile itself", str(named.json().get("city_preference")))
+    narrowed = deck(hc)
+    check(len(narrowed) > 0 and all(it["city"].lower() == chosen.lower() for it in narrowed),
+          "the deck answers to the named city and serves nobody else",
+          f"{len(narrowed)} cards, all «{chosen}»")
+    n_ids = {it["user_id"] for it in narrowed}
+    check(uid_a in n_ids and uid_b in n_ids,
+          "both halves of the pair live in the city the reader named and are served under the filter",
+          f"{len(narrowed)} cards scanned")
+
+    # The invented city and the erase are read through B, whose deck nobody has paged through:
+    # a viewer shown the whole wide deck honestly answers empty to every later filter, shown-once
+    # stays shown, and that truth would prove nothing about the filter.
+    invented = c.patch(f"{BASE}/users/me", headers=hb, json={"city_preference": f"Город {stamp}"})
+    check(invented.status_code == 200, "a city nobody lives in is still an answer", str(invented.status_code))
+    empty = deck(hb)
+    check(len(empty) == 0, "the deck says empty rather than widening behind the filter's back",
+          str(len(empty)))
+
+    erased = c.patch(f"{BASE}/users/me", headers=hb, json={"city_preference": ""})
+    check(erased.status_code == 200 and erased.json().get("city_preference") is None,
+          "the empty string is the answer «снимите фильтр», and the read says none",
+          str(erased.json().get("city_preference")))
+    widened = deck(hb)
+    check(len(widened) > 0 and any(it["user_id"] == uid_a for it in widened),
+          "the wide deck comes back when the filter goes", f"{len(widened)} cards")
+
+    others_card = c.get(f"{BASE}/users/{uid_b}", headers=ha).json()
+    check("city_preference" not in others_card,
+          "a card of somebody else does not say where they search", str(sorted(others_card)[:8]))
+
     # 6. open public profile
     pub = c.get(f"{BASE}/users/{uid_b}", headers=ha)
     check(pub.status_code == 200 and pub.json().get("name") == "Борис", "public profile B", str(pub.status_code))
