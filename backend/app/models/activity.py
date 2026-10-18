@@ -56,6 +56,8 @@ class ActivityPreference(TimestampMixin, Base):
     # Two answers a person can give the same card, kept apart because both can be true at once:
     # the idea did go into the pair's chat, and the person has since pushed it away. Folding them
     # into one flag is how a card would come back offering a second copy of a message already sent.
+    # The pair's plan reads them in order rather than combining them — a standing refusal is that
+    # person's answer about the idea; see `app.services.plan_service._decision`.
     # `proposed` defaults to true because every row written before this column existed was one.
     proposed: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     declined: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

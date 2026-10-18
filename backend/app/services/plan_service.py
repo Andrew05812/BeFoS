@@ -85,6 +85,22 @@ def _refuse_closed(plan: SharedPlan) -> None:
         raise ConflictError("This plan is called off, so its hour has to be restored first.")
 
 
+def _refuse_answer_closed(plan: SharedPlan) -> None:
+    """A plan that is called off or has already happened is not open for an answer.
+
+    The hour doors have `_refuse_closed` and the words of the pair have their own refusal in `edit`;
+    the answer doors had neither, so `POST /plans/{id}/accept` answered 204 over a cancelled plan and
+    moved that person's row under an arrangement the pair had already called off — the next restore
+    would then put the plan back standing on answers one half had given while it was closed.
+
+    `declined` is deliberately absent from what this refuses. A refusal is an answer, and an answer is
+    exactly what its author may still take back; a door closed behind it would leave the pair holding
+    a plan neither of them can put right again.
+    """
+    if plan.status in (STATUS_CANCELLED, STATUS_COMPLETED):
+        raise ConflictError("This plan is closed, so there is nothing left to answer.")
+
+
 def _newest_last(frames: list[dict]) -> list[dict]:
     """Mark only the last line of one tap as the conversation's newest word about the idea.
 
@@ -100,17 +116,25 @@ def _newest_last(frames: list[dict]) -> list[dict]:
 
 
 def _decision(line: PreferenceLine) -> str:
-    """What this person's row says about the idea.
+    """What this person's row says about the idea, as the pair's plan answers it.
 
-    `joined` when they put it to the pair, `declined` when they pushed it away and has not taken that
-    back, `pending` when they have said nothing — and `pending` is a state rather than an absent row,
+    `joined` when they put it to the pair and still stand behind it, `declined` when they pushed it
+    away, `pending` when they have said nothing — and `pending` is a state rather than an absent row,
     because the pair's plan is about two named people and «ждёт подтверждения» has to name which of
     them is being asked.
+
+    The refusal is read first, and that order is the whole of what makes a confirmation revocable.
+    The card page keeps both flags standing when somebody who already proposed then pushes the idea
+    away, because the sentence did go into the chat and the mark is what stops a second copy of it —
+    so a plan answering from `proposed` first was reading a refusal that had been written, committed
+    and forgotten by every screen: «подтверждена обоими» over a person who had said they were not
+    coming. Taking the refusal back leaves the proposal it came after standing, so the way out of a
+    refusal is the same tap that made it and the arrangement does not have to be negotiated again.
     """
-    if line.proposed:
-        return DECISION_JOINED
     if line.declined:
         return DECISION_DECLINED
+    if line.proposed:
+        return DECISION_JOINED
     return DECISION_PENDING
 
 
@@ -183,16 +207,19 @@ class PlanService:
 
         Ordered rather than spread across the verbs, because the verbs move different facts and the
         pair has to be shown one state for their plan: a cancellation outranks an hour that still
-        sits in the rows, and an hour the pair stands on outranks a refusal written before it.
+        sits in the rows, and an answer one half has changed outranks the hour it came after.
+
+        The refusal of the half that did not make the plan therefore reads before `starts_at`. It did
+        not used to, and could not: `_decision` answered `joined` for anybody whose row carried the
+        proposal mark, so a refusal given after a confirmation never reached the pair's state at all,
+        and the hour standing on the plan was always the newer of the two facts. «Не приду», said
+        after «в семь», is now the pair's state — whatever the hour column still holds, and the hour
+        it holds is what a taken-back refusal returns to.
         """
         if plan.cancelled_at is not None:
             return STATUS_CANCELLED
         if plan.members and all(m.attended_at is not None for m in plan.members):
             return STATUS_COMPLETED
-        if plan.starts_at is not None:
-            return STATUS_PLANNED
-        if plan.pending_hour is not None and plan.was_planned:
-            return STATUS_RESCHEDULED
         if any(
             member.user_id != plan.created_by and member.decision == DECISION_DECLINED
             for member in plan.members
@@ -201,6 +228,10 @@ class PlanService:
             # pushing their own idea away is a person editing their own page, which says nothing
             # about the pair and leaves the plan proposed.
             return STATUS_DECLINED
+        if plan.starts_at is not None:
+            return STATUS_PLANNED
+        if plan.pending_hour is not None and plan.was_planned:
+            return STATUS_RESCHEDULED
         if plan.members and all(m.decision == DECISION_JOINED for m in plan.members):
             return STATUS_ACCEPTED
         return STATUS_PROPOSED
@@ -215,9 +246,9 @@ class PlanService:
         which are the plan's own record of what the pair said about the arrangement rather than about
         the idea.
 
-        A plan exists for an idea one of the two has put to the pair. A row that only pushed a card
-        away is a person editing their own page and names no arrangement, so the page of plans stays
-        a list of ideas the pair took up rather than a list of things one of them did not want.
+        A plan is *created* for an idea one of the two has put to the pair. A row that only pushed a
+        card away is a person editing their own page and names no arrangement, so the page of plans
+        stays a list of ideas the pair took up rather than a list of things one of them did not want.
 
         It never writes a journal line either. Lines belong to the verbs that moved the state, so a
         plan discovered here — an idea the pair arranged before this table existed — cannot be
@@ -340,7 +371,14 @@ class PlanService:
         # Who is being asked, said as one answer rather than as three fields the client would have to
         # combine: the buckets of «Наши планы» divide on exactly this question, and a screen that
         # re-derived it would be a second implementation of the state machine above.
-        awaiting_answer = theirs is not None and theirs.decision == DECISION_PENDING
+        #
+        # The question is asked of the person whose own word is missing. Reading it as «the partner
+        # has not answered» made the card of the person who had not answered say that somebody else
+        # was being asked — so the half whose confirmation the plan is waiting for was told, by both
+        # screens, that nothing was waiting for them, and a pair could only find out who had not
+        # spoken by comparing two cards. What the other half still owes the plan is in
+        # `partner_decision`, which says it directly.
+        my_answer = mine.decision if mine is not None else DECISION_PENDING
         hour_for_me_to_confirm = (
             plan.pending_hour is not None and (plan.pending_by is None or plan.pending_by != viewer_id)
         )
@@ -362,7 +400,7 @@ class PlanService:
             "cancelled_at": plan.cancelled_at,
             "created_at": plan.created_at,
             "updated_at": plan.updated_at,
-            "my_decision": mine.decision if mine else DECISION_PENDING,
+            "my_decision": my_answer,
             "i_attended": mine.attended_at is not None if mine else False,
             "partner_id": None if peer is None else str(peer),
             "partner_name": None if profile is None else profile.name,
@@ -375,7 +413,7 @@ class PlanService:
             "hour_passed": plan.starts_at is not None and plan.starts_at < utcnow(),
             "needs_my_answer": plan.status
             in (STATUS_PROPOSED, STATUS_RESCHEDULED, STATUS_PLANNED, STATUS_ACCEPTED)
-            and ((plan.status == STATUS_PROPOSED and awaiting_answer) or hour_for_me_to_confirm),
+            and (my_answer == DECISION_PENDING or hour_for_me_to_confirm),
             "can_cancel": plan.status not in (STATUS_CANCELLED, STATUS_COMPLETED, STATUS_DECLINED),
         }
 
@@ -468,6 +506,11 @@ class PlanService:
         The line this writes is the reason the idea is in the conversation at all: a proposal the pair
         reads as a card rather than as a sentence somebody typed carries the plan's own id, so the tap
         that opens the arrangement's details is there from the first moment of it.
+
+        A plan the pair has called off or already lived through is not open for this tap. Standing
+        behind an idea is an answer, and an answer written while the plan was closed would come back as
+        one of the pair's two words the moment the plan was restored — a confirmation nobody was
+        waiting for at the time they gave it.
         """
         match = await self._require_match(match_id, user_id)
         known = await self.activities.get_by_ids([activity_id])
@@ -475,6 +518,8 @@ class PlanService:
             raise NotFoundError("Activity not found.")
         await self._lock_pair(match, match_id)
         before = await self.plans.for_pair(match_id, activity_id)
+        if before is not None:
+            _refuse_answer_closed(before)
         before_status = None if before is None else before.status
 
         await self.activities.set_preference(user_id, activity_id, 1.0, match_id)
@@ -500,6 +545,13 @@ class PlanService:
         A refusal by the half that did not make the plan is an answer to it, and the plan is then
         `declined` — which is why this goes through the plan rather than staying a private edit of a
         list. A refusal by the creator says nothing about the pair, and no line is written for it.
+
+        The two directions of this tap are not equally closed by a plan the pair no longer holds.
+        Pushing the card away stays possible over any plan: it is this person's own page, and a door
+        locked there would leave an idea they cannot move. Bringing it back is refused over a called-off
+        or lived-through plan, because that answer joins the pair's two words as soon as the plan comes
+        back — and the plan would return standing on a confirmation that was given while nobody was
+        asking.
         """
         match = await self._require_match(match_id, user_id)
         known = await self.activities.get_by_ids([activity_id])
@@ -507,6 +559,8 @@ class PlanService:
             raise NotFoundError("Activity not found.")
         await self._lock_pair(match, match_id)
         before = await self.plans.for_pair(match_id, activity_id)
+        if before is not None and not declined:
+            _refuse_answer_closed(before)
         before_status = None if before is None else before.status
 
         await self.activities.set_declined(user_id, activity_id, match_id, declined)
