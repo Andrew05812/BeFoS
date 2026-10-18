@@ -298,3 +298,30 @@ async def accept_meeting_time(
     for event in events:
         await manager.broadcast_to_match(match_id, message_frame(event))
     return None
+
+
+@router.delete("/{match_id}", status_code=204)
+async def dissolve_match(
+    match_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """End the pair — for both of its members, without either of them being blocked.
+
+    Until now the only ways a pair ended were a block and an account deletion, and both say
+    something about a person that the other person may not want on the record: a block hides the
+    blocker from the deck and cuts their profile off, which is a different act from «мы не подходим
+    друг другу» and leaves a row in `blocks` behind. This route ends the pair and nothing else:
+    no Block row, the two people stay visible to each other in the deck, and either can like the
+    other again — but only after the other likes too, because the pair's two `likes` rows go with
+    it (see `MatchesService.dissolve`).
+
+    204 with an empty body: the person tapping it has already left that pair's screen, and the
+    list answer they will make next is the very next `GET /matches`, which no longer carries the
+    row. What has to happen after the commit is not a response but a door close — `close_room`
+    drops the pair's live sockets, so neither screen keeps a connection open to a conversation
+    that no longer exists in the database.
+    """
+    await MatchesService(session).dissolve(match_id, current_user.id)
+    await manager.close_room(match_id)
+    return None

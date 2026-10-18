@@ -5,9 +5,11 @@ import uuid
 from sqlalchemy import case, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.exceptions import NotFoundError
 from app.models import Match
 from app.models.base import age_years, utc_today
 from app.repositories.chat_repo import ChatRepository
+from app.repositories.social_repo import SocialRepository
 from app.repositories.user_repo import UserRepository
 
 
@@ -16,6 +18,7 @@ class MatchesService:
         self.session = session
         self.users = UserRepository(session)
         self.chat = ChatRepository(session)
+        self.social = SocialRepository(session)
 
     async def list_matches(self, user_id: uuid.UUID) -> list[dict]:
         # Four columns of the pair, not the row: its id, the id of the other member, the percent
@@ -69,3 +72,35 @@ class MatchesService:
             reverse=True,
         )
         return result
+
+    async def dissolve(self, match_id: uuid.UUID, user_id: uuid.UUID) -> None:
+        """End the pair for both of its members, or say there is no pair here to end.
+
+        Two reads of the members answer different questions. The one before the lock names the pair
+        whose advisory lock this transaction must take — without it the write below would race a
+        concurrent block, unmatch, or account deletion the way two mutual likes raced before
+        `lock_pair` existed. The delete's own `RETURNING` answers the membership question after the
+        lock is held: between those two moments the row can be gone (a block ended it), and a pair
+        formed later is a new row with a new id that this request will not touch.
+
+        Both `likes` rows of the pair go with it, which is what makes the answer mean «начать заново
+        можно, но только вдвоём»: left standing, one next tap on that card would find
+        `has_liked_back` still true and `ensure_match` would write a fresh pair the dissolved person
+        never agreed to. The conversation and the plans need no separate cleanup — every child of
+        `matches` is `ON DELETE CASCADE`, the same machinery a block already leans on, so a pair
+        ended by an unmatch leaves exactly the shape a pair ended by a block leaves.
+        """
+        before = (
+            await self.session.execute(
+                select(Match.user_a_id, Match.user_b_id).where(Match.id == match_id)
+            )
+        ).first()
+        if before is None or user_id not in (before[0], before[1]):
+            raise NotFoundError("Match not found.")
+
+        await self.social.lock_pair(before[0], before[1])
+        ended = await self.social.dissolve_match(match_id)
+        if ended is None:
+            raise NotFoundError("Match not found.")
+        await self.social.delete_likes_between(*ended)
+        await self.session.commit()
