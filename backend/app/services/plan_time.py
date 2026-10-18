@@ -70,6 +70,52 @@ def plan_sentence(kind: str, title: str, when: datetime | None = None) -> str:
     }[kind]
 
 
+# What the two fields a person may rewrite on the pair's plan are called in the sentence that says
+# one of them moved, and what each edge of the move is called when it holds no text.
+FIELD_WORDS = {"place": "место", "note": "заметка"}
+_FIELD_NOTHING = "не было"
+_FIELD_REMOVED = "снято"
+
+
+def _edge_text(value: str | None, *, empty_word: str) -> str:
+    return empty_word if value is None else f"«{value}»"
+
+
+def plan_change_sentence(
+    title: str,
+    when: datetime | None,
+    changes: list[tuple[str, str | None, str | None]],
+) -> str:
+    """The sentence a plan-change line carries when what moved is the pair's own words.
+
+    `plan_sentence` says *that* the plan changed, which is enough for the chat card the pair already
+    has: that card draws the arrangement from the plan's own fields, and a body repeating them would
+    be a second copy of a fact with two readings. The plan's history is the other reader, and there
+    the fields being asked about are the values as they *were* — a screen that prints only the place
+    the plan holds now says nothing to a pair looking for the evening it moved. So this line names
+    both edges of every field that moved, in the words the pair wrote.
+
+    `changes` holds `(field, previous, current)` for the fields that actually moved; the caller diffs
+    before writing, so a field left as it was is not in the list. This is also why the two edges can
+    share one convention: an erased field is named by `empty_word` on the side it left, and a field
+    written for the first time on the side it came from.
+
+    `my_note` never appears here. A person's own remark about their own plan is read by its author and
+    by nobody else, and the journal this line belongs to is read by both halves of the pair — see
+    `docs/DATABASE.md` on `shared_plan_members.personal_note`.
+    """
+    base = plan_sentence(KIND_PLAN_CHANGED, title, when)
+    moves = ", ".join(
+        "{}: {} → {}".format(
+            FIELD_WORDS[field],
+            _edge_text(before, empty_word=_FIELD_NOTHING),
+            _edge_text(after, empty_word=_FIELD_REMOVED),
+        )
+        for field, before, after in changes
+    )
+    return f"{base}; {moves}"
+
+
 def agreed_instant(
     mine: tuple[datetime | None, datetime | None],
     theirs: tuple[datetime | None, datetime | None],
@@ -81,6 +127,16 @@ def agreed_instant(
     20:00 and the first agreed — and a pair that traded has not agreed on a moment, it has talked
     past one. The card then shows both proposals and no plan line, which is what the two rows
     actually say; folding the trade into the earlier of the two would print a promise nobody holds.
+
+    The reading depends on the rows holding what a person currently means rather than everything they
+    ever said, and that is the half of the contract `set_meeting_time` keeps: a person who names a
+    *different* moment has withdrawn the acceptance they were standing on. Without that withdrawal the
+    trade above is not two pairs of answers but three — the earlier promise still counted beside the
+    two offers — and the same rule that refuses to pick between the two offers then refuses to see the
+    agreement a pair reaches when the second half accepts the moved hour. It also silently swallows the
+    move of whoever had only accepted: their own stale acceptance keeps the old instant agreed, so the
+    tap changes nothing anywhere and no line is written. Both of those are readings of the same two
+    rows, and the rows are what had to become honest.
     """
     my_time, my_accept = mine
     their_time, their_accept = theirs
@@ -104,6 +160,12 @@ def unmatched_offer(
     card shows both offers, and a plan that picked one of them would be an answer nobody gave. Both
     halves naming the *same* instant is a pair one tap from an agreement, and the hour comes back
     with no actor to confirm it — either of them is being asked.
+
+    Nothing is the honest answer for one case this read cannot see, and that case is a moved evening:
+    a pair that stood on 19:00 and has just been moved to 20:00 by the half who only ever agreed also
+    has two rows naming two different instants. `PlanService._ask_of` asks this only when the plan's
+    own record of the question has gone stale, so a reschedule is answered by the plan and this by the
+    rows.
     """
     named = {
         user_id: line[0]

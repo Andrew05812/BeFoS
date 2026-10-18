@@ -4,7 +4,7 @@ import uuid
 from collections import namedtuple
 from datetime import datetime
 
-from sqlalchemy import delete, or_, select
+from sqlalchemy import case, delete, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -101,6 +101,20 @@ class ActivityRepository:
         both stand — naming a moment to meet for an idea is engaging with it, and a card left
         marked «вы отклонили» beside «вы предложили 19:00» would make the page report a person who
         both refused a plan and arranged it.
+
+        The same reason reaches `accepted_time`, and this is the half of the row that used to be
+        left behind: a person who names a *different* moment has stopped standing on the one they
+        agreed to, whether they agreed to it first or afterwards. The row held both instants as
+        though both still applied, and `agreed_instant` then read the older pair of them as a
+        standing promise — so the measured consequence was that the half who had accepted an hour
+        could not move it at all: their tap wrote a new `meeting_time`, changed nothing about what
+        the plan reported, and left no line in the chat. With the acceptance withdrawn the pair's
+        rows say what the person now means, and a promise is ended by the same tap that ends it for
+        the half who named it first.
+
+        Naming the instant they already agreed to keeps the acceptance standing, which is what makes
+        this tap still a tap that changed nothing — see `set_accepted_time` for the door that
+        agrees to somebody else's moment without claiming to have named it.
         """
         await self.session.execute(
             pg_insert(ActivityPreference)
@@ -112,7 +126,15 @@ class ActivityRepository:
                 meeting_time=when,
             )
             .on_conflict_do_update(
-                constraint="uq_activity_pref", set_={"meeting_time": when, "declined": False}
+                constraint="uq_activity_pref",
+                set_={
+                    "meeting_time": when,
+                    "declined": False,
+                    "accepted_time": case(
+                        (ActivityPreference.accepted_time == when, ActivityPreference.accepted_time),
+                        else_=None,
+                    ),
+                },
             )
         )
 

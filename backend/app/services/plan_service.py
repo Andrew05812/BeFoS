@@ -15,6 +15,13 @@ what the rows say. The verbs below write those rows through the same repository 
 page writes them with, so "arrange an hour from the card" and "arrange an hour from the plan" are one
 code path rather than two that have to be kept in agreement.
 
+One fact is the plan's own rather than the rows': *which hour the pair is being asked about*. The
+rows say what each half last named and what each half last agreed to, and the moment one of them
+moves an evening the pair stood on, they name two different instants — which is also what a pair
+talking past each other looks like. The plan knows the difference because it has stood on an hour
+before, so `offer_hour` records its own question and `sync_pair` keeps that record only while the row
+of the person who asked still names the instant. Everything else about the hour stays a projection.
+
 Journal lines are written on state moves, not on taps, for the reason `docs/DATABASE.md` already
 gives: the retry of a request whose response was lost has to leave one line behind rather than two,
 and a tap that moved nothing has to leave none.
@@ -61,6 +68,7 @@ from app.repositories.user_repo import UserRepository
 from app.services.chat_service import message_dto
 from app.services.plan_time import (
     agreed_instant,
+    plan_change_sentence,
     plan_sentence,
     unmatched_offer,
     validate_meeting_time,
@@ -75,14 +83,26 @@ _Hour = namedtuple("_Hour", "agreed pending")
 
 
 def _refuse_closed(plan: SharedPlan) -> None:
-    """A called-off plan is not arranged through the hour doors.
+    """A plan the pair has closed is not arranged through the hour doors.
 
     `cancelled_at` outranks the rows in `_status`, so an hour landed on after a cancellation would put
     «вы договорились» in the chat about a plan the pair's list still shows as off. The way back is the
     plan's own restore, which is the one act that says the pair took the arrangement up again.
+
+    A finished meeting is refused by the same door, and until this was measured it was not: tapping
+    «перенести встречу» on a plan both halves had marked as happened answered 204 and rewrote the closed
+    record — `starts_at` went from the evening they stood on to nothing, `pending_hour` and
+    `pending_by` took the new instant and its author, and `hour_passed` turned false under a status that
+    still read `completed`. Two readings of one plan at once, in the same row: the list said the meeting
+    took place and the card said a question was waiting for an answer. An agreement that both halves
+    have reported as lived through is not something to re-time, and the way to move it is the same one
+    the answer doors already demand — first take back the word that it happened, which is a statement
+    about the past, then arrange an hour that is still ahead.
     """
     if plan.status == STATUS_CANCELLED:
         raise ConflictError("This plan is called off, so its hour has to be restored first.")
+    if plan.status == STATUS_COMPLETED:
+        raise ConflictError("This meeting is over, so there is no hour left to arrange.")
 
 
 def _refuse_answer_closed(plan: SharedPlan) -> None:
@@ -292,9 +312,7 @@ class PlanService:
                 plan.pending_hour = None
                 plan.pending_by = None
             else:
-                plan.pending_hour, plan.pending_by = unmatched_offer(
-                    {user_id: _instants(line) for user_id, line in lines.items()}
-                )
+                plan.pending_hour, plan.pending_by = self._ask_of(plan, lines)
             for user_id, line in lines.items():
                 member = self._member(plan, user_id)
                 if member is not None:
@@ -303,6 +321,52 @@ class PlanService:
 
         await self.session.flush()
         return sorted(plans.values(), key=lambda p: p.created_at, reverse=True)
+
+    @staticmethod
+    def _ask_of(
+        plan: SharedPlan, lines: dict[uuid.UUID, PreferenceLine]
+    ) -> tuple[datetime | None, uuid.UUID | None]:
+        """Which hour the pair is being asked about, and who is asking.
+
+        The plan's own record holds the question while the row of the person who asked it still names
+        that instant — and nothing else. The rows are read for that, not trusted blindly: a half who
+        has since moved their own offer has withdrawn the question with the same tap, and a stored ask
+        nobody still stands behind would keep the other half's card asking a question that was never
+        asked.
+
+        Where there is no live record, the rows answer on their own — see `unmatched_offer`, which
+        finds the single hour one half has named and the other has not confirmed. That reading is what
+        a first offer is, and it is enough while nobody has moved a shared hour; the moment one half
+        moves the hour the pair stood on, the two rows hold two different instants and the difference
+        between a pair talking past each other and a pair one answer from a new evening is not in the
+        rows any more. It is in `_record_ask`.
+        """
+        author = plan.pending_by
+        if plan.pending_hour is not None and author is not None:
+            line = lines.get(author)
+            if line is not None and line.meeting_time == plan.pending_hour:
+                return plan.pending_hour, author
+        return unmatched_offer({user_id: _instants(line) for user_id, line in lines.items()})
+
+    @classmethod
+    def _record_ask(cls, plan: SharedPlan, actor_id: uuid.UUID, when: datetime) -> None:
+        """Say on the plan itself which hour this tap is asking the other half about.
+
+        Called after the projection, by the one verb that names an hour, and it changes nothing when
+        the pair has landed on a moment (the agreement is the answer to the question) or when the plan
+        already asks about this one.
+
+        The rows cannot carry this. Two halves naming two different instants is either a pair that has
+        not settled on an evening yet or a pair that stood on one and has just had it moved by the half
+        who had only agreed to it — and the second reading is a reschedule, whose question has to reach
+        the other half's card or the tap lands nowhere. What tells them apart is that the plan has
+        stood on an hour before, which is the plan's own history rather than a fact about the rows.
+        """
+        if plan.starts_at is not None or plan.pending_hour == when:
+            return
+        plan.pending_hour = when
+        plan.pending_by = actor_id
+        plan.status = cls._status(plan)
 
     async def _create_plan(
         self,
@@ -471,6 +535,7 @@ class PlanService:
         actor_id: uuid.UUID,
         kind: str,
         when: datetime | None,
+        body: str | None = None,
     ) -> dict:
         """Say in the pair's chat what this tap did to their plan, as itself, and hand back the frame.
 
@@ -478,6 +543,10 @@ class PlanService:
         behind, and a line that landed describes an hour the database holds. `sender_id` names the
         person whose tap produced it and is not the author of the sentence — which is why `kind`
         exists, and why a client must read it rather than group this by author.
+
+        `body` replaces the sentence the kind is born with, and only a caller that knows more than the
+        kind does passes one: `edit` has just diffed the pair's own words and can say which field moved
+        from what to what, which is what the plan's history is asked to answer.
         """
         activity = (await self.activities.get_by_ids([plan.activity_id])).get(plan.activity_id)
         msg = await self.chat.add_plan_event(
@@ -486,7 +555,7 @@ class PlanService:
             kind=kind,
             activity_id=plan.activity_id,
             when=when,
-            body=plan_sentence(kind, plan.title, when),
+            body=body or plan_sentence(kind, plan.title, when),
             plan_id=plan.id,
         )
         return message_dto(msg, actor_id, is_read=False, activity=activity, is_latest=True)
@@ -592,6 +661,15 @@ class PlanService:
         answers on the card, and a line per offer would fill the conversation with hours that were
         never agreed on. Once the pair has stood on one, moving it is said as a question too: the chat
         that kept the old moment as its newest word would otherwise report a plan nobody is waiting for.
+
+        This is the door both halves walk through, and it used to be open for only one of them. The
+        half who named the evening could move it; the half who had agreed to it could not — their tap
+        wrote a new instant into their own row and left their standing acceptance beside it, so the
+        projection kept reading the old pair as a promise, the plan went on reporting the hour it had
+        been asked to leave, and the chat said nothing about the tap at all. Naming a different moment
+        now withdraws that acceptance where it is written (`set_meeting_time`) and asks the other half
+        about the new one where the question belongs (`_record_ask`), which is the same pair of moves
+        the naming half always had.
         """
         match = await self._require_match(match_id, user_id)
         validate_meeting_time(when)
@@ -611,6 +689,7 @@ class PlanService:
 
         await self.activities.set_meeting_time(user_id, activity_id, match_id, when)
         after = {p.activity_id: p for p in await self.sync_pair(match)}[activity_id]
+        self._record_ask(after, user_id, when)
         frames = await self._hour_lines(match, after, user_id, before)
         await self.session.commit()
         return _newest_last(frames)
@@ -765,9 +844,23 @@ class PlanService:
         if (plan.place, plan.note) != before:
             # The pair's chat holds a card about this plan, and the older word on it must not be left
             # reading as current: what changed is said as its own line rather than by editing a
-            # message the other half may already have read.
+            # message the other half may already have read. The line names both edges of each field
+            # that moved, because the history of the plan is the reader that asks what it *was* — the
+            # plan's own fields already answer what it is.
+            changes = [
+                (field, was, now)
+                for field, was, now in (("place", before[0], plan.place), ("note", before[1], plan.note))
+                if was != now
+            ]
             frames.append(
-                await self._journal(match, plan, user_id, KIND_PLAN_CHANGED, plan.starts_at)
+                await self._journal(
+                    match,
+                    plan,
+                    user_id,
+                    KIND_PLAN_CHANGED,
+                    plan.starts_at,
+                    body=plan_change_sentence(plan.title, plan.starts_at, changes),
+                )
             )
         await self.session.commit()
         return _newest_last(frames)
