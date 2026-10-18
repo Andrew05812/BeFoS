@@ -88,6 +88,7 @@ fun ProfileDto.toDomain() = Profile(
     ageMin = ageMin,
     ageMax = ageMax,
     genderPreference = genderPreference,
+    cityPreference = cityPreference,
     isHidden = isHidden,
     isModerator = isModerator,
 )
@@ -316,6 +317,7 @@ fun ProfileUpdateData.toRequest() = ProfileUpdateRequest(
     ageMin = ageMin,
     ageMax = ageMax,
     genderPreference = genderPreference,
+    cityPreference = cityPreference,
     isHidden = isHidden,
 )
 

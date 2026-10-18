@@ -131,6 +131,22 @@ fun EditProfileScreen(onBack: () -> Unit) {
                         )
                     }
                 }
+                // The city the deck is filtered to lives here, with the other answers about who
+                // is being searched for. The field shows the stored value on load, so an empty
+                // one at the moment of saving is the person's own «снимите фильтр», not a default
+                // the screen invented.
+                AppTextField(
+                    value = state.cityPreference,
+                    onValueChange = vm::onCityPreferenceChange,
+                    label = "Город поиска",
+                    placeholder = "Любой город",
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    "Имена людей из этого города. Пусто — искать без фильтра по городу.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
             }
 
             Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {

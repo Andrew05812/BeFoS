@@ -80,6 +80,7 @@ data class ProfileDto(
     @SerialName("age_min") val ageMin: Int = 18,
     @SerialName("age_max") val ageMax: Int = 60,
     @SerialName("gender_preference") val genderPreference: List<String> = emptyList(),
+    @SerialName("city_preference") val cityPreference: String? = null,
     @SerialName("is_hidden") val isHidden: Boolean = false,
     @SerialName("is_moderator") val isModerator: Boolean = false,
 )
@@ -117,6 +118,7 @@ data class ProfileUpdateRequest(
     @SerialName("age_min") val ageMin: Int? = null,
     @SerialName("age_max") val ageMax: Int? = null,
     @SerialName("gender_preference") val genderPreference: List<String>? = null,
+    @SerialName("city_preference") val cityPreference: String? = null,
     @SerialName("is_hidden") val isHidden: Boolean? = null,
 )
 

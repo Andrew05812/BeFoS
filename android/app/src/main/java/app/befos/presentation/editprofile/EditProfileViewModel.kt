@@ -25,6 +25,12 @@ data class EditProfileUiState(
     val ageMin: Int = 18,
     val ageMax: Int = 60,
     val genderPreference: Set<String> = emptySet(),
+    /**
+     * The city the deck is filtered to. Empty means the person named none and the deck stays
+     * city-unbounded — the same split the server reads, so the field on the screen is never a
+     * second source of truth about the filter.
+     */
+    val cityPreference: String = "",
     val error: String? = null,
     val loadFailed: Boolean = false,
     /**
@@ -62,6 +68,7 @@ class EditProfileViewModel(private val profileRepository: ProfileRepository) : V
                             ageMin = p.ageMin,
                             ageMax = p.ageMax,
                             genderPreference = p.genderPreference.toSet(),
+                            cityPreference = p.cityPreference ?: "",
                         )
                     }
                 }
@@ -90,6 +97,7 @@ class EditProfileViewModel(private val profileRepository: ProfileRepository) : V
 
     fun onNameChange(v: String) = _uiState.update { it.copy(name = v, error = null) }
     fun onCityChange(v: String) = _uiState.update { it.copy(city = v, error = null) }
+    fun onCityPreferenceChange(v: String) = _uiState.update { it.copy(cityPreference = v, error = null) }
     fun onAboutChange(v: String) = _uiState.update { it.copy(about = v, error = null) }
     fun setDatingGoal(v: String) = _uiState.update { it.copy(datingGoal = v) }
     fun setGender(v: String) = _uiState.update { it.copy(gender = v) }
@@ -124,6 +132,11 @@ class EditProfileViewModel(private val profileRepository: ProfileRepository) : V
                 ageMin = s.ageMin,
                 ageMax = s.ageMax,
                 genderPreference = s.genderPreference.toList(),
+                // Always sent, blank included: the server reads the empty string as «снимите
+                // фильтр» and only the absent field as «не трогать», and a screen that loaded the
+                // current value has no right to leave it out. A blank name and city are refused
+                // above; a blank search city is an answer, not an omission.
+                cityPreference = s.cityPreference.trim(),
             )
             when (val result = profileRepository.update(data)) {
                 is ApiResult.Success -> _uiState.update { it.copy(saving = false, saved = true) }
