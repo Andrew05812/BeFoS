@@ -478,6 +478,22 @@ data class MeetingTimeRequest(
 
 // ---------- Shared plans ----------
 /**
+ * What one person writes about the arrangement: where they meet, and the pair's own word about it.
+ *
+ * A field left null is left out of the body rather than sent as `null`, and the server reads an
+ * absent field as «не трогать». Removing something already written is therefore said by its own
+ * flag: a plan whose place nobody named and a plan whose pair erased it carry the same `null` on the
+ * way back, but only the second of them has a change to report to the chat.
+ */
+@Serializable
+data class PlanEditRequest(
+    val place: String? = null,
+    val note: String? = null,
+    @SerialName("clear_place") val clearPlace: Boolean = false,
+    @SerialName("clear_note") val clearNote: Boolean = false,
+)
+
+/**
  * One arrangement of one pair, as the server says it to both halves.
  *
  * Every field here is what the pair already holds; the screen adds nothing to it. The four flags at

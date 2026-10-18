@@ -240,4 +240,73 @@ class PlanBucketsTest {
         assertEquals(4, planFocusRow("b", sections, headerRows = 2))
         assertNull(planFocusRow("absent", sections, headerRows = 1))
     }
+
+    @Test
+    fun `the pair can write its own words while the arrangement is still open`() {
+        assertTrue(canEditPlanWords(plan()))
+        assertTrue(canEditPlanWords(plan(status = PlanStatuses.ACCEPTED)))
+        assertTrue(canEditPlanWords(plan(status = PlanStatuses.PLANNED, startsAt = ahead)))
+        // A plan whose hour is being replaced still has a place to name: the pair arranges the two
+        // separately, and refusing the words here would hide the editor from a plan that has them.
+        assertTrue(
+            canEditPlanWords(
+                plan(status = PlanStatuses.RESCHEDULED, startsAt = behind, pendingHour = ahead),
+            ),
+        )
+        // A meeting that happened, was called off or was refused keeps its words as history.
+        assertFalse(canEditPlanWords(plan(status = PlanStatuses.COMPLETED, startsAt = behind)))
+        assertFalse(canEditPlanWords(plan(status = PlanStatuses.CANCELLED, startsAt = ahead)))
+        assertFalse(canEditPlanWords(plan(status = PlanStatuses.DECLINED)))
+    }
+
+    @Test
+    fun `a save sends only the word that moved`() {
+        val stored = plan(
+            status = PlanStatuses.PLANNED, startsAt = ahead,
+            place = "Кофейня у парка", note = "Возьму зонт",
+        )
+
+        // The card prefills both fields with what the row already says, so a person who edited one of
+        // them would otherwise write the other back over the pair's row.
+        assertEquals(
+            PlanWordsEdit(note = "Кофейня на другой стороне"),
+            planWordsEdit(stored, "Кофейня у парка", "Кофейня на другой стороне"),
+        )
+        assertEquals(
+            PlanWordsEdit(place = "Библиотека"),
+            planWordsEdit(stored, "Библиотека", "Возьму зонт"),
+        )
+        assertEquals(
+            PlanWordsEdit(place = "Библиотека", note = "Позвоню у входа"),
+            planWordsEdit(stored, "Библиотека", "Позвоню у входа"),
+        )
+        // Left as it stood: nothing to send, and the tap costs no request.
+        assertTrue(planWordsEdit(stored, "Кофейня у парка", "Возьму зонт").nothingChanged)
+    }
+
+    @Test
+    fun `rubbing a field clean is said as its own erasure, not as empty text`() {
+        val stored = plan(
+            status = PlanStatuses.PLANNED, startsAt = ahead,
+            place = "Кофейня у парка", note = "Возьму зонт",
+        )
+
+        // A place that arrives blank is a refusal, so «снять место» travels on the flag the contract
+        // reserves for it while the untouched note says nothing at all.
+        assertEquals(PlanWordsEdit(clearPlace = true), planWordsEdit(stored, "", "Возьму зонт"))
+        assertEquals(PlanWordsEdit(clearNote = true), planWordsEdit(stored, "Кофейня у парка", ""))
+        assertEquals(
+            PlanWordsEdit(clearPlace = true, clearNote = true),
+            planWordsEdit(stored, "   ", " \n "),
+        )
+        // Nothing written and nothing typed: there is no erasure to ask for.
+        assertTrue(planWordsEdit(plan(), "", "").nothingChanged)
+    }
+
+    @Test
+    fun `the words that leave are read off the row, so stray spaces never travel`() {
+        val edit = planWordsEdit(plan(), "  Пятый этаж  ", "  Позвоню у входа\n")
+
+        assertEquals(PlanWordsEdit(place = "Пятый этаж", note = "Позвоню у входа"), edit)
+    }
 }

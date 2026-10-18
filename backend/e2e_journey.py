@@ -182,6 +182,13 @@ def agreed_hour_reaches_the_chat(match_id: str, tok_a: str, tok_b: str, activity
     The last two checks ask the question the plan entity exists to answer: the line in the chat and
     the row in each half's list of plans have to be the same arrangement, named by the same id. Two
     screens that each kept their own copy of a pair's plan would pass every check above.
+
+    Stage 106 added the second half of that question, so this walk asks it too: the pair's own two
+    words — where they meet and what they wrote about it — leave the card over PATCH /plans/{id} and
+    have to reach the same three places the hour reaches. The live server answers them one at a time,
+    so the walk is where the rule «a field left out is a field left alone», the erasure flag, the
+    silent no-op and the two refusals are seen as behaviour rather than as a schema. A place that only
+    ever lived in the phone that typed it fails here.
     """
     ha = {"Authorization": f"Bearer {tok_a}"}
     hb = {"Authorization": f"Bearer {tok_b}"}
@@ -242,6 +249,13 @@ def agreed_hour_reaches_the_chat(match_id: str, tok_a: str, tok_b: str, activity
 
             landing = await asyncio.to_thread(c.post, accept_url, headers=hb, json={"when": moved})
             check(landing.status_code == 204, "B agrees to the moved hour", str(landing.status_code))
+            # Read here rather than leave it: the socket answers its own half's tap, and a frame that
+            # nobody takes out now is the frame the checks below would meet as «the chat moved».
+            relanded = await b.next("message", 3.0)
+            check(relanded is not None and relanded.get("kind") == "plan_agreed"
+                  and "21:00" in str((relanded.get("plan") or {}).get("when")),
+                  "the second agreement on the moved hour reaches the open chat too",
+                  str(relanded)[:140])
             lines_a = plan_lines(ha)
             newest = [m for m in lines_a if (m.get("plan") or {}).get("is_latest")]
             check(len(newest) == 1 and newest[0]["kind"] == "plan_agreed"
@@ -265,6 +279,92 @@ def agreed_hour_reaches_the_chat(match_id: str, tok_a: str, tok_b: str, activity
                   and [p["id"] for p in mine.json().get("plans", [])] == [plans[0]["id"]],
                   "the other half's screen of plans reaches the same one plan",
                   str(mine.json())[:160])
+
+            # Stage 106 gave this card two words of its own. The hour above travelled over the route,
+            # into the open chat and back out of the list read; the place and the note have to travel
+            # exactly as far, or the pair arranges a meeting whose address lives in one phone only.
+            plan_id = plans[0]["id"]
+            words_url = f"{BASE}/plans/{plan_id}"
+            written = await asyncio.to_thread(
+                c.patch, words_url, headers=ha,
+                json={"place": "Кофейня у парка", "note": "Возьму зонт"},
+            )
+            check(written.status_code == 200
+                  and written.json()["place"] == "Кофейня у парка"
+                  and written.json()["note"] == "Возьму зонт",
+                  "A writes the place and the note and the route answers with both",
+                  str(written.text)[:160])
+            said = await b.next("message", 3.0)
+            check(said is not None and said.get("kind") == "plan_changed"
+                  and (said.get("plan") or {}).get("plan_id") == plan_id,
+                  "an open chat hears the pair's words change without a reload", str(said)[:140])
+            read_by_b = await asyncio.to_thread(c.get, f"{BASE}/matches/{match_id}/plans", headers=hb)
+            rows_b = read_by_b.json().get("plans", []) if read_by_b.status_code == 200 else []
+            check(len(rows_b) == 1 and rows_b[0]["place"] == "Кофейня у парка"
+                  and rows_b[0]["note"] == "Возьму зонт",
+                  "the half that typed nothing reads the same two words", str(rows_b)[:160])
+
+            # One field moves, the other stays: this is the rule the card's prefill depends on, and a
+            # server that rewrote the untouched word would put an address in the pair's evening that
+            # nobody named any more.
+            one_word = await asyncio.to_thread(
+                c.patch, words_url, headers=ha, json={"note": "Билеты у кассы"},
+            )
+            check(one_word.status_code == 200
+                  and one_word.json()["place"] == "Кофейня у парка"
+                  and one_word.json()["note"] == "Билеты у кассы",
+                  "a save that named only the note left the place where the pair put it",
+                  str(one_word.text)[:160])
+            # Read from the socket before moving on: a frame left parked here would answer the next
+            # check's «did the chat stay silent», which is a question this pair has not asked yet.
+            told = await b.next("message", 3.0)
+            check(told is not None and told.get("kind") == "plan_changed",
+                  "the conversation is told which word moved", str(told)[:140])
+
+            erased = await asyncio.to_thread(
+                c.patch, words_url, headers=ha, json={"clear_place": True},
+            )
+            check(erased.status_code == 200 and erased.json()["place"] is None
+                  and erased.json()["note"] == "Билеты у кассы",
+                  "rubbing one word clean reaches only that word", str(erased.text)[:160])
+            gone_frame = await b.next("message", 3.0)
+            check(gone_frame is not None and gone_frame.get("kind") == "plan_changed",
+                  "an erasure is said in the chat too, not only written to the row",
+                  str(gone_frame)[:140])
+
+            # A tap that moved nothing is not a write: the pair's history keeps its length and the open
+            # chat stays silent, which is how a lost response being retried does not read as a change.
+            before_noop = plan_lines(ha)
+            again = await asyncio.to_thread(
+                c.patch, words_url, headers=ha, json={"note": "Билеты у кассы"},
+            )
+            check(again.status_code == 200 and plan_lines(ha) == before_noop
+                  and await b.nothing("message", 1.0),
+                  "a save that changed nothing adds no line to the conversation",
+                  f"{len(before_noop)} lines")
+
+            # The two refusals the card can meet on a live server: a word that has to be a word, and a
+            # plan the pair has closed. Both answer without writing, so the row keeps what it held.
+            blank = await asyncio.to_thread(
+                c.patch, words_url, headers=ha, json={"place": "   "},
+            )
+            kept = await asyncio.to_thread(
+                c.get, f"{BASE}/matches/{match_id}/plans", headers=ha,
+            )
+            row = kept.json()["plans"][0]
+            check(blank.status_code == 422 and row["place"] is None
+                  and row["note"] == "Билеты у кассы",
+                  "a blank place is refused and changes nothing the pair wrote",
+                  f"{blank.status_code} {str(row)[:120]}")
+            closed = await asyncio.to_thread(
+                c.post, f"{BASE}/plans/{plan_id}/cancel", headers=ha
+            )
+            refused = await asyncio.to_thread(
+                c.patch, words_url, headers=ha, json={"note": "После отмены"},
+            )
+            check(closed.status_code == 204 and refused.status_code == 409
+                  and "closed" in refused.text,
+                  "a closed plan takes no new words", str(refused.text)[:120])
 
     try:
         asyncio.run(drive())

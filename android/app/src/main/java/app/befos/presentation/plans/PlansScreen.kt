@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.CheckCircle
@@ -41,10 +42,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import app.befos.core.designsystem.AppButton
 import app.befos.core.designsystem.AppButtonVariant
 import app.befos.core.designsystem.AppCard
+import app.befos.core.designsystem.AppTextField
 import app.befos.core.designsystem.AppTopBar
 import app.befos.core.designsystem.ChoiceChip
 import app.befos.core.designsystem.Elev
@@ -247,6 +250,7 @@ fun PlansScreen(
                             onRestore = { vm.restore(plan.id) },
                             onMarkAttended = { vm.markAttended(plan.id) },
                             onUndoAttended = { vm.undoAttended(plan.id) },
+                            onSaveWords = { place, note -> vm.saveWords(plan.id, place, note) },
                         )
                     }
                 }
@@ -288,6 +292,7 @@ private fun PlanCard(
     onRestore: () -> Unit,
     onMarkAttended: () -> Unit,
     onUndoAttended: () -> Unit,
+    onSaveWords: (String, String) -> Unit,
 ) {
     val settled = plan.status == PlanStatuses.CANCELLED || plan.status == PlanStatuses.DECLINED
     // Whose hour the plan is waiting on, said once: the card shows it as an offer, the hour row names
@@ -403,19 +408,26 @@ private fun PlanCard(
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
-            plan.place?.takeIf { it.isNotBlank() }?.let { place ->
-                Text(
-                    "Место: $place",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            plan.note?.takeIf { it.isNotBlank() }?.let { note ->
-                Text(
-                    "Заметка пары: $note",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            // The pair's own two words about the arrangement: where they meet, and what they said
+            // about it. Something still ahead of the pair is edited here; a meeting that happened or
+            // was called off keeps its words as history, printed rather than typed.
+            if (canEditPlanWords(plan)) {
+                WordsEditor(plan = plan, busy = busy, onSaveWords = onSaveWords)
+            } else {
+                plan.place?.takeIf { it.isNotBlank() }?.let { place ->
+                    Text(
+                        "Место: $place",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                plan.note?.takeIf { it.isNotBlank() }?.let { note ->
+                    Text(
+                        "Заметка пары: $note",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
             error?.let { InlineNotice(text = it) }
         }
@@ -495,6 +507,109 @@ private fun HourEditor(
             variant = AppButtonVariant.Tonal,
             modifier = Modifier.fillMaxWidth(),
         )
+    }
+}
+
+/**
+ * The two words of the pair — its place and its note — opened on the card that holds them.
+ *
+ * The fields start from what the server already holds, so an emptied one is a decision to take the
+ * word back rather than a blank nobody meant, and a field the person never touched sends nothing at
+ * all: the write below reads both against the stored row. The editor closes when the words the
+ * server holds catch up with what was typed — «сохранено» says the reloaded row, not a flag this
+ * screen invented — and a refusal leaves the typed text where it was, because losing a note the
+ * server would not take is the worse of the two endings.
+ */
+@Composable
+private fun WordsEditor(
+    plan: Plan,
+    busy: Boolean,
+    onSaveWords: (String, String) -> Unit,
+) {
+    var open by remember { mutableStateOf(false) }
+    var placeText by remember { mutableStateOf(plan.place.orEmpty()) }
+    var noteText by remember { mutableStateOf(plan.note.orEmpty()) }
+    var sent by remember { mutableStateOf(false) }
+
+    val storedPlace = plan.place.orEmpty().trim()
+    val storedNote = plan.note.orEmpty().trim()
+    val synced = placeText.trim() == storedPlace && noteText.trim() == storedNote
+
+    if (!open) {
+        if (storedPlace.isNotEmpty()) {
+            Text(
+                "Место: $storedPlace",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (storedNote.isNotEmpty()) {
+            Text(
+                "Заметка пары: $storedNote",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        AppButton(
+            text = if (storedPlace.isEmpty() && storedNote.isEmpty()) "Где встречаемся?" else "Изменить место или заметку",
+            onClick = {
+                placeText = plan.place.orEmpty()
+                noteText = plan.note.orEmpty()
+                sent = false
+                open = true
+            },
+            enabled = !busy,
+            variant = AppButtonVariant.Ghost,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        return
+    }
+
+    LaunchedEffect(busy, synced, sent) {
+        if (sent && !busy && synced) {
+            sent = false
+            open = false
+        }
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+        AppTextField(
+            value = placeText,
+            onValueChange = { placeText = it },
+            label = "Место",
+            placeholder = "Например, кофейня у парка",
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        AppTextField(
+            value = noteText,
+            onValueChange = { noteText = it },
+            label = "Заметка пары",
+            placeholder = "Что важно для этой встречи",
+            singleLine = false,
+            minLines = 2,
+            maxLines = 4,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Text(
+            "Обе строки видны вам обоим. Пустое поле снимает то, что было написано.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        AppButton(
+            text = "Сохранить",
+            onClick = {
+                sent = true
+                onSaveWords(placeText, noteText)
+            },
+            enabled = !busy && !synced,
+            variant = AppButtonVariant.Tonal,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        QuietAction("Отмена", busy = false) {
+            sent = false
+            open = false
+        }
     }
 }
 

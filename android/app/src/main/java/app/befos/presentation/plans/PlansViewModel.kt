@@ -29,6 +29,7 @@ private object PlanSentences {
     const val RESTORE = "Не удалось вернуть план."
     const val ATTEND = "Не удалось отметить встречу."
     const val UNDO_ATTEND = "Не удалось снять отметку."
+    const val WORDS = "Не удалось сохранить слова плана."
 }
 
 private fun reasonSentence(sentence: String, reason: String?) =
@@ -131,6 +132,23 @@ class PlansViewModel(
     /** Agree to the hour the other half named, sending back exactly the instant that was read. */
     fun confirmHour(planId: String, whenIso: String) =
         write(planId, PlanSentences.CONFIRM) { planRepository.confirmHour(planId, whenIso) }
+
+    /**
+     * Write the pair's place and their note about it, or take one of the two back.
+     *
+     * What leaves the device is read off the plan this page already holds, not off the fields alone:
+     * text that matches the stored word sends nothing, a field the person emptied while the plan still
+     * named it is sent as its own erasure, and a tap that moved neither of the two is dropped rather
+     * than paid for with a request that could only answer «ничего не изменилось».
+     */
+    fun saveWords(planId: String, placeText: String, noteText: String) {
+        val plan = _uiState.value.plans.firstOrNull { it.id == planId } ?: return
+        val edit = planWordsEdit(plan, placeText, noteText)
+        if (edit.nothingChanged) return
+        write(planId, PlanSentences.WORDS) {
+            planRepository.editWords(planId, edit.place, edit.note, edit.clearPlace, edit.clearNote)
+        }
+    }
 
     fun cancel(planId: String) = write(planId, PlanSentences.CANCEL) { planRepository.cancel(planId) }
 

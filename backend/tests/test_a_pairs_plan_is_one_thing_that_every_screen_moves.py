@@ -402,3 +402,110 @@ async def test_a_stranger_naming_a_real_plan_has_no_plan_to_act_on(
     assert [line["id"] for line in after] == [line["id"] for line in before], after
     plan = (await _plans_of(client, a["token"], match_id))[0]
     assert plan["status"] == "proposed" and plan["note"] is None, plan
+
+
+async def test_a_patch_that_names_one_word_leaves_the_other_the_pair_wrote(
+    client: AsyncClient, pair_with_one_idea
+):
+    """Two fields travel on one route, and an absent one says nothing at all.
+
+    This is the shape the plan card writes: it prefills both fields with what the row already holds,
+    so a save that changed the note must not put the place through a write nobody asked for. Reading
+    the pair's own row back answers that better than any argument about the schema — and the two
+    erasure flags are checked beside it, because clearing one word is a different act from saying
+    nothing about it.
+    """
+    a, b, match_id, idea, plan_id = pair_with_one_idea
+    when = _whole_hour(48)
+    assert (await _offer(client, a["token"], match_id, idea, when))[0] == 204
+    assert (await _accept(client, b["token"], match_id, idea, when))[0] == 204
+
+    async def words() -> tuple:
+        row = (await _plans_of(client, b["token"], match_id))[0]
+        return row["place"], row["note"]
+
+    async def changed_lines() -> list[str]:
+        return [
+            line["kind"]
+            for line in _plan_lines(await _chat(client, a["token"], match_id))
+            if line["kind"] == "plan_changed"
+        ]
+
+    assert (await _edit(
+        client, a["token"], plan_id,
+        {"place": "Кинотеатр на Петровке", "note": "Билеты уже куплены"},
+    ))[0] == 200
+    assert await words() == ("Кинотеатр на Петровке", "Билеты уже куплены")
+
+    # The other field absent: not emptied, not rewritten, simply left where the pair put it.
+    assert (await _edit(client, a["token"], plan_id, {"note": "Билеты у кассы"}))[0] == 200
+    assert await words() == ("Кинотеатр на Петровке", "Билеты у кассы")
+
+    # An erasure is said by its own flag and reaches only the word it names.
+    assert (await _edit(client, a["token"], plan_id, {"clear_place": True}))[0] == 200
+    assert await words() == (None, "Билеты у кассы")
+
+    # A patch that carries nothing is not a write, and a repeat of the two words the row already holds
+    # says nothing new to the pair: neither adds a line to their chat, and the row does not move.
+    before_lines = await changed_lines()
+    assert (await _edit(client, a["token"], plan_id, {}))[0] == 200
+    assert (await _edit(client, a["token"], plan_id, {"note": "Билеты у кассы"}))[0] == 200
+    assert (await _edit(client, a["token"], plan_id, {"place": None, "note": None}))[0] == 200
+    assert await words() == (None, "Билеты у кассы")
+    assert await changed_lines() == before_lines, "a save that changed nothing was journalled as a change"
+    assert len(before_lines) == 3, before_lines
+
+
+async def test_a_blank_place_and_an_overlong_note_are_refused_and_change_nothing(
+    client: AsyncClient, pair_with_one_idea
+):
+    """What a refused save leaves behind is the row the pair already had.
+
+    A place that arrives as spaces is the one blank the server will not hold — an empty field means
+    «erase it», and a field of nothing at all means nobody said anything. A note over the pair's own
+    ceiling is refused on the way in. Either way the words already on the plan stay, and the pair's
+    chat gains no line about a change that did not happen.
+    """
+    a, _b, match_id, _idea, plan_id = pair_with_one_idea
+    assert (await _edit(
+        client, a["token"], plan_id, {"place": "Книжный дворик", "note": "Позвоню у входа"},
+    ))[0] == 200
+    before = _plan_lines(await _chat(client, a["token"], match_id))
+
+    codes = [
+        (await _edit(client, a["token"], plan_id, {"place": "   "}))[0],
+        (await _edit(client, a["token"], plan_id, {"note": "х" * 501}))[0],
+    ]
+    assert codes == [422, 422], codes
+
+    plan = (await _detail(client, a["token"], plan_id))["plan"]
+    assert (plan["place"], plan["note"]) == ("Книжный дворик", "Позвоню у входа"), plan
+    after = await _chat(client, a["token"], match_id)
+    assert [line["id"] for line in after] == [line["id"] for line in before], after
+
+
+async def test_a_closed_plan_takes_no_new_words_and_keeps_the_ones_it_holds(
+    client: AsyncClient, pair_with_one_idea
+):
+    """The card can be open on a plan the other half closed while it was being read.
+
+    `canEditPlanWords` is computed from the row this page holds, so the server's refusal is the answer
+    a race gives rather than a second gate the client forgot: a meeting that happened, was called off
+    or was refused has nothing left to arrange. The words it already holds stay on the row — closing a
+    plan is not a reason to lose the pair's record of where they were going.
+    """
+    a, _b, match_id, _idea, plan_id = pair_with_one_idea
+    assert (await _edit(client, a["token"], plan_id, {"place": "Книжный дворик"}))[0] == 200
+
+    assert (await _tap(client, a["token"], "POST", plan_id, "cancel"))[0] == 204
+    code, text = await _edit(client, a["token"], plan_id, {"place": "Театр у парка"})
+    assert code == 409, text
+    assert "closed" in text, text
+
+    plan = (await _detail(client, a["token"], plan_id))["plan"]
+    assert plan["status"] == "cancelled" and plan["place"] == "Книжный дворик", plan
+
+    # The pair took the plan up again: the same write is open to it once more.
+    assert (await _tap(client, a["token"], "DELETE", plan_id, "cancel"))[0] == 204
+    assert (await _edit(client, a["token"], plan_id, {"place": "Театр у парка"}))[0] == 200
+    assert (await _detail(client, a["token"], plan_id))["plan"]["place"] == "Театр у парка"

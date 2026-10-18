@@ -42,9 +42,14 @@ class PlansViewModelTest {
     @get:Rule
     val mainRule = MainDispatcherRule()
 
-    private fun plan(status: String = PlanStatuses.PLANNED, id: String = "p1") = Plan(
+    private fun plan(
+        status: String = PlanStatuses.PLANNED,
+        id: String = "p1",
+        place: String? = null,
+        note: String? = null,
+    ) = Plan(
         id = id,
-        title = "Поход в кино", description = null, note = null, place = null,
+        title = "Поход в кино", description = null, note = note, place = place,
         status = status, startsAt = "2026-10-17T19:00:00+03:00", pendingHour = null, pendingBy = null,
         myDecision = PlanDecisions.JOINED, iAttended = false,
         partnerId = "them", partnerName = "Анна",
@@ -59,6 +64,7 @@ class PlansViewModelTest {
         coEvery { restoreDecline(any()) } returns ApiResult.Success(Unit)
         coEvery { offerHour(any(), any()) } returns ApiResult.Success(Unit)
         coEvery { confirmHour(any(), any()) } returns ApiResult.Success(Unit)
+        coEvery { editWords(any(), any(), any(), any(), any()) } returns ApiResult.Success(Unit)
         coEvery { cancel(any()) } returns ApiResult.Success(Unit)
         coEvery { restore(any()) } returns ApiResult.Success(Unit)
         coEvery { markAttended(any()) } returns ApiResult.Success(Unit)
@@ -326,5 +332,138 @@ class PlansViewModelTest {
 
         assertNull(vm.uiState.value.outdated)
         assertEquals(listOf(PlanStatuses.COMPLETED), vm.uiState.value.plans.map { it.status })
+    }
+
+    /**
+     * The pair's own two words — where, and what they said about it — leave as the two fields the
+     * contract splits, and the card decides which of them moved by reading the row it already holds.
+     * A save therefore has four shapes worth pinning: both words new, one word new while the other
+     * stays off the wire, a field rubbed clean travelling as its own erasure, and a tap that moved
+     * neither costing no request at all.
+     */
+    @Test
+    fun `a saved place and note leave as the two fields the contract splits`() {
+        val repository = repo()
+        val vm = viewModel(repository)
+
+        vm.saveWords("p1", "Кофейня у парка", "Возьму зонт")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        coVerify(exactly = 1) {
+            repository.editWords("p1", "Кофейня у парка", "Возьму зонт", false, false)
+        }
+        coVerify(exactly = 2) { repository.plans("m1") }
+        assertTrue(vm.uiState.value.busy.isEmpty())
+        assertTrue(vm.uiState.value.tapErrors.isEmpty())
+    }
+
+    @Test
+    fun `a word the person left as the row holds it is not sent back to be written again`() {
+        val repository = repo(
+            ApiResult.Success(
+                listOf(plan(place = "Кофейня у парка", note = null)),
+            ),
+        )
+        coEvery { repository.editWords("p1", null, "Позвоню у входа", false, false) } returns
+            ApiResult.Success(Unit)
+        val vm = viewModel(repository)
+
+        // The editor prefills the place with the stored word, so a save that changed only the note has
+        // to leave the place out; sending it would put the other half's row through a write nobody asked for.
+        vm.saveWords("p1", "Кофейня у парка", "Позвоню у входа")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        coVerify(exactly = 1) { repository.editWords("p1", null, "Позвоню у входа", false, false) }
+    }
+
+    @Test
+    fun `a field rubbed clean goes out as its own erasure`() {
+        val repository = repo(
+            ApiResult.Success(
+                listOf(plan(place = "Кофейня у парка", note = "Возьму зонт")),
+            ),
+        )
+        // Stubbed as the exact call: `any()` on the two word fields would not answer a save that
+        // carries a null, and a save that clears a word is exactly a call that carries one.
+        coEvery { repository.editWords("p1", null, null, true, false) } returns ApiResult.Success(Unit)
+        val vm = viewModel(repository)
+
+        // Blank text is not what the server accepts for a place, so the erasure is said by its flag —
+        // and the note, still holding its stored word, is not touched by this tap.
+        vm.saveWords("p1", "", "Возьму зонт")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        coVerify(exactly = 1) { repository.editWords("p1", null, null, true, false) }
+        coVerify(exactly = 2) { repository.plans("m1") }
+    }
+
+    @Test
+    fun `a tap that moved neither of the two words costs the pair no request`() {
+        val repository = repo(ApiResult.Success(listOf(plan(place = "Кофейня у парка", note = null))))
+        val vm = viewModel(repository)
+
+        vm.saveWords("p1", "  Кофейня у парка ", "")
+
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        // Whitespace around a word is the same word, and an empty field over a plan that never named
+        // one has nothing to erase: the tap is dropped rather than paid for with a save that could
+        // only answer «ничего не изменилось».
+        coVerify(exactly = 0) { repository.editWords(any(), any(), any(), any(), any()) }
+        coVerify(exactly = 1) { repository.plans("m1") }
+        assertTrue(vm.uiState.value.busy.isEmpty())
+    }
+
+    @Test
+    fun `a second save on a plan that is still answering sends nothing`() {
+        val repository = repo()
+        coEvery { repository.editWords(any(), any(), any(), any(), any()) } coAnswers {
+            delay(200)
+            ApiResult.Success(Unit)
+        }
+        val vm = viewModel(repository)
+
+        vm.saveWords("p1", "Кофейня у парка", "Возьму зонт")
+        vm.saveWords("p1", "Библиотека", "Возьму зонт")
+        assertTrue(vm.uiState.value.busy.contains("p1"))
+
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        // The card holds one write at a time: two saves for one plan would ask the pair to hold whichever
+        // of the two the server answered last.
+        coVerify(exactly = 1) { repository.editWords(any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `a refused save names its card, says why and asks for no read`() {
+        val repository = repo()
+        coEvery { repository.editWords(any(), any(), any(), any(), any()) } returns
+            ApiResult.Error(409, "Эта встреча уже закрыта — отменена, состоялась или отклонена. Менять в ней нечего.")
+        val vm = viewModel(repository)
+
+        vm.saveWords("p1", "Кофейня у парка", "Возьму зонт")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(
+            "Не удалось сохранить слова плана. Эта встреча уже закрыта — отменена, состоялась или " +
+                "отклонена. Менять в ней нечего.",
+            vm.uiState.value.tapErrors["p1"],
+        )
+        coVerify(exactly = 1) { repository.plans("m1") }
+        assertTrue(vm.uiState.value.busy.isEmpty())
+    }
+
+    @Test
+    fun `a word for a plan this page does not hold is dropped, not sent at a stranger's row`() {
+        val repository = repo()
+        val vm = viewModel(repository)
+
+        vm.saveWords("gone", "Кофейня у парка", "Возьму зонт")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        // The id came from a card this visit no longer has. Asking the server about it would be a write
+        // aimed at a row this person never read.
+        coVerify(exactly = 0) { repository.editWords(any(), any(), any(), any(), any()) }
+        assertTrue(vm.uiState.value.busy.isEmpty())
     }
 }
