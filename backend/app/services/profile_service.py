@@ -44,7 +44,7 @@ MAX_GENDER_PREFERENCES = len(VALID_GENDERS)
 
 # Editing any of these changes who the viewer should be shown, so the deck built under the
 # old values cannot be paged through any more.
-_DECK_FIELDS = {"age_min", "age_max", "gender_preference", "interests", "dating_goal"}
+_DECK_FIELDS = {"age_min", "age_max", "gender_preference", "interests", "dating_goal", "city_preference"}
 
 # These are what a pair's activity page is scored from, so editing one of them makes the
 # cached page of another person's match stale rather than merely older.
@@ -204,6 +204,14 @@ class ProfileService:
             raise ValidationError("age_min cannot be greater than age_max.")
         if "gender_preference" in data and data["gender_preference"] is not None:
             profile.gender_preference = self._checked_genders(data["gender_preference"])
+        if "city_preference" in data:
+            # Absent means untouched; present and empty — after the strip, so "   " too — is the
+            # owner's answer «снимите фильтр», and the column goes back to NULL, which is what
+            # `discovery_service` reads as no city bound. Storing the empty string instead would
+            # be the mirror of stage 66's silence: a filter the read shows as nothing and the
+            # deck answers to as a real city nobody lives in.
+            city_preference = (data["city_preference"] or "").strip()
+            profile.city_preference = city_preference[:120] or None
         if "is_hidden" in data and data["is_hidden"] is not None:
             profile.is_hidden = bool(data["is_hidden"])
         written_interests: list[Interest] | None = None

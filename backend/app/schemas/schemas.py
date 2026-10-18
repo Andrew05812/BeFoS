@@ -98,6 +98,11 @@ class ProfileOut(BaseModel):
     age_min: int
     age_max: int
     gender_preference: list[str] = []
+    # The city the deck is filtered by (`discovery_service` hands it to
+    # `social_repo._preference_conditions`); None means the person never named one and the deck
+    # stays city-unbounded. Only the owner's routes answer it — a public reader has no business
+    # learning where somebody searches.
+    city_preference: str | None = None
     is_hidden: bool = False
     # Every route answering with this schema is a `/users/me*` route, so the role a reader sees here
     # is the reader's own. It tells the client where to put a door, and opens nothing: the
@@ -117,6 +122,10 @@ class ProfileUpdate(BaseModel):
     age_min: int | None = Field(default=None, ge=18, le=99)
     age_max: int | None = Field(default=None, ge=18, le=99)
     gender_preference: list[str] | None = None
+    # No min_length on purpose: the empty string is the answer «снимите фильтр», and a schema
+    # that refused it would leave the only way to widen the deck be a field the client cannot
+    # send back. Absent means untouched, the same split `about` already lives by.
+    city_preference: str | None = Field(default=None, max_length=120)
     is_hidden: bool | None = None
 
 
