@@ -187,9 +187,14 @@ dev-базе, где 642 строки токенов: 60 чередующихс�
   "gender": "male", "about": "…", "dating_goal": "relationship",
   "photos": [{ "id": "uuid", "url": "/uploads/x.png", "is_primary": true, "position": 0 }],
   "interests": [{ "slug": "hiking", "name": "Походы", "category": "active" }],
-  "lifestyle": {}, "age_min": 18, "age_max": 60, "gender_preference": ["female"]
+  "lifestyle": {}, "age_min": 18, "age_max": 60, "gender_preference": ["female"],
+  "is_hidden": false, "is_moderator": false
 }
 ```
+
+`is_moderator` стоит или снимает дверь в очередь модерации на странице «Настройки» (раздел
+«Модерация» ниже), и отвечают его только хозяйские маршруты `/users/me…`; публичный
+`GET /users/{user_id}` его не отдаёт, а ни один маршрут не принимает его на запись.
 
 `OnboardingProfile` (POST `/users/me/onboarding`):
 
@@ -1384,7 +1389,7 @@ user for the same reason.»). Четвёрка (жалобщик, обвиняе
 | Метод | Путь | Кто пускается | Ответ |
 |-------|------|--------------|-------|
 | GET | `/reports?status=&after_id=&limit=` | модератор | `200` (`{reports: […], next_cursor, has_more}`) |
-| GET | `/reports/{report_id}` | модератор | `200` (карточка + `reviews: […]`) |
+| GET | `/reports/{report_id}` | модератор | `200` (карточка + `reviews: […]` + `allowed_next_statuses: […]`) |
 | POST | `/reports/{report_id}/review` | модератор | `200` (`{id, status, updated_at}`) |
 
 Дверь у всех трёх одна — `get_moderator` (`backend/app/auth/deps.py:56`), и она читает флаг из
@@ -1435,7 +1440,10 @@ complaint that is being closed needs a comment saying why.»), коммента�
 `moderator_id` — `ON DELETE RESTRICT`, и это не перестраховка: accounts в этом продукте не
 удаляются жёстко, а запись о том, что было решено о человеке, не должна становиться досягаемой
 вопросом о том, работает ли решавший ещё здесь. `GET /reports/{report_id}` отдаёт её целиком, от
-первого движения к последнему.
+первого движения к последнему, и вместе с ней — `allowed_next_statuses` (`backend/app/schemas/schemas.py:650`):
+статусы, в которые эта жалоба ещё может уйти, снятые с той же таблицы `ALLOWED_TRANSITIONS`, против которой
+проверяет запрос и маршрут записи (`backend/app/services/moderation_service.py:92`, сверка при записи — `:131`), поэтому экран решения
+рисует только те переходы, которые сервер ещё не отверг; у закрытой жалобы список пуст, а не прежний путь.
 
 **Своё решение модератор не пишет.** `reported_id == moderator_id` — `403` («A moderator cannot
 decide a complaint about their own account.»): роль говорит, кто вправе решать, а не о ком именно.
@@ -1443,10 +1451,16 @@ decide a complaint about their own account.»): роль говорит, кто 
 один другой аккаунт не увидел бы, что это произошло.
 
 **Первого модератора делает оператор, и это один осознанный шаг.** Публичной регистрации
-модераторов, пригласительных ссылок и админ-экрана в продукте нет: `is_moderator` — колонка, которую не
-записывает ни один маршрут, ни одна форма и ни один ответ Android-клиента (массовое назначение
-проверено рядом `test_an_ordinary_account_cannot_reach_the_moderation_surface.py`). Единственный
+модераторов и пригласительных ссылок в продукте нет: `is_moderator` — колонку, которую не записывает
+ни один маршрут и ни одна форма клиента (массовое назначение проверено рядом
+`test_an_ordinary_account_cannot_reach_the_moderation_surface.py`). С правки стадии 103 аккаунт и
+читает её — `ProfileOut.is_moderator` (`backend/app/schemas/schemas.py:105`) отвечают только хозяйские
+маршруты `/users/me…`, и клиент ставит по этому слову дверь в очередь на странице «Настройки», а
+публичный `GET /users/{user_id}` (`backend/app/api/v1/users.py:199`) поля не знает: чужой профиль не
+сообщает, кто здесь модератор. Чтение — единственное, что даёт это поле; запись роли оно не открывает,
+и экран очереди стоит за той же дверью, что и маршруты: немодераторский аккаунт, добравшийся до него,
+получает свой `403`. Единственный
 путь — `UPDATE users SET is_moderator = true WHERE id = '…'`, и он описан в `docs/OPERATIONS.md`
 §14 как шаг оператора, а не как обход: пока его не сделал никто, очередь пуста не потому, что
-жалоб нет, а потому, что читать их некому.
+жалоб нет, а потому, что читать их некому — теперь уже и на экране.
 
