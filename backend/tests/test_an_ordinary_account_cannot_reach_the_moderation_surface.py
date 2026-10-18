@@ -125,9 +125,10 @@ async def test_the_refusal_does_not_say_whether_the_complaint_exists(
 async def test_no_route_writes_the_moderator_flag(client: AsyncClient) -> None:
     """Mass assignment, tried at the three writes a client can reach with a body.
 
-    Pydantic ignores a field the model does not declare, so the flag survives in neither the row nor
-    the request: what is asserted is the column, not the answer, because an answer that echoes a
-    field nobody wrote is the easier one to fake.
+    Pydantic ignores a field the model does not declare, so the flag survives neither in the row nor
+    in the request. What is asserted is the column first and the answer second: the answer that reads
+    `false` is only worth having because the row underneath it says the same, which is the difference
+    between a flag the server publishes and a flag the client handed over.
     """
     registered = await client.post(
         "/api/v1/auth/register",
@@ -171,7 +172,10 @@ async def test_no_route_writes_the_moderator_flag(client: AsyncClient) -> None:
     assert patched.status_code == 200, patched.text
 
     assert await _is_moderator_row(user_id) is False
-    assert "is_moderator" not in patched.json()
+    # Stage 103 put this field in the answer `/users/me*` gives about its own account, so the promise
+    # moved rather than weakened: the answer names the flag, and it names it false. The column is
+    # still what is asserted — a client cannot make the door open by asking the app to draw it open.
+    assert patched.json()["is_moderator"] is False
 
     queue = await client.get(QUEUE, headers=auth_headers(token))
     assert queue.status_code == 403, queue.text

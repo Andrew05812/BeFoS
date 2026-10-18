@@ -99,6 +99,10 @@ class ProfileOut(BaseModel):
     age_max: int
     gender_preference: list[str] = []
     is_hidden: bool = False
+    # Every route answering with this schema is a `/users/me*` route, so the role a reader sees here
+    # is the reader's own. It tells the client where to put a door, and opens nothing: the
+    # moderation routes read the flag off the account row per request (`app/auth/deps.py:56`).
+    is_moderator: bool = False
 
 
 class ProfileUpdate(BaseModel):
@@ -639,6 +643,11 @@ class ReportsPage(BaseModel):
 class ReportDetail(ReportCard):
     updated_at: datetime
     reviews: list[ReportReviewRow]
+    # The statuses this complaint may still be moved to, read off the same table the write route
+    # checks it against. A client drawing its own list of buttons would drift from that table the
+    # first time a transition is added or closed off, and the drift shows up as a tap that can only
+    # ever be refused.
+    allowed_next_statuses: list[str] = []
 
 
 class ReviewIn(BaseModel):

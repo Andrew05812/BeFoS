@@ -19,7 +19,8 @@ suite can check and the client suite cannot.
 The last check reads ``docs/RELEASE.md`` §8 rather than the client: the checklist now sends an operator
 to named lines of the settings screen, and a line number that no longer carries the sentence it is
 cited for is the defect the photograph file was written for. Here the anchors are the settings row's
-own — the two repository calls, the dialog, the retry, the list, the screen-reader caption — because
+own — the two repository calls, the dialog, the retry, the list, the screen-reader caption, and since
+stage 103 the role-flag and callback that paint the queue's door on the same screen — because
 several of those citations name copy an operator has to recognise on the screen rather than a request
 it performs.
 
@@ -85,7 +86,9 @@ _KOTLIN_CITATION = re.compile(r"([A-Za-z]+\.kt):(\d+)(?:-(\d+))?")
 # the write leaves from, the reader «Повторить» calls, the list the rows are drawn from, the caption
 # a screen reader speaks, the name that caption speaks, the placeholder the read leaves on screen while
 # it is out, and the sentence that builds a row's second line. An empty window here means the copy
-# moved and the citation followed nothing.
+# moved and the citation followed nothing. Stage 103 grew the same screen a second row — the door to
+# the moderation queue, painted from the role the account's own read names — so the two symbols that
+# row is made of joined the list; a cited settings window still has to carry a word this screen uses.
 _BLOCK_ANCHORS = (
     _RELEASE,
     _BLOCKS_LIST,
@@ -97,6 +100,8 @@ _BLOCK_ANCHORS = (
     "blockedRowWord",
     "user.name",
     "SkeletonBlock",
+    "isModerator",
+    "onOpenModeration",
 )
 _PYTHON_RAISE = re.compile(r'(?:ValidationError|NotFoundError)\(\s*(f?)"((?:[^"\\]|\\.)+)"')
 # A block that cannot be released is one thing; a sentence saying releasing it is impossible is

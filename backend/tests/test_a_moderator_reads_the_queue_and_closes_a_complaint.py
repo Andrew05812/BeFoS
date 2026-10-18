@@ -16,9 +16,11 @@ all. Stage 102 adds the moderation surface — `GET /reports`, `GET /reports/{re
 * two moderators answering the same complaint produce one decision and one refusal, not two
   histories that contradict each other.
 
-What is measured here is the API and the rows behind it. No Android screen renders the queue: the
-moderator's surface is these routes, documented in `docs/OPERATIONS.md` §14, and there is no client
-half to this stage's row.
+What is measured here is the API and the rows behind it. Stage 103 put a client on these routes —
+``ModerationScreen.kt`` renders the queue and the review dialog for the account whose own profile
+read says it holds the role — but the couplings between that screen and this surface are pinned by
+``test_the_moderation_queue_a_server_writes_is_the_one_a_screen_reads.py``, not here; no test in
+either file draws the queue on a device or taps a chip.
 """
 
 from __future__ import annotations
