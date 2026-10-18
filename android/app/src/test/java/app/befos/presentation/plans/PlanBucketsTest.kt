@@ -148,10 +148,98 @@ class PlanBucketsTest {
     }
 
     @Test
+    fun `half a confirmation is named as half a confirmation`() {
+        // The pair's state between «ждёт ответа» and «подтверждена обоими» belongs to one of the two,
+        // and the card of the person who has already said yes must not read as though nobody had.
+        assertEquals(
+            "подтвердили вы, ждём ответа партнёра",
+            planStatusWord(plan(myDecision = PlanDecisions.JOINED)),
+        )
+        assertEquals(
+            "ждёт вашего ответа",
+            planStatusWord(plan(partnerDecision = PlanDecisions.JOINED, needsMyAnswer = true)),
+        )
+        // A refusal that answers the idea outranks a yes the same person gave before it, and two
+        // refusals are the pair's own answer rather than one of them.
+        assertEquals(
+            "вы оба отклонили",
+            planStatusWord(
+                plan(
+                    status = PlanStatuses.DECLINED,
+                    myDecision = PlanDecisions.DECLINED,
+                    partnerDecision = PlanDecisions.DECLINED,
+                ),
+            ),
+        )
+        assertEquals(
+            "вы отказались от договорённости",
+            planStatusWord(plan(status = PlanStatuses.PLANNED, startsAt = ahead, myDecision = PlanDecisions.DECLINED)),
+        )
+    }
+
+    @Test
+    fun `the answer doors close on the same two states for both of them`() {
+        assertTrue(canAnswerPlan(plan()))
+        assertTrue(canAnswerPlan(plan(status = PlanStatuses.ACCEPTED)))
+        assertTrue(canAnswerPlan(plan(status = PlanStatuses.PLANNED, startsAt = ahead)))
+        assertTrue(canAnswerPlan(plan(status = PlanStatuses.RESCHEDULED, startsAt = behind)))
+        // A plan the partner refused is still this person's to answer — their own word is missing.
+        assertTrue(canAnswerPlan(plan(status = PlanStatuses.DECLINED, partnerDecision = PlanDecisions.DECLINED)))
+        assertFalse(canAnswerPlan(plan(status = PlanStatuses.CANCELLED)))
+        assertFalse(canAnswerPlan(plan(status = PlanStatuses.COMPLETED)))
+
+        // Where the doors are shut the card says so, because an absent button reads as a screen that
+        // has not noticed the pair's answer rather than as a plan that takes no more of it.
+        assertNull(planAnswerWord(plan()))
+        assertNull(planAnswerWord(plan(status = PlanStatuses.DECLINED, partnerDecision = PlanDecisions.DECLINED)))
+        assertEquals(
+            "План отменён — подтверждать его больше нечего",
+            planAnswerWord(plan(status = PlanStatuses.CANCELLED)),
+        )
+        assertEquals(
+            "Встреча состоялась — подтверждать её больше нечего",
+            planAnswerWord(plan(status = PlanStatuses.COMPLETED)),
+        )
+    }
+
+    @Test
     fun `a state this build has not met says so instead of borrowing a promise`() {
         val word = planStatusWord(plan(status = "archived"))
 
         assertEquals("состояние, которое эта версия приложения не читает", word)
+    }
+
+    @Test
+    fun `the hour the pair stands on is the hour the card may promise`() {
+        assertTrue(planHourIsThePairWord(plan(status = PlanStatuses.PLANNED, startsAt = ahead), now))
+        assertFalse(planHourIsThePairWord(plan(status = PlanStatuses.PLANNED, startsAt = behind, hourPassed = true), now))
+        assertFalse(
+            planHourIsThePairWord(
+                plan(status = PlanStatuses.RESCHEDULED, startsAt = behind, pendingHour = ahead), now,
+            ),
+        )
+        // The hour that stands in the rows of a refused plan is the evening its author walked back, and
+        // a check-mark over it would promise the meeting this person has just said they are not coming to.
+        assertFalse(planHourIsThePairWord(plan(status = PlanStatuses.DECLINED, startsAt = ahead), now))
+        assertFalse(
+            planHourIsThePairWord(
+                plan(status = PlanStatuses.PLANNED, startsAt = ahead, myDecision = PlanDecisions.DECLINED), now,
+            ),
+        )
+        assertFalse(planHourIsThePairWord(plan(), now))
+    }
+
+    @Test
+    fun `an hour a changed answer left behind is said in the past`() {
+        val refused = planHourWord(
+            plan(status = PlanStatuses.DECLINED, startsAt = ahead, myDecision = PlanDecisions.DECLINED), now,
+        )
+        assertTrue(refused.orEmpty(), refused!!.startsWith("Час был назван: 17"))
+        // The same reading on a plan whose hour the pair has not moved, only refused.
+        val walkedBack = planHourWord(
+            plan(status = PlanStatuses.PLANNED, startsAt = ahead, myDecision = PlanDecisions.DECLINED), now,
+        )
+        assertTrue(walkedBack.orEmpty(), walkedBack!!.startsWith("Час был назван: 17"))
     }
 
     @Test
