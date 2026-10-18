@@ -29,6 +29,13 @@ data class Profile(
     val ageMin: Int,
     val ageMax: Int,
     val genderPreference: List<String>,
+    /**
+     * The city the deck is filtered to, or null when the person never named one and the deck stays
+     * city-unbounded. Only the owner's read carries it — a card of somebody else has no business
+     * naming where they search — and the empty text field on the edit screen writes this back to
+     * null, which is the answer «снимите фильтр».
+     */
+    val cityPreference: String? = null,
     val isHidden: Boolean = false,
     /**
      * Whether this account may open the moderation queue. The answer comes from the owner's own
@@ -456,6 +463,10 @@ data class ProfileUpdateData(
     val ageMin: Int? = null,
     val ageMax: Int? = null,
     val genderPreference: List<String>? = null,
+    // Null means «untouched», the same split `about` lives by. The client cannot send a JSON null
+    // (the serializer drops explicit nulls), so the empty string is the only erase it owns — and
+    // the server reads it as «снимите фильтр».
+    val cityPreference: String? = null,
     val isHidden: Boolean? = null,
 )
 

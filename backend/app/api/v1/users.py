@@ -42,6 +42,7 @@ def _profile_to_out(profile, photos: list, is_moderator: bool) -> ProfileOut:
         age_min=profile.age_min,
         age_max=profile.age_max,
         gender_preference=profile.gender_preference or [],
+        city_preference=profile.city_preference,
         is_hidden=bool(profile.is_hidden),
     )
 

@@ -82,10 +82,9 @@ class Profile(TimestampMixin, Base):
     gender_preference: Mapped[list[str]] = mapped_column(
         ARRAY(String(20)), default=list, nullable=False
     )
-    # Reserved rather than shipped: no endpoint writes this field, so the city half of the
-    # deck filter below never binds on a request that came through the API. It is kept because
-    # the column, the filter and the index already agree with each other, and deleting one of
-    # the three would leave the other two pointing at nothing.
+    # Stage 104 shipped this column: PATCH /users/me writes it (empty string after the strip
+    # clears it back to NULL), and the deck filter below binds on the value the owner named.
+    # The read path always did — the missing half was the write and the screen that asks.
     city_preference: Mapped[str | None] = mapped_column(String(120), nullable=True)
 
     # Lifestyle / trait snapshot used by the compatibility engine as a fallback
@@ -109,11 +108,10 @@ class Profile(TimestampMixin, Base):
 
     __table_args__ = (
         # The candidate read filters the city case-insensitively and the age as a range, and a
-        # plain btree over `city` cannot answer a predicate on `lower(city)`. What the API
-        # actually sends today is the range alone — the city comes from `city_preference`, which
-        # nothing writes — so this index is reachable for the read but binds no leading column,
-        # and at 264 profiles the planner seq-scans. See docs/DATABASE.md before quoting it as
-        # a win.
+        # plain btree over `city` cannot answer a predicate on `lower(city)`. Since stage 104
+        # the API can send the city after all — the filter comes from `city_preference`, which
+        # `PATCH /users/me` writes — so this index leads with the column the read now binds on.
+        # At 264 profiles the planner seq-scans; see docs/DATABASE.md before quoting it as a win.
         Index("ix_profiles_city_lower_birth", text("lower(city)"), "birth_date"),
         # The deck pages the visible population newest-first, and with no key in that order the
         # planner reads every visible row, sorts it, and keeps 150 of them. Measured on the 50 000
