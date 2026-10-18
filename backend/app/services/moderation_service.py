@@ -82,7 +82,15 @@ class ModerationService:
             raise NotFoundError("Report not found.")
         card = (await self._cards([report]))[0]
         history = await self.reviews_of(report_id)
-        return {**card, "updated_at": report.updated_at, "reviews": history}
+        return {
+            **card,
+            "updated_at": report.updated_at,
+            "reviews": history,
+            # The same table `review` checks the asked-for status against, read out loud so the
+            # caller can draw the choices that still exist. A closed complaint answers with an empty
+            # list rather than with the statuses it once moved through.
+            "allowed_next_statuses": sorted(ALLOWED_TRANSITIONS[report.status]),
+        }
 
     async def reviews_of(self, report_id: uuid.UUID) -> list[dict]:
         """How this complaint got to where it is, in the order it was moved."""

@@ -18,6 +18,7 @@ import app.befos.presentation.compatibility.CompatibilityScreen
 import app.befos.presentation.universe.UniverseScreen
 import app.befos.presentation.editprofile.EditProfileScreen
 import app.befos.presentation.main.MainScreen
+import app.befos.presentation.moderation.ModerationScreen
 import app.befos.presentation.onboarding.OnboardingScreen
 import app.befos.presentation.plans.PlansScreen
 import app.befos.presentation.profile.MyProfileScreen
@@ -154,6 +155,7 @@ fun BeFosNavHost(navController: NavHostController) {
         composable(Routes.SETTINGS) {
             SettingsScreen(
                 onBack = { navController.popBackStack() },
+                onOpenModeration = { navController.navigate(Routes.MODERATION) { launchSingleTop = true } },
                 onLoggedOut = {
                     navController.navigate(Routes.AUTH) {
                         // Drop SETTINGS *and* MAIN so back from AUTH cannot resurrect a logged-out stack.
@@ -161,6 +163,10 @@ fun BeFosNavHost(navController: NavHostController) {
                     }
                 },
             )
+        }
+
+        composable(Routes.MODERATION) {
+            ModerationScreen(onBack = { navController.popBackStack() })
         }
 
         composable(

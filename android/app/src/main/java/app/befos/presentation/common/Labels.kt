@@ -49,3 +49,16 @@ val ReportReasonLabels = linkedMapOf(
     "threats" to "Угрозы или преследование",
     "other" to "Другое",
 )
+
+// Mirrors backend ALL_STATUSES in moderation_service.py, in the order a complaint walks through
+// them. The queue's filter chips and its decision buttons are both built from this list, so a
+// status the server learns would reach the screen as a bare slug rather than as a word — which is
+// why the pairing is pinned by a test that reads the server's own constant.
+val ReportStatusLabels = linkedMapOf(
+    "open" to "Новая",
+    "reviewed" to "На рассмотрении",
+    "resolved" to "Решена",
+    "dismissed" to "Отклонена",
+)
+
+fun reportStatusLabel(code: String): String = ReportStatusLabels[code] ?: code

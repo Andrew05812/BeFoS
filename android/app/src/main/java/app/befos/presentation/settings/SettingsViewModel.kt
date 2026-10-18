@@ -16,6 +16,14 @@ import kotlinx.coroutines.launch
 data class SettingsUiState(
     val hidden: Boolean = false,
     /**
+     * Whether this account holds the moderator role, as the server's answer about itself said.
+     *
+     * The flag only chooses whether the entry to the queue is drawn. A read that never answered
+     * leaves it false, which hides a door rather than opening one onto a refusal: the entry is the
+     * convenience, and `GET /reports` is the permission.
+     */
+    val isModerator: Boolean = false,
+    /**
      * The server never answered which way visibility is, so the switch shows the local
      * default rather than the account's real state. A privacy setting drawn from a guess has
      * to say so: the user cannot tell an off switch from a hidden profile.
@@ -59,7 +67,13 @@ class SettingsViewModel(
         viewModelScope.launch {
             when (val result = profileRepository.me()) {
                 is ApiResult.Success -> _uiState.update {
-                    it.copy(hidden = result.data.isHidden, visibilityUnknown = false)
+                    it.copy(
+                        hidden = result.data.isHidden,
+                        // The same answer says which queue this account may open, so the door is drawn
+                        // from what the server said rather than from a name the operator mentioned.
+                        isModerator = result.data.isModerator,
+                        visibilityUnknown = false,
+                    )
                 }
                 is ApiResult.Error -> _uiState.update { it.copy(visibilityUnknown = true) }
             }

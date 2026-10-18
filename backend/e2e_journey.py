@@ -332,8 +332,19 @@ def complaint_reaches_a_moderator(c, ha: dict, hb: dict, uid_a: str, uid_b: str,
     rd = c.post(f"{BASE}/auth/register", json={"email": email_d, "password": pw, "password_confirm": pw})
     uid_d = rd.json()["user"]["id"]
     hd = {"Authorization": f"Bearer {rd.json()['tokens']['access_token']}"}
+    # Stage 103 draws the queue's door from one field of the account's own read, so the walk checks
+    # both sides of the operator's step: False before it, True after, on the same token. A flag that
+    # only the queue could see would leave the settings screen hiding the door from a moderator.
+    before = c.get(f"{BASE}/users/me", headers=hd)
+    check(before.status_code == 200 and before.json().get("is_moderator") is False,
+          "a freshly registered account says it is not a moderator",
+          f"{before.status_code} {str(before.json())[:80]}")
     granted = _grant_moderator(uid_d)
     check(granted == "UPDATE 1", "the operator's step makes one account a moderator, and only one", granted[:80])
+    after = c.get(f"{BASE}/users/me", headers=hd)
+    check(after.status_code == 200 and after.json().get("is_moderator") is True,
+          "the operator's step shows in the account's own read, which is what paints the door",
+          f"{after.status_code} {str(after.json())[:80]}")
 
     # The token above was minted before the flag was set and still opens the queue: the role is read
     # off the row per request, which is also how taking it away stops a stolen token at once.

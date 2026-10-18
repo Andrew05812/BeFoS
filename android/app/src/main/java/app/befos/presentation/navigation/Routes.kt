@@ -66,6 +66,12 @@ object Routes {
     const val PUBLIC_PROFILE = "user/{$USER_ARG}"
     fun publicProfile(userId: String) = "user/$userId"
 
+    // The moderation queue. One route, no identifier: whose complaints these are comes from the
+    // session. The route is a place to stand, not a door — `GET /reports` reads the role off the
+    // account row on every request, so reaching this screen by any other way than the entry on
+    // «Настройки» changes nothing about what the server answers.
+    const val MODERATION = "moderation"
+
     // The same card, asked by the pair instead of by the deck: `GET /users/{id}` filters on
     // «Скрыть из подбора» on purpose, so a link built on the user id answers «Профиль недоступен»
     // to the person sitting in the chat the card was opened from.

@@ -19,6 +19,13 @@ import app.befos.data.model.ProgressDto
 import app.befos.data.model.PublicProfileDto
 import app.befos.data.model.QuestionDto
 import app.befos.data.model.RecommendationDto
+import app.befos.data.model.ReportCardDto
+import app.befos.data.model.ReportDetailDto
+import app.befos.data.model.ReportReviewRowDto
+import app.befos.data.model.ReportedAccountDto
+import app.befos.data.model.ReporterDto
+import app.befos.data.model.ReportsPageDto
+import app.befos.data.model.ReviewResultDto
 import app.befos.data.model.TestListDto
 import app.befos.data.model.TestProfileDto
 import app.befos.data.model.TestResultDto
@@ -46,6 +53,13 @@ import app.befos.domain.model.PublicProfile
 import app.befos.domain.model.Question
 import app.befos.domain.model.Plan
 import app.befos.domain.model.Recommendation
+import app.befos.domain.model.ReportCard
+import app.befos.domain.model.ReportDetail
+import app.befos.domain.model.ReportReviewRow
+import app.befos.domain.model.ReportedAccount
+import app.befos.domain.model.Reporter
+import app.befos.domain.model.ReportsPage
+import app.befos.domain.model.ReviewOutcome
 import app.befos.domain.model.Activity
 import app.befos.domain.model.TestProfile
 import app.befos.domain.model.TestProgress
@@ -75,6 +89,7 @@ fun ProfileDto.toDomain() = Profile(
     ageMax = ageMax,
     genderPreference = genderPreference,
     isHidden = isHidden,
+    isModerator = isModerator,
 )
 
 fun OptionDto.toDomain() = Option(id, text)
@@ -303,3 +318,65 @@ fun ProfileUpdateData.toRequest() = ProfileUpdateRequest(
     genderPreference = genderPreference,
     isHidden = isHidden,
 )
+
+fun ReportedAccountDto.toDomain() = ReportedAccount(
+    userId = userId,
+    name = name,
+    age = age,
+    city = city,
+    isDeleted = isDeleted,
+    isHidden = isHidden,
+    isModerator = isModerator,
+)
+
+fun ReporterDto.toDomain() = Reporter(userId = userId, name = name)
+
+fun ReportCardDto.toDomain() = ReportCard(
+    id = id,
+    reason = reason,
+    details = details,
+    status = status,
+    createdAt = createdAt,
+    reported = reported.toDomain(),
+    reporter = reporter.toDomain(),
+)
+
+fun ReportsPageDto.toDomain() = ReportsPage(
+    reports = reports.map { it.toDomain() },
+    nextCursor = nextCursor,
+    hasMore = hasMore,
+)
+
+fun ReportReviewRowDto.toDomain() = ReportReviewRow(
+    id = id,
+    moderatorId = moderatorId,
+    moderatorName = moderatorName,
+    fromStatus = fromStatus,
+    toStatus = toStatus,
+    comment = comment,
+    decidedAt = decidedAt,
+)
+
+/**
+ * The flat detail answer folded back into the card the queue already draws.
+ *
+ * The route answers one object rather than a card inside a detail, so the row a moderator opens and
+ * the row the list still shows are the same fields read the same way — and the screen that repaints
+ * after a decision has one place to take the card from.
+ */
+fun ReportDetailDto.toDomain() = ReportDetail(
+    card = ReportCard(
+        id = id,
+        reason = reason,
+        details = details,
+        status = status,
+        createdAt = createdAt,
+        reported = reported.toDomain(),
+        reporter = reporter.toDomain(),
+    ),
+    updatedAt = updatedAt,
+    reviews = reviews.map { it.toDomain() },
+    allowedNextStatuses = allowedNextStatuses,
+)
+
+fun ReviewResultDto.toDomain() = ReviewOutcome(id = id, status = status, updatedAt = updatedAt)

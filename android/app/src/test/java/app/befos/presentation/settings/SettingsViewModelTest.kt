@@ -30,11 +30,11 @@ class SettingsViewModelTest {
     private val auth: AuthRepository = mockk()
     private val profiles: ProfileRepository = mockk()
 
-    private fun profile(hidden: Boolean) = Profile(
+    private fun profile(hidden: Boolean, moderator: Boolean = false) = Profile(
         userId = "me", name = "Анна", age = 29, city = "Москва", gender = "female",
         about = null, datingGoal = "relationship", photos = emptyList(),
         interests = emptyList(), lifestyle = emptyMap(), ageMin = 25, ageMax = 35,
-        genderPreference = emptyList(), isHidden = hidden,
+        genderPreference = emptyList(), isHidden = hidden, isModerator = moderator,
     )
 
     private fun blocked(id: String, name: String) = BlockedUser(
@@ -279,5 +279,46 @@ class SettingsViewModelTest {
             blockedRowWord(blocked("u-nina", "Нина").copy(blockedAt = "вечер зачёта"), moscow),
         )
         assertEquals("30 · Москва", blockedRowWord(blocked("u-nina", "Нина").copy(blockedAt = ""), moscow))
+    }
+
+    @Test
+    fun `the queue's door is drawn for the account the server says holds the role`() = runTest {
+        blocksAreIdle()
+        coEvery { profiles.me() } returns ApiResult.Success(profile(hidden = false, moderator = true))
+
+        val vm = SettingsViewModel(safety, auth, profiles)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        // One answer carries both halves — the visibility switch and the role — so the entry is drawn
+        // from what the server said about this account rather than from a name an operator mentioned.
+        assertEquals(true, vm.uiState.value.isModerator)
+        coVerify(exactly = 1) { profiles.me() }
+    }
+
+    @Test
+    fun `an ordinary account is not offered the queue`() = runTest {
+        blocksAreIdle()
+        coEvery { profiles.me() } returns ApiResult.Success(profile(hidden = false))
+
+        val vm = SettingsViewModel(safety, auth, profiles)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(false, vm.uiState.value.isModerator)
+    }
+
+    @Test
+    fun `a role that was never read hides the door instead of opening one onto a refusal`() = runTest {
+        blocksAreIdle()
+        coEvery { profiles.me() } returns ApiResult.Error(-1, "Сервер недоступен. Проверьте соединение и попробуйте ещё раз.")
+
+        val vm = SettingsViewModel(safety, auth, profiles)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        // The flag defaults to false, and here that default is the honest answer: a missing entry costs
+        // a moderator one retry of the screen, while an entry that walks to «Очередь доступна только
+        // модератору.» puts the flag on the account when nothing read it. `GET /reports` is the
+        // permission; this only chooses which door to draw.
+        assertEquals(false, vm.uiState.value.isModerator)
+        assertEquals(true, vm.uiState.value.visibilityUnknown)
     }
 }

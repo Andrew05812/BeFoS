@@ -32,6 +32,10 @@ import app.befos.data.model.RecommendationListDto
 import app.befos.data.model.RefreshRequest
 import app.befos.data.model.RegisterRequest
 import app.befos.data.model.ReportRequest
+import app.befos.data.model.ReportDetailDto
+import app.befos.data.model.ReportsPageDto
+import app.befos.data.model.ReviewRequest
+import app.befos.data.model.ReviewResultDto
 import app.befos.data.model.TestListDto
 import app.befos.data.model.TestProfileDto
 import app.befos.data.model.TestResultDto
@@ -458,5 +462,46 @@ class ApiService(private val client: HttpClient) {
         client.apiCallUnit {
             method = HttpMethod.Delete
             url(endpoint("users/me"))
+        }
+
+    // ---------- Moderation ----------
+    /**
+     * One page of the complaint queue, oldest first, narrowed to one status when one is named.
+     *
+     * `afterId` is the id of the last row the previous page answered with rather than an offset: the
+     * queue is written while it is being read, and a page numbered by position would show the same
+     * complaint twice as soon as somebody ahead of it arrived. A null filter is dropped instead of
+     * sent, because an empty status is a status nobody declares.
+     */
+    suspend fun reports(status: String?, afterId: String?, limit: Int): ApiResult<ReportsPageDto> =
+        client.apiCall {
+            method = HttpMethod.Get
+            url(endpoint("reports"))
+            parameter("limit", limit)
+            if (status != null) parameter("status", status)
+            if (afterId != null) parameter("after_id", afterId)
+        }
+
+    suspend fun reportDetail(reportId: String): ApiResult<ReportDetailDto> =
+        client.apiCall {
+            method = HttpMethod.Get
+            url(endpoint("reports/$reportId"))
+        }
+
+    /**
+     * Moves one complaint to one status and records the note that says why.
+     *
+     * The moderator is not in the body: the row that writes history takes the hand from the session
+     * that signed in, so a client cannot put another name on the line than its own.
+     */
+    suspend fun reviewReport(
+        reportId: String,
+        status: String,
+        comment: String?,
+    ): ApiResult<ReviewResultDto> =
+        client.apiCall {
+            method = HttpMethod.Post
+            url(endpoint("reports/$reportId/review"))
+            setBody(ReviewRequest(status, comment))
         }
 }

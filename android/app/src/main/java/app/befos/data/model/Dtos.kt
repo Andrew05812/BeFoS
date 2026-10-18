@@ -81,6 +81,7 @@ data class ProfileDto(
     @SerialName("age_max") val ageMax: Int = 60,
     @SerialName("gender_preference") val genderPreference: List<String> = emptyList(),
     @SerialName("is_hidden") val isHidden: Boolean = false,
+    @SerialName("is_moderator") val isModerator: Boolean = false,
 )
 
 @Serializable
@@ -553,4 +554,88 @@ data class BlockedUsersDto(
 @Serializable
 data class OkDto(
     val ok: Boolean = true,
+)
+
+// ---------- Moderation ----------
+/**
+ * The account a complaint names, as the queue draws it.
+ *
+ * The server sends the profile fields the row paints rather than an id the reader has to look up,
+ * and it sends them already answered for the two cases a card cannot draw on its own: an account
+ * that has been erased keeps its row but has no age to show (`age` arrives as null, because the
+ * birth date an erasure writes belongs to nobody), and an account that holds the moderation role is
+ * named here so a moderator reading a complaint about a peer does not decide it blind.
+ */
+@Serializable
+data class ReportedAccountDto(
+    @SerialName("user_id") val userId: String,
+    val name: String? = null,
+    val age: Int? = null,
+    val city: String? = null,
+    @SerialName("is_deleted") val isDeleted: Boolean = false,
+    @SerialName("is_hidden") val isHidden: Boolean = false,
+    @SerialName("is_moderator") val isModerator: Boolean = false,
+)
+
+@Serializable
+data class ReporterDto(
+    @SerialName("user_id") val userId: String,
+    val name: String? = null,
+)
+
+@Serializable
+data class ReportCardDto(
+    val id: String,
+    val reason: String,
+    val details: String? = null,
+    val status: String = "",
+    @SerialName("created_at") val createdAt: String = "",
+    val reported: ReportedAccountDto,
+    val reporter: ReporterDto,
+)
+
+@Serializable
+data class ReportsPageDto(
+    val reports: List<ReportCardDto> = emptyList(),
+    @SerialName("next_cursor") val nextCursor: String? = null,
+    @SerialName("has_more") val hasMore: Boolean = false,
+)
+
+/** One move of one complaint, with the hand that moved it and the note it left. */
+@Serializable
+data class ReportReviewRowDto(
+    val id: String,
+    @SerialName("moderator_id") val moderatorId: String,
+    @SerialName("moderator_name") val moderatorName: String? = null,
+    @SerialName("from_status") val fromStatus: String = "",
+    @SerialName("to_status") val toStatus: String = "",
+    val comment: String? = null,
+    @SerialName("decided_at") val decidedAt: String = "",
+)
+
+@Serializable
+data class ReportDetailDto(
+    val id: String,
+    val reason: String,
+    val details: String? = null,
+    val status: String = "",
+    @SerialName("created_at") val createdAt: String = "",
+    @SerialName("updated_at") val updatedAt: String = "",
+    val reported: ReportedAccountDto,
+    val reporter: ReporterDto,
+    val reviews: List<ReportReviewRowDto> = emptyList(),
+    @SerialName("allowed_next_statuses") val allowedNextStatuses: List<String> = emptyList(),
+)
+
+@Serializable
+data class ReviewRequest(
+    val status: String,
+    val comment: String? = null,
+)
+
+@Serializable
+data class ReviewResultDto(
+    val id: String,
+    val status: String = "",
+    @SerialName("updated_at") val updatedAt: String = "",
 )
