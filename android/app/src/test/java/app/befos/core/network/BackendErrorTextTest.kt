@@ -235,6 +235,25 @@ class BackendErrorTextTest {
     }
 
     @Test
+    fun `a plan that will not take the pair's words says which of the two it is`() {
+        // The card's save can meet two refusals. The plan is gone from the pair — dissolved, or read
+        // from a row this screen no longer holds — or it is closed, and on a closed meeting there is
+        // nothing to rewrite. «Это уже сделано.» would read as a save, and the 404 fallback would tell
+        // the reader an анкету удалили when what vanished was the arrangement.
+        val cases = mapOf(
+            "Plan not found." to "Этого плана в вашей паре уже нет. Обновите список.",
+            "This plan is closed, so there is nothing left to change." to
+                "Эта встреча уже закрыта — отменена, состоялась или отклонена. Менять в ней нечего.",
+        )
+        cases.forEach { (backend, expected) ->
+            assertEquals(expected, localizeBackendError(backend, "not_found", 404))
+            assertEquals(expected, localizeBackendError(backend, "conflict", 409))
+        }
+        // A refusal is not advice to tap again: the same save sent twice gets the same answer.
+        assertFalse(cases.values.any { it.contains("ещё раз") })
+    }
+
+    @Test
     fun `a block that cannot be released says why in the list's own words`() {
         // The settings list offers one tap per row and two answers can refuse it: the number is the
         // person's own, or the row is no longer there. Falling back to the status line would tell the
