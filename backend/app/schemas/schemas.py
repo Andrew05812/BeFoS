@@ -528,15 +528,27 @@ class PlanOut(BaseModel):
     cancelled_at: datetime | None
     created_at: datetime
     updated_at: datetime
-    my_decision: str
+    my_decision: str = Field(
+        description=(
+            "pending | joined | declined — this person's own answer, which the partner's tap never "
+            "moves and their own tap may always take back while the plan is open"
+        )
+    )
     i_attended: bool
     partner_id: str | None
     partner_name: str | None
     partner_photo_url: str | None
-    partner_decision: str
+    partner_decision: str = Field(
+        description="the same three words read off the other half's row, or pending while they have said nothing"
+    )
     partner_attended: bool
     hour_passed: bool
-    needs_my_answer: bool
+    needs_my_answer: bool = Field(
+        description=(
+            "true while this person is the one the plan waits on: their own word is missing, or the "
+            "hour being asked about is one the other half named"
+        )
+    )
     can_cancel: bool
 
 

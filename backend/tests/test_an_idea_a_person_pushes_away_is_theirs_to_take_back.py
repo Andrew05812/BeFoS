@@ -170,9 +170,15 @@ async def test_an_idea_already_proposed_keeps_its_proposal_after_being_pushed_aw
     Red on the wrong repair that folds the two into one flag — then the refused card loses its mark,
     comes back offering «Предложить в чате», and the chat reads the same sentence twice. That is the
     defect stage 63 closed, arriving back through the side door.
+
+    The two taps are made in the order a person changes their mind in: the card that was pushed away
+    is proposed to, and then pushed away again. The proposal mark survives the second tap, while the
+    refusal of a card somebody has just put to the pair is what the pair's plan reads as their answer
+    — see `test_the_half_that_confirmed_can_still_say_no`.
     """
     a, _b, match_id, pushed = pair_with_a_second_card
     assert await _tap(client, a["token"], match_id, pushed) in (200, 204)
+    assert await _push(client, a["token"], match_id, pushed) in (200, 204)
     card = _card(await _page(client, a["token"], match_id), pushed)
     assert card["selected"] is True and card["declined"] is True, (
         f"one of the two answers was lost: {card}"

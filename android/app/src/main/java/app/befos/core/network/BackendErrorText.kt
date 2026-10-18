@@ -117,6 +117,14 @@ private val translated: Map<String, String> = mapOf(
     // answer every plan verb gives to an outsider too, so the line sends the reader back to the list
     // rather than explaining whose plan it was.
     "plan not found." to "Этого плана в вашей паре уже нет. Обновите список.",
+    // Reached from the answer doors, not the words of the plan: the person tapped «поддержать» or
+    // «вернуть идею» on a card the pair has since closed. The card hides those doors while it holds the
+    // status, so this is the row having changed under the screen — the answer says which plans are
+    // closed and where the person is, rather than repeating the server's sentence about its own table.
+    "this plan is closed, so there is nothing left to answer." to
+        "Эта встреча уже отменена или состоялась — отвечать на неё нечего. Обновите список.",
+    "this plan is called off, so its hour has to be restored first." to
+        "План отменён: сначала верните его, и только потом называйте час.",
     // Reached when the partner closed the plan while this card was open: the words did not fail to
     // fit, there is simply nothing left to write on. «Это уже сделано.» would call it a save.
     "this plan is closed, so there is nothing left to change." to

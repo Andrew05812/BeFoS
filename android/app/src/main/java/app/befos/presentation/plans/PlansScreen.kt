@@ -334,12 +334,11 @@ private fun PlanCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             planHourWord(plan, now)?.let { hour ->
-                val superseded = plan.status == PlanStatuses.RESCHEDULED
-                val passed = planMomentPassed(plan.startsAt, now)
+                val standing = planHourIsThePairWord(plan, now)
                 ChoiceChip(
                     hour,
-                    if (passed || superseded) Icons.Filled.Schedule else Icons.Filled.CheckCircle,
-                    selected = !passed && !superseded,
+                    if (standing) Icons.Filled.CheckCircle else Icons.Filled.Schedule,
+                    selected = standing,
                 )
             }
             planAttendanceWord(plan)?.let { attendance ->
@@ -370,14 +369,24 @@ private fun PlanCard(
                 )
             }
             HourEditor(plan = plan, mine = myOffer, now = now, busy = busy, onOfferHour = onOfferHour)
+            // This person's own answer, in the three doors it can be moved through: say yes, say no,
+            // take the no back. The rule is read off whose word the row holds rather than off the
+            // plan's status, because the two are different questions — a plan the partner has refused
+            // is still waiting for this card's answer, and a plan this person has confirmed is still
+            // theirs to refuse. Nothing here reaches the other half's answer: the server owns that door.
             when {
-                // A refusal is this person's own edit of their answer, so the way back is offered to
-                // the one who refused — and only while the plan is still an idea rather than a
-                // договорённость the other half has already stood on.
-                plan.myDecision == PlanDecisions.DECLINED &&
-                    (plan.status == PlanStatuses.PROPOSED || plan.status == PlanStatuses.DECLINED) ->
+                !canAnswerPlan(plan) -> planAnswerWord(plan)?.let { closed ->
+                    Text(
+                        closed,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                plan.myDecision == PlanDecisions.DECLINED ->
                     QuietAction("Вернуть идею", busy, onRestoreDecline)
-                plan.status == PlanStatuses.PROPOSED -> {
+                plan.myDecision == PlanDecisions.JOINED ->
+                    QuietAction("Отказаться", busy, onDecline)
+                else -> {
                     AppButton(
                         text = "Поддержать идею",
                         onClick = onAccept,

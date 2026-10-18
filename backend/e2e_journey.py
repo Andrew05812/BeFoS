@@ -31,6 +31,17 @@ _CONNECTIONS = {"harmony", "complementarity", "discussion", "unknown"}
 _SCALE_VALUE = re.compile(r"\d+[.,]\d+")
 
 
+def pace(seconds: float = 60.0) -> None:
+    """Let the product's own window pass before the next stretch of the walk.
+
+    The limiter counts a minute per address — stage 46 measured whose address it takes — and one
+    script is one address doing a whole tour in a few seconds, a density nobody on a phone produces.
+    The walk waits rather than asking the container to lift the rule it is meant to keep, so a 429
+    in these logs stays a defect and never an artefact of the harness.
+    """
+    time.sleep(seconds)
+
+
 def check(ok: bool, label: str, extra: str = "") -> None:
     results.append((ok, label))
     mark = "PASS" if ok else "FAIL"
@@ -189,6 +200,13 @@ def agreed_hour_reaches_the_chat(match_id: str, tok_a: str, tok_b: str, activity
     so the walk is where the rule «a field left out is a field left alone», the erasure flag, the
     silent no-op and the two refusals are seen as behaviour rather than as a schema. A place that only
     ever lived in the phone that typed it fails here.
+
+    Stage 107 asks whose word each of those answers is, and a stored row cannot answer that on its
+    own: the pair's plan is read by two screens and written by two people, so the walk has both halves
+    stand behind the arrangement, push it away, and take that back, reading both cards and the open
+    chat after every tap. A server that let one confirmation carry the other person's answer, that
+    answered for the partner, that wrote the same refusal twice into the conversation, or that let a
+    stranger tap the plan's door, fails here rather than in one test per method.
     """
     ha = {"Authorization": f"Bearer {tok_a}"}
     hb = {"Authorization": f"Bearer {tok_b}"}
@@ -200,6 +218,16 @@ def agreed_hour_reaches_the_chat(match_id: str, tok_a: str, tok_b: str, activity
         return [m for m in history if m.get("kind") != "text"
                 and (m.get("plan") or {}).get("activity_id") == activity_id]
 
+    def plan_ids(headers: dict) -> list[str]:
+        """The same history as the ids of its lines, which is what a «did the chat move» check needs.
+
+        `history` reads its rows before it settles the reader's receipts, so the first page after the
+        partner writes reports that line unread and the next one reports it read. Comparing whole rows
+        therefore makes the walk fail on its own reading of a conversation nobody added a line to;
+        the ids answer the question the check actually asks.
+        """
+        return [m["id"] for m in plan_lines(headers)]
+
     async def drive() -> None:
         uri_b = f"{WS_BASE}/ws/chat/{match_id}?token={tok_b}"
         async with websockets.connect(uri_b, open_timeout=5) as ws_b:
@@ -207,6 +235,22 @@ def agreed_hour_reaches_the_chat(match_id: str, tok_a: str, tok_b: str, activity
             opened = plan_lines(ha)
             check([m["kind"] for m in opened] == ["plan_proposed"],
                   "A putting the idea to the pair is said in the conversation", str(opened)[:140])
+
+            # Stage 107's first question, before either half has an hour to agree on: the idea went
+            # into the pair's chat from one person, so the other half is the one the plan is being
+            # asked of. A server that counted one confirmation as the pair's, or that reported
+            # «ждёт подтверждения» about the person who already answered, fails on this one read —
+            # both screens answer from the same row set, so each half's own word and the partner's
+            # are on it together.
+            asked_b = await asyncio.to_thread(
+                c.get, f"{BASE}/matches/{match_id}/plans", headers=hb)
+            row_b = asked_b.json()["plans"][0]
+            check(row_b["my_decision"] == "pending"
+                  and row_b["partner_decision"] == "joined"
+                  and row_b["needs_my_answer"] is True and row_b["status"] == "proposed",
+                  "one half's confirmation is read as one half's, and asks the other",
+                  f"B={row_b['my_decision']}/{row_b['needs_my_answer']} "
+                  f"partner={row_b['partner_decision']}")
 
             proposed = await asyncio.to_thread(c.put, time_url, headers=ha, json={"when": first})
             check(proposed.status_code == 204, "A names an hour for the card", str(proposed.status_code))
@@ -356,6 +400,111 @@ def agreed_hour_reaches_the_chat(match_id: str, tok_a: str, tok_b: str, activity
                   and row["note"] == "Билеты у кассы",
                   "a blank place is refused and changes nothing the pair wrote",
                   f"{blank.status_code} {str(row)[:120]}")
+            # Stage 107 asks the question the plan screen exists to answer, over one live server and
+            # through both halves: whose word is whose. A stored row and a status column can both read
+            # «подтверждена обоими» while one of the two has said they are not coming, so the walk
+            # stands the second half behind the arrangement, takes that stand back away, and reads
+            # both screens after every tap — the one who owes an answer, the one who gave it, and the
+            # conversation in between.
+            async def my_row(headers: dict) -> dict:
+                page = (await asyncio.to_thread(c.get, f"{BASE}/plans", headers=headers)
+                        ).json().get("plans", [])
+                return next(p for p in page if p["id"] == plan_id)
+
+            async def pair_row(headers: dict) -> dict:
+                page = await asyncio.to_thread(
+                    c.get, f"{BASE}/matches/{match_id}/plans", headers=headers)
+                return page.json()["plans"][0]
+
+            joined = await asyncio.to_thread(
+                c.post, f"{BASE}/plans/{plan_id}/accept", headers=hb
+            )
+            check(joined.status_code == 204
+                  and (await pair_row(ha))["partner_decision"] == "joined"
+                  and plan_ids(ha) == [m["id"] for m in before_noop]
+                  and await b.nothing("message", 1.0),
+                  "the second half standing behind the plan is read by both screens, and says "
+                  "nothing the pair has not already been told", str(joined.status_code))
+
+            refused_off = await asyncio.to_thread(
+                c.post, f"{BASE}/plans/{plan_id}/decline", headers=hb
+            )
+            said_no = await b.next("message", 3.0)
+            a_still = await pair_row(ha)
+            check(refused_off.status_code == 204
+                  and said_no is not None and said_no.get("kind") == "plan_declined"
+                  and a_still["status"] == "declined"
+                  and a_still["partner_decision"] == "declined"
+                  and a_still["my_decision"] == "joined"
+                  and a_still["needs_my_answer"] is False,
+                  "the half that confirmed can say no, and the other half's answer stays theirs",
+                  str(a_still)[:160])
+            ids_after_refusal = plan_ids(ha)
+
+            repeated = await asyncio.to_thread(
+                c.post, f"{BASE}/plans/{plan_id}/decline", headers=hb
+            )
+            check(repeated.status_code == 204 and plan_ids(ha) == ids_after_refusal
+                  and await b.nothing("message", 1.0),
+                  "the same refusal sent twice is one answer and one line",
+                  f"{len(ids_after_refusal)} lines")
+
+            # The two doors of one person's own answer, then the same tap from the other half: a
+            # refusal taken back has to return this person's word and nobody else's, and a second
+            # person refusing has to leave the first one's refusal standing. Read from B's card,
+            # which carries both halves, so one row answers for the pair's two screens.
+            own_no = await asyncio.to_thread(
+                c.post, f"{BASE}/plans/{plan_id}/decline", headers=ha
+            )
+            both_silent = await my_row(hb)
+            own_back = await asyncio.to_thread(
+                c.delete, f"{BASE}/plans/{plan_id}/decline", headers=ha
+            )
+            moved_frame = await b.next("message", 3.0)
+            after_back = await my_row(hb)
+            check(own_no.status_code == 204
+                  and both_silent["my_decision"] == both_silent["partner_decision"] == "declined"
+                  and own_back.status_code == 204
+                  and moved_frame is not None and moved_frame.get("kind") == "plan_changed"
+                  and after_back["my_decision"] == "declined"
+                  and after_back["partner_decision"] == "joined",
+                  "each half moves only their own answer, and the partner's refusal outlives it",
+                  f"A={after_back['partner_decision']} B={after_back['my_decision']}")
+
+            back_on = await asyncio.to_thread(
+                c.delete, f"{BASE}/plans/{plan_id}/decline", headers=hb
+            )
+            came_back = await b.next("message", 3.0)
+            standing = await pair_row(ha)
+            check(back_on.status_code == 204
+                  and came_back is not None and came_back.get("kind") == "plan_changed"
+                  and standing["status"] == "planned"
+                  and standing["my_decision"] == standing["partner_decision"] == "joined"
+                  and "21:00" in str(standing["starts_at"]),
+                  "a refusal taken back returns the pair to the hour they stood on",
+                  str(standing)[:160])
+
+            # Nobody outside the pair holds a door into their answers. The plan id is a uuid, and a
+            # stranger who guesses or steals one still gets the same answer the pair's own routes
+            # give to a person who is not in the match.
+            fresh = await asyncio.to_thread(
+                c.post, f"{BASE}/auth/register",
+                json={"email": f"e2e.answerer.{time.time_ns()}@befosmail.com",
+                      "password": "Str0ngPass!23", "password_confirm": "Str0ngPass!23"},
+            )
+            hd = {"Authorization": f"Bearer {fresh.json()['tokens']['access_token']}"}
+            stranger_no = await asyncio.to_thread(
+                c.post, f"{BASE}/plans/{plan_id}/decline", headers=hd
+            )
+            stranger_yes = await asyncio.to_thread(
+                c.post, f"{BASE}/plans/{plan_id}/accept", headers=hd
+            )
+            dropped = await asyncio.to_thread(c.delete, f"{BASE}/users/me", headers=hd)
+            check(stranger_no.status_code == 404 and stranger_yes.status_code == 404
+                  and dropped.status_code == 200,
+                  "a stranger has no answer to give this plan",
+                  f"{stranger_no.status_code}/{stranger_yes.status_code}")
+
             closed = await asyncio.to_thread(
                 c.post, f"{BASE}/plans/{plan_id}/cancel", headers=ha
             )
@@ -365,6 +514,26 @@ def agreed_hour_reaches_the_chat(match_id: str, tok_a: str, tok_b: str, activity
             check(closed.status_code == 204 and refused.status_code == 409
                   and "closed" in refused.text,
                   "a closed plan takes no new words", str(refused.text)[:120])
+
+            # The answer doors close on the same two states the pair's screen divides on, and the
+            # refusal is the one door left open: the tap that pushed a plan away stays available over
+            # a called-off plan, because closing it would leave the author holding an idea they can
+            # no longer move on their own page.
+            off_frame = await b.next("message", 3.0)
+            check(off_frame is not None and off_frame.get("kind") == "plan_cancelled",
+                  "the chat is told the plan is called off", str(off_frame)[:140])
+            ids_off = plan_ids(ha)
+            accept_closed = await asyncio.to_thread(
+                c.post, f"{BASE}/plans/{plan_id}/accept", headers=hb
+            )
+            restore_closed = await asyncio.to_thread(
+                c.delete, f"{BASE}/plans/{plan_id}/decline", headers=hb
+            )
+            check(accept_closed.status_code == 409 and restore_closed.status_code == 409
+                  and "closed" in accept_closed.text and "closed" in restore_closed.text
+                  and plan_ids(ha) == ids_off and await b.nothing("message", 1.0),
+                  "a closed plan takes no new answer and no refusal taken back",
+                  f"{accept_closed.status_code}/{restore_closed.status_code}")
 
     try:
         asyncio.run(drive())
@@ -844,8 +1013,13 @@ def main() -> int:
     plan_activity_id = top["activity"]["id"]
     plan_title = top["activity"]["title"]
     evening = time.strftime("%Y-%m-%d", time.gmtime(time.time() + 3 * 86400))
+    # The plan walk is the densest stretch of this path — two screens, one chat and a decade of
+    # taps per screen — so it gets a window of its own instead of sharing one with the deck, the
+    # map and the report that come before it.
+    pace()
     agreed_hour_reaches_the_chat(match_id, tok_a, tok_b, plan_activity_id, plan_title,
                                  f"{evening}T19:00:00+00:00", f"{evening}T21:00:00+00:00", c)
+    pace()
 
     # 12b. A re-takes the test with the other half of the answers. A pair's percent is a
     # stored number that two screens read, so this is where the stored copy could be caught

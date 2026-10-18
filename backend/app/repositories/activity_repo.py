@@ -48,6 +48,12 @@ class ActivityRepository:
     async def set_preference(
         self, user_id: uuid.UUID, activity_id: int, score: float, match_id: uuid.UUID
     ) -> None:
+        """Stand behind this idea — whatever this person said about it before.
+
+        `declined` is cleared by the update because a person has one answer about an idea at a time: a
+        refusal left standing under a fresh confirmation would keep the plan reading «вы отклонили»
+        about somebody who has just tapped «подтвердить».
+        """
         # Constraint-decided write: tapping the same activity twice reaches the server
         # before the first insert commits.
         await self.session.execute(
@@ -57,7 +63,7 @@ class ActivityRepository:
             )
             .on_conflict_do_update(
                 constraint="uq_activity_pref",
-                set_={"score": score, "proposed": True},
+                set_={"score": score, "proposed": True, "declined": False},
             )
         )
 
@@ -66,9 +72,12 @@ class ActivityRepository:
     ) -> None:
         """Record that this person pushed the card away — or took that back.
 
-        The row is the same one a proposal writes, and `proposed` is left alone by the update:
-        an idea that already went into the pair's chat stays an idea that went into the chat,
-        whatever the person decides about it afterwards.
+        The row is the same one a proposal writes, and `proposed` is left alone by the update: an idea
+        that already went into the pair's chat stays an idea that went into the chat, whatever the
+        person decides about it afterwards, and clearing it is how the same sentence would be sent a
+        second time. What the refusal does change is what the pair's plan answers — see
+        `app.services.plan_service._decision`, which reads a standing refusal before the mark that the
+        card page keeps.
         """
         await self.session.execute(
             pg_insert(ActivityPreference)
