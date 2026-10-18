@@ -92,6 +92,12 @@ interface MatchRepository {
 
     /** Agree to the hour the other half named, sending back exactly the instant that was read. */
     suspend fun acceptMeetingTime(matchId: String, activityId: Int, whenIso: String): ApiResult<Unit>
+
+    /**
+     * End the pair without blocking the person. The conversation and the pair's plans go with it,
+     * and the two likes go too: one new tap from one person alone cannot bring the pair back.
+     */
+    suspend fun dissolve(matchId: String): ApiResult<Unit>
 }
 
 /**

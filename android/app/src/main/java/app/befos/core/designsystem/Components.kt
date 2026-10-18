@@ -1497,6 +1497,11 @@ fun MatchCard(
     unread: Int,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    // The card is a tap into the pair's chat; ending a pair is a different act and needs its own
+    // tap. Left null the card stays what it was on every other screen: one clickable, no second
+    // door. The word rather than an icon, following the «Разблокировать» row of the blocked list —
+    // the action is rarer than the chat and must not be guessed from a glyph.
+    onDissolve: (() -> Unit)? = null,
 ) {
     AppCard(modifier = modifier.fillMaxWidth(), onClick = onClick) {
         Row(
@@ -1538,6 +1543,21 @@ fun MatchCard(
                         contentAlignment = Alignment.Center,
                     ) {
                         Text("$unread", style = MaterialTheme.typography.labelSmall.tabularDigits(), color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                }
+                onDissolve?.let { action ->
+                    TextButton(
+                        onClick = action,
+                        // Nested inside a clickable card, the button answers its own tap and the
+                        // card's stays where it is; a screen reader would read the bare word
+                        // «Убрать» with no pair and no chat attached.
+                        modifier = Modifier.semantics { contentDescription = "Убрать пару $name" },
+                    ) {
+                        Text(
+                            "Убрать",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                 }
             }
