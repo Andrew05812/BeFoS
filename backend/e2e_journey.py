@@ -770,6 +770,34 @@ def main() -> int:
     # walked the tap that writes a report ever since stage 96; it never walked what happens after it.
     mod = complaint_reaches_a_moderator(c, ha, hb, uid_a, uid_b, f"e2e.d.{stamp}@befosmail.com", pw)
 
+    # 12e. A pair can end without anybody being blocked. Until stage 105 the only door out of a pair
+    # was the block, and a block writes a wall one person cannot climb back over: people who simply
+    # stopped fitting each other had no honest way to say so. This is that other door — the row goes,
+    # the conversation and the pair's plans go with it, both likes go with it, and neither profile
+    # closes, so starting over takes two taps and not one.
+    gone = c.delete(f"{BASE}/matches/{match_id}", headers=ha)
+    check(gone.status_code == 204 and gone.content == b"", "A ends the pair without blocking B", str(gone.status_code))
+    lists_after = [[m["match_id"] for m in c.get(f"{BASE}/matches", headers=h).json()["matches"]] for h in (ha, hb)]
+    check(all(match_id not in lst for lst in lists_after), "the pair is out of both lists",
+          str([len(lst) for lst in lists_after]))
+    read_after = [c.get(f"{BASE}/matches/{match_id}/messages", headers=h).status_code for h in (ha, hb)]
+    check(read_after == [404, 404], "the conversation answers a pair that is not there", str(read_after))
+    sees_b = c.get(f"{BASE}/users/{uid_b}", headers=ha).status_code
+    check(sees_b == 200, "the ex-partner is not blocked, only left", str(sees_b))
+    if mod["report_id"]:
+        kept_rec = c.get(f"{BASE}/reports/{mod['report_id']}", headers=mod["hd"])
+        check(kept_rec.status_code == 200,
+              "a complaint filed before the unmatch stands for the moderator", str(kept_rec.status_code))
+    one_side = c.post(f"{BASE}/users/{uid_b}/like", headers=ha).json()
+    check(one_side.get("liked") is True and one_side.get("match") is False,
+          "one more tap from one person does not bring the pair back",
+          f"liked={one_side.get('liked')} match={one_side.get('match')}")
+    other_side = c.post(f"{BASE}/users/{uid_a}/like", headers=hb).json()
+    check(other_side.get("match") is True and other_side.get("match_id") not in (None, match_id),
+          "two taps build a new pair under a new id", str(other_side.get("match_id")))
+    # The rest of the journey walks the living pair, not the one that was ended.
+    match_id = other_side["match_id"]
+
     # 13. IDOR: B cannot read A's private match with someone else / cross-account safety
     # A blocked-user flow
     blk = c.post(f"{BASE}/users/{uid_b}/block", headers=ha)

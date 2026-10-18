@@ -7,9 +7,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -20,6 +23,7 @@ import app.befos.core.designsystem.ErrorState
 import app.befos.core.designsystem.InlineNotice
 import app.befos.core.designsystem.ListSkeleton
 import app.befos.core.designsystem.MatchCard
+import app.befos.core.designsystem.Motion
 import app.befos.core.designsystem.Spacing
 import app.befos.core.designsystem.tabularDigits
 import app.befos.core.di.beFosViewModel
@@ -32,6 +36,37 @@ fun MatchListScreen(onOpenChat: (String) -> Unit, onGoDiscover: () -> Unit) {
     LifecycleResumeEffect(Unit) {
         vm.refreshSilently()
         onPauseOrDispose { }
+    }
+
+    // The answer says its own piece and then steps aside; leaving it glued to the header would
+    // let yesterday's «пара убрана» read as news about a pair from today's list.
+    LaunchedEffect(state.dissolveNotice) {
+        if (state.dissolveNotice != null) {
+            kotlinx.coroutines.delay(Motion.Notice.toLong())
+            vm.clearDissolveNotice()
+        }
+    }
+
+    state.confirmDissolve?.let { match ->
+        AlertDialog(
+            onDismissRequest = vm::cancelDissolve,
+            title = { Text("Убрать пару с ${match.name}?") },
+            // The part a person is likely to expect to be kept, and the part that is a promise:
+            // the conversation and the plans end with the pair, and no block is placed for it.
+            text = {
+                Text(
+                    "Переписка и общие планы удалятся и не вернутся. " +
+                        "Анкета человека при этом остаётся открытой: убрать пару — не значит заблокировать. " +
+                        "Начать заново можно будет только вдвоём — если «Нравится» поставите вы оба."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = vm::confirmDissolve) {
+                    Text("Убрать пару", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = { TextButton(onClick = vm::cancelDissolve) { Text("Отмена") } },
+        )
     }
 
     when {
@@ -65,6 +100,9 @@ fun MatchListScreen(onOpenChat: (String) -> Unit, onGoDiscover: () -> Unit) {
                     state.refreshError?.let {
                         InlineNotice(it, actionLabel = "Повторить", onAction = vm::refreshSilently)
                     }
+                    state.dissolveNotice?.let {
+                        InlineNotice(it, isError = state.dissolveNoticeIsError)
+                    }
                     Text(
                         "ВАШИ ПАРЫ",
                         style = MaterialTheme.typography.labelSmall,
@@ -85,6 +123,7 @@ fun MatchListScreen(onOpenChat: (String) -> Unit, onGoDiscover: () -> Unit) {
                     compatibility = match.compatibility,
                     unread = match.unread,
                     onClick = { onOpenChat(match.matchId) },
+                    onDissolve = { vm.askDissolve(match) },
                 )
             }
         }

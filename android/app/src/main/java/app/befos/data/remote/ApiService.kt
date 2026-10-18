@@ -304,6 +304,13 @@ class ApiService(private val client: HttpClient) {
             setBody(MeetingTimeRequest(whenIso))
         }
 
+    /** Ends the pair without blocking the person: the row and everything hanging under it go. */
+    suspend fun dissolveMatch(matchId: String): ApiResult<Unit> =
+        client.apiCallUnit {
+            method = HttpMethod.Delete
+            url(endpoint("matches/$matchId"))
+        }
+
     // ---------- Chat ----------
     suspend fun getMessages(matchId: String, limit: Int = 50, beforeId: String? = null): ApiResult<MessagePageDto> =
         client.apiCall {

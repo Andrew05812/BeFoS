@@ -20,6 +20,16 @@ data class MatchesUiState(
      * [error], which blocks the screen: this one says visible content may be out of date.
      */
     val refreshError: String? = null,
+    /** The pair whose row opened the «Убрать пару» dialog; null means no dialog stands open. */
+    val confirmDissolve: MatchSummary? = null,
+    /** A dissolve is in flight. Guards both the dialog tap and the row tap, like `blocksBusy`. */
+    val dissolveBusy: Boolean = false,
+    /**
+     * What the last dissolve answered — the pair is gone, or why it is still here. Kept apart
+     * from [error]/[refreshError], which speak about reading the list, not about this write.
+     */
+    val dissolveNotice: String? = null,
+    val dissolveNoticeIsError: Boolean = false,
 )
 
 class MatchesViewModel(private val matchRepository: MatchRepository) : ViewModel() {
@@ -58,5 +68,54 @@ class MatchesViewModel(private val matchRepository: MatchRepository) : ViewModel
                 }
             }
         }
+    }
+
+    /**
+     * Arms the dialog for one pair. A write is already in flight, so the tap is dropped rather
+     * than arming a dialog whose confirm would only return on its own guard.
+     */
+    fun askDissolve(match: MatchSummary) {
+        if (_uiState.value.dissolveBusy) return
+        _uiState.update { it.copy(confirmDissolve = match) }
+    }
+
+    fun cancelDissolve() {
+        _uiState.update { it.copy(confirmDissolve = null) }
+    }
+
+    /**
+     * Ends the pair and drops the row from the list the server's answer confirms it.
+     *
+     * 204 carries no list, so the row leaves by `matchId` after the answer arrives — never before:
+     * a row removed on tap would paint the pair gone while the server still holds it, and a refusal
+     * would leave the screen claiming a pair the list still answers. The row stays on a failed
+     * write with the server's words named beside it.
+     */
+    fun confirmDissolve() {
+        val match = _uiState.value.confirmDissolve ?: return
+        if (_uiState.value.dissolveBusy) return
+        _uiState.update { it.copy(confirmDissolve = null, dissolveBusy = true) }
+        viewModelScope.launch {
+            when (val result = matchRepository.dissolve(match.matchId)) {
+                is ApiResult.Success -> _uiState.update {
+                    it.copy(
+                        dissolveBusy = false,
+                        matches = it.matches.filterNot { row -> row.matchId == match.matchId },
+                        dissolveNoticeIsError = false,
+                        // The name stays out of the notice: the list itself says who is gone, and
+                        // «Пара с Аня убрана» would be the nominative case where grammar wants the
+                        // instrument — the dialog above is where the name was addressed.
+                        dissolveNotice = "Пара убрана. Переписка и планы не вернутся.",
+                    )
+                }
+                is ApiResult.Error -> _uiState.update {
+                    it.copy(dissolveBusy = false, dissolveNoticeIsError = true, dissolveNotice = result.message)
+                }
+            }
+        }
+    }
+
+    fun clearDissolveNotice() {
+        _uiState.update { it.copy(dissolveNotice = null) }
     }
 }

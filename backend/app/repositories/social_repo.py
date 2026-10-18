@@ -140,6 +140,45 @@ class SocialRepository:
         # The conflict can only have come from a concurrent like, whose row is now visible.
         return existing.id, False
 
+    async def dissolve_match(self, match_id: uuid.UUID) -> tuple[uuid.UUID, uuid.UUID] | None:
+        """Delete the pair row and answer with its two members, or with nothing.
+
+        The members come out of the `DELETE ... RETURNING` rather than from a read in front of it:
+        a concurrent block or `delete_account` can take the row while this transaction waits on the
+        pair lock, and a read taken before the wait would then name a pair this write did not end.
+        No row, no members — the caller answers 404 instead of reporting a dissolution it never made.
+
+        `matches` has no status column, and this is deliberate: the row's children (messages, read
+        receipts, shared plans, plan events, activity preferences, recommendations) are all
+        `ON DELETE CASCADE`, so removing it ends the pair everywhere at once. That is the same
+        machinery `add_block` and `purge_social_graph` already use, so a pair ending by an unmatch
+        cannot leave a shape that a pair ending by a block would not have left.
+        """
+        row = (
+            await self.session.execute(
+                delete(Match).where(Match.id == match_id).returning(Match.user_a_id, Match.user_b_id)
+            )
+        ).first()
+        return (row[0], row[1]) if row is not None else None
+
+    async def delete_likes_between(self, a: uuid.UUID, b: uuid.UUID) -> int:
+        """Remove both directions of one person's interest in the other. Answer with how many went.
+
+        An unmatch that left the two `likes` rows standing would end nothing: the next tap on that
+        card finds `has_liked_back` still true and `ensure_match` writes a fresh pair row, so the
+        person who dissolved the pair would meet it again on their very next like. Deleting both
+        directions is what makes the answer mean «начать заново можно, но только вдвоём».
+        """
+        result = await self.session.execute(
+            delete(Like).where(
+                or_(
+                    and_(Like.from_user_id == a, Like.to_user_id == b),
+                    and_(Like.from_user_id == b, Like.to_user_id == a),
+                )
+            )
+        )
+        return result.rowcount or 0
+
     async def list_match_ids_for_user(self, user_id: uuid.UUID) -> list[uuid.UUID]:
         stmt = select(Match.id).where(
             or_(Match.user_a_id == user_id, Match.user_b_id == user_id)

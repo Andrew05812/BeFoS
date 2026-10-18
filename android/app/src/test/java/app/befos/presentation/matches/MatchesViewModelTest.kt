@@ -11,6 +11,8 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 
@@ -125,5 +127,121 @@ class MatchesViewModelTest {
 
         coVerify(exactly = 3) { repo.matches() }
         assertEquals(2, vm.uiState.value.matches.size)
+    }
+
+    @Test
+    fun `a row tap arms the dialog and cancelling writes nothing`() = runTest {
+        coEvery { repo.matches() } returns ApiResult.Success(listOf(match("m1"), match("m2")))
+
+        val vm = MatchesViewModel(repo)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(2, vm.uiState.value.matches.size)
+
+        vm.askDissolve(match("m1"))
+        assertEquals("m1", vm.uiState.value.confirmDissolve?.matchId)
+
+        vm.cancelDissolve()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        // Dismissing is not a slow yes: the list still holds both pairs and nothing was written.
+        assertNull(vm.uiState.value.confirmDissolve)
+        assertEquals(2, vm.uiState.value.matches.size)
+        coVerify(exactly = 0) { repo.dissolve(any()) }
+    }
+
+    @Test
+    fun `the row leaves only once the server says the pair is ended`() = runTest {
+        coEvery { repo.matches() } returns ApiResult.Success(listOf(match("m1"), match("m2")))
+        coEvery { repo.dissolve("m1") } returns ApiResult.Success(Unit)
+
+        val vm = MatchesViewModel(repo)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        vm.askDissolve(match("m1"))
+        vm.confirmDissolve()
+        // Before the answer lands the dialog is closed and the write is out, but the row is still
+        // on the screen: 204 carries no list, so only the server's confirmation can repaint the tab.
+        assertEquals(2, vm.uiState.value.matches.size)
+        assertTrue(vm.uiState.value.dissolveBusy)
+
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(listOf("m2"), vm.uiState.value.matches.map { it.matchId })
+        assertFalse(vm.uiState.value.dissolveBusy)
+        assertEquals("Пара убрана. Переписка и планы не вернутся.", vm.uiState.value.dissolveNotice)
+        assertFalse(vm.uiState.value.dissolveNoticeIsError)
+    }
+
+    @Test
+    fun `a refused dissolve keeps the row and says the server's words`() = runTest {
+        coEvery { repo.matches() } returns ApiResult.Success(listOf(match("m1"), match("m2")))
+        coEvery { repo.dissolve("m1") } returns ApiResult.Error(404, "Пара не найдена.")
+
+        val vm = MatchesViewModel(repo)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        vm.askDissolve(match("m1"))
+        vm.confirmDissolve()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        // A row the server still holds has to stay visible with a working tap — the refusal is
+        // shown in the server's own words, not wrapped in a local sentence about success.
+        assertEquals(listOf("m1", "m2"), vm.uiState.value.matches.map { it.matchId })
+        assertEquals("Пара не найдена.", vm.uiState.value.dissolveNotice)
+        assertTrue(vm.uiState.value.dissolveNoticeIsError)
+        assertFalse(vm.uiState.value.dissolveBusy)
+    }
+
+    @Test
+    fun `a row tap while a dissolve is out is dropped`() = runTest {
+        coEvery { repo.matches() } returns ApiResult.Success(listOf(match("m1"), match("m2")))
+        coEvery { repo.dissolve("m1") } returns ApiResult.Success(Unit)
+
+        val vm = MatchesViewModel(repo)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        vm.askDissolve(match("m1"))
+        vm.confirmDissolve()
+        // The write has been started but not answered — this is the frame the guard is for.
+        vm.askDissolve(match("m2"))
+        assertNull(vm.uiState.value.confirmDissolve)
+
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 1) { repo.dissolve(any()) }
+        assertEquals(listOf("m2"), vm.uiState.value.matches.map { it.matchId })
+    }
+
+    @Test
+    fun `a confirm with no dialog open asks the server nothing`() = runTest {
+        coEvery { repo.matches() } returns ApiResult.Success(listOf(match("m1")))
+
+        val vm = MatchesViewModel(repo)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        vm.confirmDissolve()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        // The dialog is the only way to name a pair for this write; tapping where no dialog stands
+        // must not dissolve an arbitrary row.
+        coVerify(exactly = 0) { repo.dissolve(any()) }
+        assertEquals(1, vm.uiState.value.matches.size)
+        assertFalse(vm.uiState.value.dissolveBusy)
+    }
+
+    @Test
+    fun `the notice is taken back when the screen is done showing it`() = runTest {
+        coEvery { repo.matches() } returns ApiResult.Success(listOf(match("m1"), match("m2")))
+        coEvery { repo.dissolve("m1") } returns ApiResult.Success(Unit)
+
+        val vm = MatchesViewModel(repo)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        vm.askDissolve(match("m1"))
+        vm.confirmDissolve()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals("Пара убрана. Переписка и планы не вернутся.", vm.uiState.value.dissolveNotice)
+
+        vm.clearDissolveNotice()
+        // The sentence goes; the list keeps the server's answer — a cleared notice is not a reset tab.
+        assertNull(vm.uiState.value.dissolveNotice)
+        assertEquals(1, vm.uiState.value.matches.size)
     }
 }

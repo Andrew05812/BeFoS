@@ -42,4 +42,6 @@ class MatchRepositoryImpl(private val api: ApiService) : MatchRepository {
 
     override suspend fun acceptMeetingTime(matchId: String, activityId: Int, whenIso: String): ApiResult<Unit> =
         api.acceptMeetingTime(matchId, activityId, whenIso)
+
+    override suspend fun dissolve(matchId: String): ApiResult<Unit> = api.dissolveMatch(matchId)
 }
