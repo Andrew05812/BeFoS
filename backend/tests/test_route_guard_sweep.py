@@ -78,11 +78,12 @@ def test_the_sweep_walks_the_whole_identifier_surface() -> None:
     The floor is not a target — it fails when a route drops out of the table (a rename, a
     removal, a parameter the mapping no longer knows), which is how a hand-written list goes
     quietly stale and how an automated one would too if nobody read the set it produced.
-    Measured on this tree: 35 calls — 6 under ``/users/{user_id}`` (both halves of the block pair
+    Measured on this tree: 36 calls — 6 under ``/users/{user_id}`` (both halves of the block pair
     among them: a route that lets one of a write and its undo through is exactly what this floor is
     here to catch), 2 under ``/users/me/photo/{photo_id}``, 2 under ``/reports/{report_id}`` (the
-    moderation read and the decision write stage 102 mounts), 13 under ``/matches/{match_id}`` (five
-    of which also name an ``activity_id``) and 12 under ``/plans/{plan_id}``.
+    moderation read and the decision write stage 102 mounts), 14 under ``/matches/{match_id}`` (five
+    of which also name an ``activity_id``, and one of which is the ``DELETE`` stage 105 mounts to end
+    a pair without a block) and 12 under ``/plans/{plan_id}``.
     """
     calls = _identifier_calls()
     paths = {path for _, path in calls}
@@ -102,6 +103,15 @@ def test_the_sweep_walks_the_whole_identifier_surface() -> None:
         "/review",
     ):
         assert any(fragment in path for path in paths), f"{fragment} is not in the swept set"
+
+    # The route that ends a pair takes the bare path, so no fragment above names it — only its method
+    # does, and a fragment test cannot see a verb disappear. Without this line the pair's own door can
+    # leave the table, the count can fall to 35, and the floor above still reads green.
+    pair_endings = [(method, path) for method, path in calls if re.fullmatch(r"/api/v1/matches/[^/]+", path)]
+    assert pair_endings, "no bare /matches/{match_id} call is in the swept set"
+    assert any(method == "DELETE" for method, _ in pair_endings), (
+        f"nothing in {sorted(pair_endings)} ends a pair: the route that ends one left the table"
+    )
 
 
 async def test_an_anonymous_caller_is_not_served_any_identifier_route(
