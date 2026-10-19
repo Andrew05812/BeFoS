@@ -6,6 +6,7 @@ import app.befos.data.mapper.toDomain
 import app.befos.data.remote.ApiService
 import app.befos.domain.model.DiscoveryPage
 import app.befos.domain.model.LikeOutcome
+import app.befos.domain.model.LikedMePage
 import app.befos.domain.repository.DiscoveryRepository
 
 class DiscoveryRepositoryImpl(private val api: ApiService) : DiscoveryRepository {
@@ -16,6 +17,14 @@ class DiscoveryRepositoryImpl(private val api: ApiService) : DiscoveryRepository
                 cards = page.items.map { it.toDomain() },
                 nextCursor = page.nextCursor,
                 hasMore = page.hasMore,
+            )
+        }
+
+    override suspend fun likedMe(): ApiResult<LikedMePage> =
+        api.likedMe().map { page ->
+            LikedMePage(
+                likes = page.likes.map { it.toDomain() },
+                truncated = page.hasMore,
             )
         }
 

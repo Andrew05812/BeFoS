@@ -27,6 +27,14 @@ fun goalLabel(code: String): String = DatingGoalLabels[code] ?: code
 fun myProfileEntryWord(): String = "Мой профиль совместимости"
 
 /**
+ * The door to the account's own inbox of taps. Two places in the app open it — the deck's header,
+ * where a tap was always meant to be seen, and the profile tab, which is where the person standing
+ * with an exhausted deck already goes — and both name it with this one word, because they lead to
+ * the same screen and the same read of the same rows.
+ */
+fun likedMeEntryWord(): String = "Кто вас лайкнул"
+
+/**
  * The identity line under a name — "Москва · Отношения". A separator only joins two
  * things that were both answered: a profile that has no city says its goal alone instead
  * of opening with a dangling " · ", and one with neither says nothing at all.

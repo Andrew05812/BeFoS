@@ -15,6 +15,7 @@ import app.befos.core.di.beFosViewModel
 import app.befos.presentation.auth.AuthScreen
 import app.befos.presentation.chat.ChatScreen
 import app.befos.presentation.compatibility.CompatibilityScreen
+import app.befos.presentation.discovery.LikedMeScreen
 import app.befos.presentation.universe.UniverseScreen
 import app.befos.presentation.editprofile.EditProfileScreen
 import app.befos.presentation.main.MainScreen
@@ -141,6 +142,7 @@ fun BeFosNavHost(navController: NavHostController) {
                 onOpenSettings = { navController.navigate(Routes.SETTINGS) { launchSingleTop = true } },
                 onOpenTest = { navController.navigate(Routes.test()) { launchSingleTop = true } },
                 onOpenMyProfile = { navController.navigate(Routes.MY_PROFILE) { launchSingleTop = true } },
+                onOpenLikedMe = { navController.navigate(Routes.LIKED_ME) { launchSingleTop = true } },
                 onLoggedOut = {
                     navController.navigate(Routes.AUTH) {
                         popUpTo(Routes.MAIN) { inclusive = true }
@@ -168,6 +170,16 @@ fun BeFosNavHost(navController: NavHostController) {
 
         composable(Routes.MODERATION) {
             ModerationScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable(Routes.LIKED_ME) {
+            LikedMeScreen(
+                onBack = { navController.popBackStack() },
+                // The row names a person, and the card that person is drawn from is the deck's own
+                // route: opening it here is the same read, with the same filter the server applies.
+                onOpenProfile = { userId -> navController.navigate(Routes.publicProfile(userId)) { launchSingleTop = true } },
+                onOpenMatch = { matchId -> navController.navigate(Routes.chat(matchId)) { launchSingleTop = true } },
+            )
         }
 
         composable(

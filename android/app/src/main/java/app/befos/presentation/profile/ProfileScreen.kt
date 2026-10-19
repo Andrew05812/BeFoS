@@ -71,6 +71,7 @@ import app.befos.core.designsystem.tabularDigits
 import app.befos.core.di.beFosViewModel
 import app.befos.domain.model.ProfilePhoto
 import app.befos.presentation.common.goalLabel
+import app.befos.presentation.common.likedMeEntryWord
 import app.befos.presentation.common.myProfileEntryWord
 import java.io.FileNotFoundException
 
@@ -81,6 +82,7 @@ fun ProfileScreen(
     onSettings: () -> Unit,
     onTest: () -> Unit,
     onOpenMyProfile: () -> Unit,
+    onOpenLikedMe: () -> Unit,
     onLoggedOut: () -> Unit,
 ) {
     val vm: ProfileViewModel = beFosViewModel {
@@ -203,6 +205,16 @@ fun ProfileScreen(
                         leadingIcon = Icons.Outlined.Settings,
                         modifier = Modifier.fillMaxWidth(),
                     )
+                    // The deck's header holds the door to incoming taps, and the header goes away
+                    // with the deck once its cards run out. This copy of the door stays: same route,
+                    // same word, no count — reading how many would cost a request this tab has no
+                    // business paying for.
+                    TextButton(
+                        onClick = onOpenLikedMe,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(likedMeEntryWord())
+                    }
                 }
             }
         }
