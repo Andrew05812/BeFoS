@@ -37,6 +37,9 @@ _UNKNOWN_VALUES = {
     # The number a person gives to end one of their own sessions. It is an object identifier in the
     # same sense as the rest: it names a row, and the row belongs to whoever signed in.
     "session_id": lambda: str(uuid.uuid4()),
+    # The number a person gives to take back a line they typed. Same sense again: it names one row
+    # of one pair, and only the half that typed it owns the write.
+    "message_id": lambda: str(uuid.uuid4()),
 }
 
 _HTTP_METHODS = ("GET", "POST", "PATCH", "PUT", "DELETE")
@@ -81,12 +84,14 @@ def test_the_sweep_walks_the_whole_identifier_surface() -> None:
     The floor is not a target — it fails when a route drops out of the table (a rename, a
     removal, a parameter the mapping no longer knows), which is how a hand-written list goes
     quietly stale and how an automated one would too if nobody read the set it produced.
-    Measured on this tree: 36 calls — 6 under ``/users/{user_id}`` (both halves of the block pair
+    Measured on this tree: 38 calls — 6 under ``/users/{user_id}`` (both halves of the block pair
     among them: a route that lets one of a write and its undo through is exactly what this floor is
-    here to catch), 2 under ``/users/me/photo/{photo_id}``, 2 under ``/reports/{report_id}`` (the
-    moderation read and the decision write stage 102 mounts), 14 under ``/matches/{match_id}`` (five
-    of which also name an ``activity_id``, and one of which is the ``DELETE`` stage 105 mounts to end
-    a pair without a block) and 12 under ``/plans/{plan_id}``.
+    here to catch), 2 under ``/users/me/photo/{photo_id}``, 1 under ``/auth/sessions/{session_id}/revoke``
+    (the door stage 110 gives a person to end one session of their own), 2 under ``/reports/{report_id}``
+    (the moderation read and the decision write stage 102 mounts), 15 under ``/matches/{match_id}`` (five
+    of which also name an ``activity_id``, one of which is the ``DELETE`` stage 105 mounts to end
+    a pair without a block, and one of which is the ``DELETE`` stage 111 mounts to take back a line the
+    person typed) and 12 under ``/plans/{plan_id}``.
     """
     calls = _identifier_calls()
     paths = {path for _, path in calls}
@@ -114,6 +119,20 @@ def test_the_sweep_walks_the_whole_identifier_surface() -> None:
     assert pair_endings, "no bare /matches/{match_id} call is in the swept set"
     assert any(method == "DELETE" for method, _ in pair_endings), (
         f"nothing in {sorted(pair_endings)} ends a pair: the route that ends one left the table"
+    )
+
+    # The same reason, one level deeper: ``/messages`` is a substring of the read and the write beside
+    # it, so no fragment test would notice the door that takes a line back leaving the table while both
+    # of its neighbours stay. Only the verb says which of the three this is.
+    line_endings = [
+        (method, path)
+        for method, path in calls
+        if re.fullmatch(r"/api/v1/matches/[^/]+/messages/[^/]+", path)
+    ]
+    assert line_endings, "no /matches/{match_id}/messages/{message_id} call is in the swept set"
+    assert any(method == "DELETE" for method, _ in line_endings), (
+        f"nothing in {sorted(line_endings)} takes a typed line back: the door that erases one left "
+        "the table"
     )
 
 
@@ -190,6 +209,9 @@ async def test_every_route_naming_a_match_refuses_an_outsider_the_same_way(
         # is entered: an empty one is refused as invalid input, and that answer says nothing
         # about the row. This test is about the answer that does.
         ("POST", f"/api/v1/matches/{match_id}/messages", {"body": "sweep"}),
+        # The door that takes a line back, swept with an invented line number: the outsider must not
+        # learn from this answer whether the row it names exists, so the row is not created here.
+        ("DELETE", f"/api/v1/matches/{match_id}/messages/{uuid.uuid4()}", {}),
         ("POST", f"/api/v1/matches/{match_id}/read", {}),
     ]
     for method, path, payload in calls:
