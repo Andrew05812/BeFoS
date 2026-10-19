@@ -128,11 +128,18 @@ class AuthService:
             await self.tokens.revoke_for_owner(generate_token_hash(refresh_token), user_id)
         await self.session.commit()
 
-    async def change_password(self, user: User, old_password: str, new_password: str) -> None:
-        if not await verify_password_async(old_password, user.password_hash):
-            raise UnauthorizedError("Current password is incorrect.")
+    async def change_password(
+        self, user: User, old_password: str, new_password: str, password_confirm: str
+    ) -> None:
+        # The same two questions register asks, kept in the one place a password is written: the new
+        # word said twice, and long enough. A rule split between a route and a service is a rule that
+        # drifts the first time one of them is edited.
+        if new_password != password_confirm:
+            raise ValidationError("Passwords do not match.")
         if len(new_password) < 8:
             raise ValidationError("Password must be at least 8 characters.")
+        if not await verify_password_async(old_password, user.password_hash):
+            raise UnauthorizedError("Current password is incorrect.")
         user.password_hash = await hash_password_async(new_password)
         await self.tokens.revoke_all_for_user(user.id)
         await self.session.commit()

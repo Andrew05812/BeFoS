@@ -5,11 +5,14 @@ import uuid
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth.deps import get_current_user
 from app.core.database import get_session
 from app.core.rate_limit import auth_rate_limit_dependency
 from app.core.security import decode_token
+from app.models import User
 from app.schemas.schemas import (
     AuthResponse,
+    ChangePasswordRequest,
     LoginRequest,
     RefreshRequest,
     RegisterRequest,
@@ -58,4 +61,23 @@ async def logout(payload: RefreshRequest, session: AsyncSession = Depends(get_se
         await service.logout(user_id, payload.refresh_token)
     except Exception:
         pass
+    return None
+
+
+@router.post("/change-password", status_code=204)
+async def change_password(
+    payload: ChangePasswordRequest,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Replace the account's word with one the caller says twice, and drop every session it opens.
+
+    No body names an account: the only one this can reach is the bearer's own. The answer is empty on
+    purpose — the token pair the caller is standing on is among the ones revoked, so a fresh pair
+    would be a promise the server has just broken.
+    """
+    service = AuthService(session)
+    await service.change_password(
+        current_user, payload.old_password, payload.new_password, payload.password_confirm
+    )
     return None
