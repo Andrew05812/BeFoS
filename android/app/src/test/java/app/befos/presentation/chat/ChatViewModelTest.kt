@@ -3,6 +3,7 @@ package app.befos.presentation.chat
 import app.befos.MainDispatcherRule
 import app.befos.core.network.ApiResult
 import app.befos.domain.model.Message
+import app.befos.domain.model.MessageKinds
 import app.befos.domain.model.PublicProfile
 import app.befos.domain.repository.ChatEvent
 import app.befos.domain.repository.ChatRepository
@@ -952,5 +953,185 @@ class ChatViewModelTest {
         coVerify(exactly = 1) { repo.send("m1", own, any()) }
         coVerify(exactly = 0) { repo.send("m1", carried, any()) }
         assertEquals("", vm.uiState.value.draft)
+    }
+
+    @Test
+    fun `a line the person typed can be asked about`() = runTest {
+        coEvery { repo.history("m1", any()) } returns ApiResult.Success(listOf(message("5", true, "уходи")))
+        coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
+        coEvery { repo.sendTyping(any(), any()) } returns Unit
+
+        val vm = ChatViewModel(repo, matchRepo, safety, "m1")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        vm.askRecall(vm.uiState.value.messages.first())
+
+        // The question names the row it is about, because the answer leaves nothing readable behind:
+        // the screen has to be able to say which line it is about to erase.
+        assertEquals("5", vm.uiState.value.recallConfirmation?.id)
+        assertEquals(listOf("5"), vm.uiState.value.messages.map { it.id })
+    }
+
+    @Test
+    fun `a line that is not the person's own is never offered for taking back`() = runTest {
+        coEvery { repo.history("m1", any()) } returns ApiResult.Success(listOf(message("7", false, "я тоже")))
+        coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
+        coEvery { repo.sendTyping(any(), any()) } returns Unit
+
+        val vm = ChatViewModel(repo, matchRepo, safety, "m1")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        vm.askRecall(vm.uiState.value.messages.first())
+
+        assertEquals(null, vm.uiState.value.recallConfirmation)
+        // The server is the one that refuses somebody else's line; the screen only declines to ask a
+        // question whose answer cannot be yes.
+        coVerify(exactly = 0) { repo.recall(any(), any()) }
+    }
+
+    @Test
+    fun `a card the pair's agreement wrote is not a sentence anybody can take back`() = runTest {
+        val card = message("8", true, "Договорились: кино").copy(kind = MessageKinds.PLAN_AGREED)
+        coEvery { repo.history("m1", any()) } returns ApiResult.Success(listOf(card))
+        coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
+        coEvery { repo.sendTyping(any(), any()) } returns Unit
+
+        val vm = ChatViewModel(repo, matchRepo, safety, "m1")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        vm.askRecall(vm.uiState.value.messages.first())
+
+        // Own by sender, and still not the person's own words: erasing the journal page would rewrite
+        // what the pair agreed to, which is another act on another screen.
+        assertEquals(true, vm.uiState.value.messages.first().isOwn)
+        assertEquals(null, vm.uiState.value.recallConfirmation)
+        coVerify(exactly = 0) { repo.recall(any(), any()) }
+    }
+
+    @Test
+    fun `the question can be set aside and the line stays exactly where it was`() = runTest {
+        coEvery { repo.history("m1", any()) } returns ApiResult.Success(listOf(message("5", true, "уходи")))
+        coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
+        coEvery { repo.sendTyping(any(), any()) } returns Unit
+
+        val vm = ChatViewModel(repo, matchRepo, safety, "m1")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        vm.askRecall(vm.uiState.value.messages.first())
+        vm.cancelRecall()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(null, vm.uiState.value.recallConfirmation)
+        assertEquals(listOf("5"), vm.uiState.value.messages.map { it.id })
+        coVerify(exactly = 0) { repo.recall(any(), any()) }
+    }
+
+    @Test
+    fun `confirming takes the line off the screen without waiting for the frame`() = runTest {
+        coEvery { repo.history("m1", any()) } returns ApiResult.Success(listOf(message("5", true, "уходи")))
+        coEvery { repo.recall("m1", "5") } returns ApiResult.Success(Unit)
+        coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
+        coEvery { repo.sendTyping(any(), any()) } returns Unit
+
+        val vm = ChatViewModel(repo, matchRepo, safety, "m1")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        vm.askRecall(vm.uiState.value.messages.first())
+        vm.confirmRecall()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        coVerify(exactly = 1) { repo.recall("m1", "5") }
+        assertEquals(emptyList<String>(), vm.uiState.value.messages.map { it.id })
+        assertEquals(null, vm.uiState.value.recallConfirmation)
+        assertEquals(null, vm.uiState.value.recallError)
+    }
+
+    @Test
+    fun `a refusal of the line leaves it on screen and says what happened`() = runTest {
+        coEvery { repo.history("m1", any()) } returns ApiResult.Success(listOf(message("5", true, "уходи")))
+        coEvery { repo.recall("m1", "5") } returns ApiResult.Error(404, "Эту строку уже нельзя забрать.")
+        coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
+        coEvery { repo.sendTyping(any(), any()) } returns Unit
+
+        val vm = ChatViewModel(repo, matchRepo, safety, "m1")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        vm.askRecall(vm.uiState.value.messages.first())
+        vm.confirmRecall()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        // The erasure did not happen, so the bubble that is still true must not be taken away with it.
+        assertEquals(listOf("5"), vm.uiState.value.messages.map { it.id })
+        assertEquals("Эту строку уже нельзя забрать.", vm.uiState.value.recallError)
+
+        vm.dismissRecallError()
+        assertEquals(null, vm.uiState.value.recallError)
+        assertEquals(listOf("5"), vm.uiState.value.messages.map { it.id })
+    }
+
+    @Test
+    fun `an erasure that arrives while the answer is still on its way removes one line, not two`() = runTest {
+        var answered = false
+        coEvery { repo.history("m1", any()) } returns ApiResult.Success(listOf(message("5", true, "уходи")))
+        coEvery { repo.recall("m1", "5") } coAnswers {
+            // The frame lands first: the other device is already told, and this one's HTTP answer
+            // arrives after it. Both paths end in the same removal, which has to be harmless.
+            if (!answered) {
+                events.tryEmit(ChatEvent.Recalled("5"))
+                answered = true
+            }
+            delay(1)
+            ApiResult.Success(Unit)
+        }
+        coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
+        coEvery { repo.sendTyping(any(), any()) } returns Unit
+
+        val vm = ChatViewModel(repo, matchRepo, safety, "m1")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        vm.askRecall(vm.uiState.value.messages.first())
+        vm.confirmRecall()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(emptyList<String>(), vm.uiState.value.messages.map { it.id })
+    }
+
+    @Test
+    fun `a frame naming a row this screen does not hold changes nothing`() = runTest {
+        coEvery { repo.history("m1", any()) } returns ApiResult.Success(listOf(message("5", true, "уходи")))
+        coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
+        coEvery { repo.sendTyping(any(), any()) } returns Unit
+
+        val vm = ChatViewModel(repo, matchRepo, safety, "m1")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        vm.onDraftChange("черновик")
+
+        // A row of another pair, or one this device never read: the thread is not the place to guess
+        // about it, and nothing the person wrote may be taken along with the unknown id.
+        events.tryEmit(ChatEvent.Recalled("s-elsewhere"))
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(listOf("5"), vm.uiState.value.messages.map { it.id })
+        assertEquals("черновик", vm.uiState.value.draft)
+    }
+
+    @Test
+    fun `the partner's device loses the line the moment the frame arrives`() = runTest {
+        coEvery { repo.history("m1", any()) } returns ApiResult.Success(listOf(message("5", false, "уходи")))
+        coEvery { repo.markRead("m1") } returns ApiResult.Success(Unit)
+        coEvery { repo.sendTyping(any(), any()) } returns Unit
+
+        val vm = ChatViewModel(repo, matchRepo, safety, "m1")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(listOf("5"), vm.uiState.value.messages.map { it.id })
+
+        events.tryEmit(ChatEvent.Recalled("5"))
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        // Nothing is asked of this side of the thread: the words were erased, not replaced, so the
+        // reader sees the line go and is told nothing about why.
+        assertEquals(emptyList<String>(), vm.uiState.value.messages.map { it.id })
+        assertEquals(null, vm.uiState.value.recallError)
+        coVerify(exactly = 0) { repo.recall(any(), any()) }
     }
 }
