@@ -58,6 +58,11 @@ private val translated: Map<String, String> = mapOf(
     "invalid or expired refresh token." to "Сессия истекла. Войдите снова.",
     "refresh token has been revoked." to "Сессия истекла. Войдите снова.",
     "not authenticated." to "Сессия истекла. Войдите снова.",
+    // The refusal of a cut by name. The same words answer a row that was never written, one that
+    // somebody already ended, and one that has expired — the id space is not a place to find out which
+    // — so the copy cannot promise the row existed; it sends the list to be read again.
+    "no live session with this id for this account." to
+        "Этой сессии уже нет. Обновите список устройств.",
 
     // profile + preferences
     "name is required." to "Укажите имя.",

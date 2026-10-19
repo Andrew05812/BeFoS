@@ -18,6 +18,7 @@ import app.befos.domain.model.Recommendation
 import app.befos.domain.model.ReportDetail
 import app.befos.domain.model.ReportsPage
 import app.befos.domain.model.ReviewOutcome
+import app.befos.domain.model.SessionsPage
 import app.befos.domain.model.TestCatalog
 import app.befos.domain.model.TestProfile
 import app.befos.domain.model.TestProgress
@@ -54,6 +55,31 @@ interface AuthRepository {
         newPassword: String,
         passwordConfirm: String,
     ): ApiResult<Unit>
+
+    /**
+     * The devices this account can still open a session on, newest first, with the answer about
+     * whether the list stopped short.
+     *
+     * Nothing is passed and nothing is asked about another account: the session on the server says
+     * whose list this is, so no screen can be talked into reading somebody else's devices.
+     */
+    suspend fun sessions(): ApiResult<SessionsPage>
+
+    /**
+     * End one of this account's own sessions by the id the list carried.
+     *
+     * A success says the row is cut, not that the device holding it knows yet: an access token already
+     * signed stays usable until it expires on its own, which is why the caller has to drop its own
+     * tokens when the row it named was this device's.
+     */
+    suspend fun endSession(sessionId: String): ApiResult<Unit>
+
+    /**
+     * End every session the account holds. This device's row is among them, so a success drops the
+     * stored pair exactly as [changePassword] does — the server has revoked the session this device
+     * stands on and will not answer for it again at the next refresh.
+     */
+    suspend fun endEverySession(): ApiResult<Unit>
 }
 
 interface ProfileRepository {

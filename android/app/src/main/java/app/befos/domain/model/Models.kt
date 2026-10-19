@@ -280,6 +280,38 @@ data class BlockedUser(
 )
 
 /**
+ * One device the account can still open a session on, as the server's own read of its rows named it.
+ *
+ * Every sign-in, refresh and password change writes one of these, and until this existed the only way
+ * to learn that a session you do not recognise is standing was to change the account's word — which
+ * ends every session at once, including the one you were reading the answer on. `device` is the text
+ * that sign-in sent about itself, null when it said nothing; `current` is the server's answer about
+ * which row this very request stood on, so exactly one row carries it and none does when the token
+ * predates the claim. Both instants stay the server's text: a row that cannot be read as a moment
+ * shows no moment rather than an invented one.
+ */
+data class DeviceSession(
+    val id: String,
+    val device: String?,
+    val signedInAt: String,
+    val expiresAt: String,
+    val current: Boolean,
+)
+
+/**
+ * What the account's own read of its sessions answered: the rows it named, and whether it stopped.
+ *
+ * [hasMore] is not a door the client can walk through — the route takes no cursor and lists the newest
+ * rows only — so a true means the screen is showing fewer devices than the account has signed in on,
+ * and the one write that reaches the unnamed rest is the one that ends them all. A section that drew
+ * its list without saying this would be reporting a full inventory it never got.
+ */
+data class SessionsPage(
+    val sessions: List<DeviceSession> = emptyList(),
+    val hasMore: Boolean = false,
+)
+
+/**
  * The kinds a conversation line arrives with.
  *
  * `text` is a sentence somebody typed; the rest are what the pair's plan wrote into the thread, one

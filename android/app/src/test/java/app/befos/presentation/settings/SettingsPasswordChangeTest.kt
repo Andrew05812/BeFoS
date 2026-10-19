@@ -3,6 +3,7 @@ package app.befos.presentation.settings
 import app.befos.MainDispatcherRule
 import app.befos.core.network.ApiResult
 import app.befos.domain.model.Profile
+import app.befos.domain.model.SessionsPage
 import app.befos.domain.repository.AuthRepository
 import app.befos.domain.repository.ProfileRepository
 import app.befos.domain.repository.SafetyRepository
@@ -51,6 +52,7 @@ class SettingsPasswordChangeTest {
     ): SettingsViewModel {
         coEvery { profiles.me() } returns ApiResult.Success(profile)
         coEvery { safety.blockedUsers() } returns ApiResult.Success(emptyList())
+        coEvery { auth.sessions() } returns ApiResult.Success(SessionsPage())
         coEvery { auth.changePassword(any(), any(), any()) } returns rotation
         val vm = SettingsViewModel(safety, auth, profiles)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
@@ -171,6 +173,7 @@ class SettingsPasswordChangeTest {
     fun `a second tap while the rotation is out is one write`() = runTest {
         coEvery { profiles.me() } returns ApiResult.Success(profile(hidden = false))
         coEvery { safety.blockedUsers() } returns ApiResult.Success(emptyList())
+        coEvery { auth.sessions() } returns ApiResult.Success(SessionsPage())
         val gate = CompletableDeferred<Unit>()
         coEvery { auth.changePassword(any(), any(), any()) } coAnswers {
             gate.await()

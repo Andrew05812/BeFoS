@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.befos.core.network.ApiResult
 import app.befos.domain.model.BlockedUser
+import app.befos.domain.model.DeviceSession
 import app.befos.domain.repository.AuthRepository
 import app.befos.domain.repository.ProfileRepository
 import app.befos.domain.repository.SafetyRepository
@@ -58,6 +59,24 @@ data class SettingsUiState(
     val passwordOld: String = "",
     val passwordNew: String = "",
     val passwordConfirm: String = "",
+    /**
+     * The devices the account can still open a session on, newest first, as its own read answered.
+     *
+     * A session row is written on every sign-in, refresh and password change, and until this read
+     * existed an account could only learn that it held a session it did not recognise by changing its
+     * word — which ends every session at once, including this one. Empty is a real answer here, so it
+     * is drawn only once [sessionsLoaded] says the read came back; [sessionsTruncated] says the list
+     * is the short one the route gives rather than the whole of them.
+     */
+    val sessions: List<DeviceSession> = emptyList(),
+    val sessionsLoaded: Boolean = false,
+    /** The read never answered, so the screen cannot say either way whether a stranger holds a session. */
+    val sessionsUnknown: Boolean = false,
+    val sessionsTruncated: Boolean = false,
+    val sessionsBusy: Boolean = false,
+    /** The row whose cut is being confirmed — a write that takes a device out of the account's session. */
+    val confirmEndSession: DeviceSession? = null,
+    val confirmEndEvery: Boolean = false,
 )
 
 class SettingsViewModel(
@@ -90,6 +109,7 @@ class SettingsViewModel(
             }
         }
         loadBlocks()
+        loadSessions()
     }
 
     /**
@@ -271,5 +291,115 @@ class SettingsViewModel(
         }
     }
 
+    /**
+     * Reads the account's own list of sessions. «Повторить» on this section calls it directly rather
+     * than [load], so retrying a list that failed does not re-read the profile and the blocks too.
+     *
+     * An empty list is the account's real answer and is drawn as one; a read that never came back is
+     * a different answer, and the section that says «никто не входит» for it would be telling a person
+     * their account is clean on the strength of a request that failed.
+     */
+    fun loadSessions() {
+        if (_uiState.value.sessionsBusy) return
+        _uiState.update { it.copy(sessionsBusy = true) }
+        viewModelScope.launch {
+            when (val result = authRepository.sessions()) {
+                is ApiResult.Success -> _uiState.update {
+                    it.copy(
+                        sessionsBusy = false,
+                        sessions = result.data.sessions,
+                        sessionsTruncated = result.data.hasMore,
+                        sessionsLoaded = true,
+                        sessionsUnknown = false,
+                    )
+                }
+                is ApiResult.Error -> _uiState.update {
+                    it.copy(sessionsBusy = false, sessionsLoaded = false, sessionsUnknown = true)
+                }
+            }
+        }
+    }
+
+    /** Arms the dialog for one row. A write is already out, so the tap is dropped, not queued. */
+    fun askEndSession(session: DeviceSession) {
+        if (_uiState.value.sessionsBusy) return
+        _uiState.update { it.copy(confirmEndSession = session) }
+    }
+
+    fun cancelEndSession() = _uiState.update { it.copy(confirmEndSession = null) }
+
+    /**
+     * Ends the named row and then reads the list back.
+     *
+     * The write answers with nothing, so the rows the screen paints afterwards are the server's answer
+     * rather than the local list minus the tap — the same rule the block list follows, and the reason a
+     * row the server still holds cannot disappear on a strength of a request somebody else made.
+     *
+     * When the row cut was the one this request stood on, the device is signed out here rather than
+     * left to discover it at its next refresh: the session is gone on the server, and the token still
+     * in the store would keep the interface reporting a session that no longer exists.
+     */
+    fun confirmEndSession() {
+        val session = _uiState.value.confirmEndSession ?: return
+        if (_uiState.value.sessionsBusy) return
+        _uiState.update { it.copy(confirmEndSession = null, sessionsBusy = true) }
+        viewModelScope.launch {
+            when (val result = authRepository.endSession(session.id)) {
+                is ApiResult.Success -> {
+                    if (session.current) {
+                        authRepository.logout()
+                        _uiState.update { it.copy(sessionsBusy = false, loggedOut = true) }
+                        return@launch
+                    }
+                    _uiState.update {
+                        it.copy(
+                            sessionsBusy = false,
+                            messageIsError = false,
+                            message = "Сессия завершена: ${deviceWord(session)}. " +
+                                "На том устройстве придётся войти заново.",
+                        )
+                    }
+                    loadSessions()
+                }
+                is ApiResult.Error -> _uiState.update {
+                    it.copy(sessionsBusy = false, sessionsUnknown = false, messageIsError = true, message = result.message)
+                }
+            }
+        }
+    }
+
+    fun askEndEverySession() = _uiState.update { it.copy(confirmEndEvery = true) }
+    fun cancelEndEverySession() = _uiState.update { it.copy(confirmEndEvery = false) }
+
+    /**
+     * Ends every session the account holds and signs this device out with the rest.
+     *
+     * The repository drops the stored pair on the success, because the row this request stands on is
+     * among the rows it ends — the answer carries no fresh token pair, and the account would otherwise
+     * be holding a session the server has just revoked. This is the door for a lost phone: it reaches
+     * the devices the list did not name, which no per-row tap can.
+     */
+    fun confirmEndEverySession() {
+        if (!_uiState.value.confirmEndEvery || _uiState.value.sessionsBusy) return
+        _uiState.update { it.copy(confirmEndEvery = false, sessionsBusy = true) }
+        viewModelScope.launch {
+            when (val result = authRepository.endEverySession()) {
+                is ApiResult.Success -> _uiState.update {
+                    it.copy(sessionsBusy = false, message = "Все сессии завершены. Придётся войти заново.", loggedOut = true)
+                }
+                is ApiResult.Error -> _uiState.update {
+                    it.copy(sessionsBusy = false, messageIsError = true, message = result.message)
+                }
+            }
+        }
+    }
+
     fun clearMessage() = _uiState.update { it.copy(message = null) }
 }
+
+/**
+ * The row's name in the screen's own sentence: what the device said about itself, or the fact that it
+ * said nothing. Never an invented brand — the string is the person's own to recognise.
+ */
+internal fun deviceWord(session: DeviceSession): String =
+    session.device ?: "Устройство, которое ничего о себе не сказало"

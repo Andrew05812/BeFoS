@@ -3,8 +3,11 @@ package app.befos.data.repository
 import app.befos.core.network.ApiResult
 import app.befos.core.network.StoredAuth
 import app.befos.core.network.TokenStore
+import app.befos.core.network.map
+import app.befos.data.mapper.toDomain
 import app.befos.data.model.TokenPairDto
 import app.befos.data.remote.ApiService
+import app.befos.domain.model.SessionsPage
 import app.befos.domain.repository.AuthRepository
 import kotlinx.coroutines.flow.Flow
 
@@ -59,6 +62,24 @@ class AuthRepositoryImpl(
         passwordConfirm: String,
     ): ApiResult<Unit> {
         val result = api.changePassword(oldPassword, newPassword, passwordConfirm)
+        if (result is ApiResult.Success) tokenStore.clear()
+        return result
+    }
+
+    override suspend fun sessions(): ApiResult<SessionsPage> =
+        api.sessions().map { it.toDomain() }
+
+    /**
+     * Ends the row and leaves this device's tokens alone, whatever the answer was.
+     *
+     * The screen is the one that knows which row the server labelled as its own, and the repository has
+     * no way to read that label out of a 204 — so dropping the stored pair here would mean guessing,
+     * and a wrong guess logs a signed-in person out of a session the server never touched.
+     */
+    override suspend fun endSession(sessionId: String): ApiResult<Unit> = api.revokeSession(sessionId)
+
+    override suspend fun endEverySession(): ApiResult<Unit> {
+        val result = api.revokeAllSessions()
         if (result is ApiResult.Success) tokenStore.clear()
         return result
     }

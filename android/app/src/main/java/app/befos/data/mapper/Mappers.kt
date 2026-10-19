@@ -26,6 +26,8 @@ import app.befos.data.model.ReportedAccountDto
 import app.befos.data.model.ReporterDto
 import app.befos.data.model.ReportsPageDto
 import app.befos.data.model.ReviewResultDto
+import app.befos.data.model.SessionDto
+import app.befos.data.model.SessionsDto
 import app.befos.data.model.TestListDto
 import app.befos.data.model.TestProfileDto
 import app.befos.data.model.TestResultDto
@@ -38,6 +40,7 @@ import app.befos.domain.model.CategoryProgress
 import app.befos.domain.model.CategoryScore
 import app.befos.domain.model.Compatibility
 import app.befos.domain.model.Connection
+import app.befos.domain.model.DeviceSession
 import app.befos.domain.model.DiscoveryCard
 import app.befos.domain.model.Explanation
 import app.befos.domain.model.Interest
@@ -60,6 +63,7 @@ import app.befos.domain.model.ReportedAccount
 import app.befos.domain.model.Reporter
 import app.befos.domain.model.ReportsPage
 import app.befos.domain.model.ReviewOutcome
+import app.befos.domain.model.SessionsPage
 import app.befos.domain.model.Activity
 import app.befos.domain.model.TestProfile
 import app.befos.domain.model.TestProgress
@@ -223,6 +227,20 @@ fun BlockedUserDto.toDomain() = BlockedUser(
     city = city,
     photoUrl = ApiConfig.absolute(photoUrl),
     blockedAt = blockedAt,
+)
+
+/** Nothing here is made up: the row's own text is what the person has to recognise their device in. */
+fun SessionDto.toDomain() = DeviceSession(
+    id = id,
+    device = device?.trim()?.ifEmpty { null },
+    signedInAt = signedInAt,
+    expiresAt = expiresAt,
+    current = current,
+)
+
+fun SessionsDto.toDomain() = SessionsPage(
+    sessions = sessions.map { it.toDomain() },
+    hasMore = hasMore,
 )
 
 fun MessageDto.toDomain() = Message(
