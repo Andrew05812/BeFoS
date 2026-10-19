@@ -1207,10 +1207,40 @@ def main() -> int:
     like1 = c.post(f"{BASE}/users/{uid_b}/like", headers=ha).json()
     check(like1["liked"] is True and like1["match"] is False, "A likes B (no match yet)", str(like1))
 
-    # 8. B likes A -> real match
+    # 7a. the tap reaches the account it pointed at. Before this route existed the deck only ever
+    # showed the person going the other way, so A's like had no address at all: the row was written,
+    # and nothing could read it back. The percent on the row is the one the tap was made carrying —
+    # the same number the like answered, taken out of the row rather than scored again.
+    inbox = c.get(f"{BASE}/discover/liked-me", headers=hb)
+    check(inbox.status_code == 200, "B reads the taps that pointed at it", str(inbox.status_code))
+    rows = inbox.json()["likes"]
+    row = next((it for it in rows if it["user_id"] == uid_a), None)
+    check(row is not None, "A's tap is on B's page", f"{len(rows)} rows")
+    check(row is not None and row["compatibility"] == like1.get("compatibility"),
+          "the row carries the percent the tap was made carrying",
+          f"row={row and row['compatibility']} like={like1.get('compatibility')}")
+    check(row is not None and row["liked_at"] != "",
+          "the row says when the tap was written", str(row and row["liked_at"]))
+    # The list belongs to an account, and nobody reads it without one: the row carries a name and a
+    # photograph, so an anonymous answer here would hand out somebody's admirers to the street.
+    anon = c.get(f"{BASE}/discover/liked-me")
+    check(anon.status_code == 401, "the taps have no reader without an account", str(anon.status_code))
+
+    # 8. B likes A -> real match. The answer is written through the deck's own door, which is what
+    # the page's button does: this read shows the tap, the same route takes the answer.
     like2 = c.post(f"{BASE}/users/{uid_a}/like", headers=hb).json()
     check(like2["match"] is True and like2.get("match_id"), "B likes A -> MATCH", str(like2.get("match_id")))
     match_id = like2.get("match_id")
+
+    # A pair that exists is no longer a tap waiting for an answer, so the row leaves the list on both
+    # sides of it. The page reads the same rule the deck already applies, and a row left standing here
+    # would be a button that likes somebody the account already matched with.
+    inbox_b = c.get(f"{BASE}/discover/liked-me", headers=hb).json()["likes"]
+    check(all(it["user_id"] != uid_a for it in inbox_b),
+          "the answered tap leaves the reader's list", f"{len(inbox_b)} rows")
+    inbox_a = c.get(f"{BASE}/discover/liked-me", headers=ha).json()["likes"]
+    check(all(it["user_id"] != uid_b for it in inbox_a),
+          "the same pair leaves the tapper's own list", f"{len(inbox_a)} rows")
 
     # 9. matches list
     ml = c.get(f"{BASE}/matches", headers=ha).json()
@@ -1307,6 +1337,15 @@ def main() -> int:
     stranger_map = c.get(f"{BASE}/matches/{match_id}/universe",
                          headers={"Authorization": f"Bearer {tok_c}"}).status_code
     check(stranger_map == 404, "the map is not open to a stranger", str(stranger_map))
+    # The inbox is a door with a reader, not a window onto the whole app: C holds a valid session and
+    # is answered honestly, and the honest answer is that nobody pointed a tap at C. A and B had taps
+    # on this very account minutes earlier, so a list that leaked them here would be one global queue
+    # wearing an account's name.
+    inbox_c = c.get(f"{BASE}/discover/liked-me", headers={"Authorization": f"Bearer {tok_c}"})
+    check(inbox_c.status_code == 200, "the stranger is answered with its own list", str(inbox_c.status_code))
+    c_rows = inbox_c.json()["likes"]
+    check(all(it["user_id"] not in (uid_a, uid_b) for it in c_rows),
+          "the pair's taps stay out of the stranger's list", f"{len(c_rows)} rows")
     cd = c.delete(f"{BASE}/users/me", headers={"Authorization": f"Bearer {tok_c}"})
     check(cd.status_code == 200, "the stranger account is deleted again", str(cd.status_code))
 
