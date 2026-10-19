@@ -51,6 +51,38 @@ data class ChangePasswordRequest(
     @SerialName("password_confirm") val passwordConfirm: String,
 )
 
+/**
+ * One of the account's own live sessions, as the server names it.
+ *
+ * `device` is the string this app or browser sent in its own User-Agent header at sign-in, kept as
+ * text and never rewritten: the server holds no name for a device, and an interpretation of
+ * «Mozilla/5.0 …» would be the product's guess about somebody's phone rather than what they typed.
+ * Null means the sign-in carried no header at all — the row is still real and still cuttable, it
+ * simply has nothing to show. Both moments stay text for the same reason `blocked_at` does: they
+ * belong to the server's clock, and the screen that draws them is where a day is made of one.
+ */
+@Serializable
+data class SessionDto(
+    val id: String,
+    val device: String? = null,
+    @SerialName("signed_in_at") val signedInAt: String = "",
+    @SerialName("expires_at") val expiresAt: String = "",
+    val current: Boolean = false,
+)
+
+/**
+ * The page of sessions the account's own read answers with.
+ *
+ * `hasMore` is not a pagination hint the client can follow: the route takes no cursor and lists the
+ * newest rows only, so a true here means the screen is holding fewer devices than the account has
+ * signed in on, and the only door that reaches the rest is the one that ends them all.
+ */
+@Serializable
+data class SessionsDto(
+    val sessions: List<SessionDto> = emptyList(),
+    @SerialName("has_more") val hasMore: Boolean = false,
+)
+
 // ---------- Profile ----------
 @Serializable
 data class PhotoDto(

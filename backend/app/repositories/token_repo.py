@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import update
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import RefreshToken
@@ -72,3 +72,50 @@ class TokenRepository:
             .values(revoked=True, revoked_at=datetime.now(timezone.utc))
         )
         await self.session.flush()
+
+    async def live_for_owner(self, user_id: uuid.UUID, limit: int) -> list[RefreshToken]:
+        """The account's own rows that can still open a token pair, the newest one first.
+
+        Both half of the filter carry weight. A revoked row is a session its owner already ended,
+        and a row past ``expires_at`` cannot be redeemed either — ``refresh`` rejects the token
+        before it ever reaches this table — so either one shown to a person is a device they cannot
+        be standing on and would be advised to fear.
+
+        Ordered by ``(created_at, id)`` rather than by ``created_at`` alone because two sign-ins can
+        land in the same microsecond, and a list whose tail moves between two pages is a list that
+        shows a device twice.
+        """
+        result = await self.session.execute(
+            select(RefreshToken)
+            .where(
+                RefreshToken.user_id == user_id,
+                RefreshToken.revoked.is_(False),
+                RefreshToken.expires_at > datetime.now(timezone.utc),
+            )
+            .order_by(RefreshToken.created_at.desc(), RefreshToken.id.desc())
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+
+    async def revoke_one_live_for_owner(
+        self, session_id: uuid.UUID, user_id: uuid.UUID
+    ) -> bool:
+        """End the account's own still-redeemable session named by id; False means no such row.
+
+        The same shape as ``consume``: one ``UPDATE`` whose predicate decides the race, so a row two
+        requests end at once is ended once, and a row that was already dead is reported as absent
+        rather than as a success. ``expires_at`` sits in the predicate so that the set of rows this
+        can end is exactly the set ``live_for_owner`` can show — an id from outside that list cannot
+        be told apart from an id belonging to somebody else.
+        """
+        result = await self.session.execute(
+            update(RefreshToken)
+            .where(
+                RefreshToken.id == session_id,
+                RefreshToken.user_id == user_id,
+                RefreshToken.revoked.is_(False),
+                RefreshToken.expires_at > datetime.now(timezone.utc),
+            )
+            .values(revoked=True, revoked_at=datetime.now(timezone.utc))
+        )
+        return result.rowcount == 1

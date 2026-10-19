@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Logout
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.PhoneAndroid
 import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
@@ -53,6 +54,7 @@ import app.befos.core.designsystem.Motion
 import app.befos.core.designsystem.SkeletonBlock
 import app.befos.core.designsystem.Spacing
 import app.befos.domain.model.BlockedUser
+import app.befos.domain.model.DeviceSession
 import app.befos.core.di.beFosViewModel
 import java.time.OffsetDateTime
 import java.time.ZoneId
@@ -100,6 +102,56 @@ fun SettingsScreen(onBack: () -> Unit, onLoggedOut: () -> Unit, onOpenModeration
             },
             confirmButton = { TextButton(onClick = vm::confirmUnblock) { Text("Разблокировать") } },
             dismissButton = { TextButton(onClick = vm::cancelUnblock) { Text("Отмена") } },
+        )
+    }
+
+    state.confirmEndSession?.let { session ->
+        AlertDialog(
+            onDismissRequest = vm::cancelEndSession,
+            title = { Text(if (session.current) "Завершить сессию на этом устройстве?" else "Завершить сессию?") },
+            // What the cut does and does not promise. The row's own refresh is refused from the moment
+            // the write lands, so no new session can start on that device; the screen does not claim the
+            // device is locked out this second, because a token already handed out is honoured until it
+            // expires on its own. When the row is this device's, the dialog says so — the app is about to
+            // leave the account, which is not what a person expects from a row they recognised.
+            text = {
+                Text(
+                    if (session.current) {
+                        "Это то устройство, с которого вы смотрите список. Приложение выйдет из аккаунта, " +
+                            "и войти придётся заново."
+                    } else {
+                        "${deviceWord(session)} больше не сможет обновить сеанс. Начать его можно только " +
+                            "новым входом."
+                    }
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = vm::confirmEndSession, enabled = !state.sessionsBusy) {
+                    Text("Завершить", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = { TextButton(onClick = vm::cancelEndSession) { Text("Отмена") } },
+        )
+    }
+
+    if (state.confirmEndEvery) {
+        AlertDialog(
+            onDismissRequest = vm::cancelEndEverySession,
+            title = { Text("Завершить все сессии?") },
+            // Named devices are not the whole of the list's reach: this write also cuts the rows the
+            // screen could not show, which is the point of the door for a lost phone.
+            text = {
+                Text(
+                    "Сеанс не останется ни на одном устройстве, включая это. Список показанных входов " +
+                        "может быть неполным — этот жест завершает и те, что на экран не вместились."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = vm::confirmEndEverySession, enabled = !state.sessionsBusy) {
+                    Text("Завершить все", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = { TextButton(onClick = vm::cancelEndEverySession) { Text("Отмена") } },
         )
     }
 
@@ -226,6 +278,88 @@ fun SettingsScreen(onBack: () -> Unit, onLoggedOut: () -> Unit, onOpenModeration
                             }
                         }
                     }
+                }
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
+                SectionHeader("Устройства")
+                // Every sign-in leaves a row behind, and this is the only place the account can read
+                // them. The three states are drawn apart on purpose: a list that answered «no devices»
+                // and a list that never answered are different answers, and on this section the second
+                // one is a question about somebody else holding the account.
+                if (!state.sessionsLoaded && !state.sessionsUnknown) {
+                    SkeletonBlock(modifier = Modifier.fillMaxWidth().height(72.dp))
+                }
+                if (state.sessionsUnknown) {
+                    InlineNotice(
+                        "Не удалось проверить, на каких устройствах вы входите.",
+                        actionLabel = "Повторить",
+                        onAction = vm::loadSessions,
+                    )
+                }
+                if (state.sessionsLoaded && state.sessions.isEmpty()) {
+                    Text(
+                        "Живых сеансов нет — аккаунт ни на одном устройстве не входит.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                state.sessions.forEach { session ->
+                    AppCard(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(Spacing.lg),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(Spacing.md),
+                        ) {
+                            SectionIcon(Icons.Outlined.PhoneAndroid, MaterialTheme.colorScheme.onSurfaceVariant)
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(2.dp),
+                            ) {
+                                Text(
+                                    deviceWord(session),
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                                val line = sessionRowWord(session)
+                                if (line != null) {
+                                    Text(
+                                        line,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                            TextButton(
+                                onClick = { vm.askEndSession(session) },
+                                enabled = !state.sessionsBusy,
+                                // The device's own text sits in the sibling column, so TalkBack would
+                                // otherwise announce a cut with nothing named.
+                                modifier = Modifier.semantics {
+                                    contentDescription = "Завершить сессию: ${deviceWord(session)}"
+                                },
+                            ) {
+                                Text("Завершить")
+                            }
+                        }
+                    }
+                }
+                if (state.sessionsTruncated) {
+                    Text(
+                        "Показаны самые свежие входы, и на этом список обрывается. Остальные завершает " +
+                            "жест ниже.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (state.sessionsLoaded && state.sessions.isNotEmpty()) {
+                    AppButton(
+                        text = "Завершить все сессии",
+                        onClick = vm::askEndEverySession,
+                        variant = AppButtonVariant.Ghost,
+                        contentColorOverride = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                 }
             }
 
@@ -408,3 +542,26 @@ internal fun blockedRowWord(user: BlockedUser, zone: ZoneId = ZoneId.systemDefau
     }.getOrNull() ?: return identity
     return "$identity · $day"
 }
+
+/**
+ * The session row's second line: which day the entry was made, which day the account stops being able
+ * to renew it, and whether this is the row the person is reading the list from.
+ *
+ * Both moments come off the server's own text and are dropped when it cannot be read as one. The line
+ * returns null when there is nothing to say — a row drawn with an invented date would be the screen
+ * making up part of the evidence it is asking permission to act on.
+ */
+internal fun sessionRowWord(session: DeviceSession, zone: ZoneId = ZoneId.systemDefault()): String? {
+    val parts = buildList {
+        if (session.current) add("это устройство")
+        dayWord(session.signedInAt, zone)?.let { add("вход $it") }
+        dayWord(session.expiresAt, zone)?.let { add("до $it") }
+    }
+    return parts.joinToString(" · ").ifEmpty { null }
+}
+
+private fun dayWord(instant: String, zone: ZoneId): String? = runCatching {
+    OffsetDateTime.parse(instant)
+        .atZoneSameInstant(zone)
+        .format(DateTimeFormatter.ofPattern("d MMMM yyyy", Locale("ru")))
+}.getOrNull()

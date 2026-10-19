@@ -38,6 +38,7 @@ import app.befos.data.model.ReportDetailDto
 import app.befos.data.model.ReportsPageDto
 import app.befos.data.model.ReviewRequest
 import app.befos.data.model.ReviewResultDto
+import app.befos.data.model.SessionsDto
 import app.befos.data.model.TestListDto
 import app.befos.data.model.TestProfileDto
 import app.befos.data.model.TestResultDto
@@ -108,6 +109,48 @@ class ApiService(private val client: HttpClient) {
         url(endpoint("auth/change-password"))
         setBody(ChangePasswordRequest(oldPassword, newPassword, passwordConfirm))
     }
+
+    // ---------- Sessions ----------
+    /**
+     * The devices this account can still open a token pair on, newest first.
+     *
+     * The request names no account: the bearer token already said whose, and a list built from anything
+     * the client could pass would be a door to somebody else's sessions. One row can answer `current:
+     * true` — the row this very request stands on — because the access token carries that row's id, and
+     * none does when the token was minted before the claim existed.
+     */
+    suspend fun sessions(): ApiResult<SessionsDto> =
+        client.apiCall {
+            method = HttpMethod.Get
+            url(endpoint("auth/sessions"))
+        }
+
+    /**
+     * End one of the account's own sessions by the id the list gave it.
+     *
+     * A 204 here says the row was cut, not that a token already signed died with it: the product revokes
+     * sessions, and an access token handed out earlier stays readable until it expires on its own. An id
+     * that is foreign, already ended, or past its expiry answers the same refusal as an id that was
+     * never written, so this is not a place to find out which sessions existed.
+     */
+    suspend fun revokeSession(sessionId: String): ApiResult<Unit> =
+        client.apiCallUnit {
+            method = HttpMethod.Post
+            url(endpoint("auth/sessions/$sessionId/revoke"))
+        }
+
+    /**
+     * End every session the account holds, this device's row among them.
+     *
+     * The answer carries no token pair for the same reason `changePassword`'s does: the row this request
+     * stands on is among the rows it ends, so a fresh pair would be the server un-revoking its own
+     * write. The caller is signed out at its next refresh, like every other device.
+     */
+    suspend fun revokeAllSessions(): ApiResult<Unit> =
+        client.apiCallUnit {
+            method = HttpMethod.Post
+            url(endpoint("auth/sessions/revoke-all"))
+        }
 
     // ---------- Users / Profile ----------
     suspend fun getMe(): ApiResult<ProfileDto> =

@@ -53,6 +53,22 @@ async def require_current_user(user=Depends(get_current_user)):
     return user
 
 
+async def get_current_session_id(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    user=Depends(get_current_user),
+) -> uuid.UUID | None:
+    """Which of the account's sessions this very token opened, named by the token itself.
+
+    `get_current_user` has already checked the signature, the type, and the account behind this
+    header, so reading one more claim out of the same payload opens no door and costs no query — the
+    session rows are read once, by the route that answers. A token signed before the claim existed
+    returns None, and the read side shows a list with no row marked as this one rather than guessing
+    which device the reader is standing on.
+    """
+    sid = decode_token(credentials.credentials, "access").get("sid")
+    return uuid.UUID(sid) if sid else None
+
+
 async def get_moderator(user=Depends(get_current_user)):
     """The door every administrative route is behind, and the only place the role is read.
 

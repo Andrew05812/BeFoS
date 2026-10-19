@@ -4,6 +4,7 @@ import app.befos.MainDispatcherRule
 import app.befos.core.network.ApiResult
 import app.befos.domain.model.BlockedUser
 import app.befos.domain.model.Profile
+import app.befos.domain.model.SessionsPage
 import app.befos.domain.repository.AuthRepository
 import app.befos.domain.repository.ProfileRepository
 import app.befos.domain.repository.SafetyRepository
@@ -27,7 +28,12 @@ class SettingsViewModelTest {
     val mainRule = MainDispatcherRule()
 
     private val safety: SafetyRepository = mockk()
-    private val auth: AuthRepository = mockk()
+    private val auth: AuthRepository = mockk {
+        // The screen reads the account's own devices on open, so a test that is about something else
+        // still has to be handed an answer for it — a strict mock would otherwise turn an unrelated
+        // expectation into a missing-stub failure inside a coroutine the test never entered.
+        coEvery { sessions() } returns ApiResult.Success(SessionsPage())
+    }
     private val profiles: ProfileRepository = mockk()
 
     private fun profile(hidden: Boolean, moderator: Boolean = false) = Profile(

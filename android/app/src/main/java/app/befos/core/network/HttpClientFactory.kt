@@ -1,5 +1,6 @@
 package app.befos.core.network
 
+import android.os.Build
 import app.befos.BuildConfig
 import app.befos.data.model.RefreshRequest
 import app.befos.data.model.TokenPairDto
@@ -63,6 +64,36 @@ val befosJson = Json {
 /** Routes that are answered without a session, so no bearer token belongs on them. */
 internal fun isPublicAuthRoute(url: String): Boolean =
     url.contains("/auth/login") || url.contains("/auth/register") || url.contains("/auth/refresh")
+
+/**
+ * What the device says about itself when it signs in.
+ *
+ * The backend stores this string in the row every session leaves behind, and the account's own list of
+ * devices is built out of it — so the engine's default was not a name but a fingerprint of the stack:
+ * every install of the app arrived as `ktor-client`, and a person with three of them read three
+ * identical lines. The model and the OS release are what somebody recognises at a glance, the app
+ * version is what tells an update apart from a second device.
+ *
+ * Non-ASCII characters are dropped rather than sent: a header line is ASCII, and a manufacturer can
+ * type anything into a model name.
+ *
+ * Both device fields are nullable because they are Java constants read off `android.os.Build`, which a
+ * JVM unit test answers with null rather than with a phone. A nameless device is still a session row
+ * the account can list, so the string degrades to the platform alone instead of throwing on the way
+ * out — every request of the app runs through here, and a crash would cost far more than a plain word.
+ */
+internal fun befosUserAgent(version: String, model: String?, osRelease: String?): String {
+    val parts = listOfNotNull(model.asHeaderWord(), osRelease.asHeaderWord()?.let { "Android $it" })
+        .joinToString(", ")
+        .ifEmpty { "Android" }
+    return "BeFoS/${version.asHeaderWord() ?: "dev"} ($parts)"
+}
+
+/** A header value is ASCII printable, so a manufacturer's string keeps only the characters that survive that. */
+private fun String?.asHeaderWord(): String? = this.orEmpty()
+    .filter { it in ' '..'~' }
+    .trim()
+    .ifEmpty { null }
 
 /**
  * Which token leaves the device is decided by the session, not by what the bearer provider
@@ -169,5 +200,9 @@ fun createHttpClient(
     defaultRequest {
         contentType(ContentType.Application.Json)
         header("Accept", "application/json")
+        header(
+            HttpHeaders.UserAgent,
+            befosUserAgent(BuildConfig.VERSION_NAME, Build.MODEL, Build.VERSION.RELEASE),
+        )
     }
 }

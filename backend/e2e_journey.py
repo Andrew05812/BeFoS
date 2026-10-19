@@ -1376,6 +1376,88 @@ def main() -> int:
     check(partner_untouched.status_code == 200, "one account's word is not the other one's door",
           str(partner_untouched.status_code))
 
+    # 15c. the account reads which devices hold its own session, and ends them by name. Two sign-ins
+    # with two different User-Agent strings is the shape the Android client now sends, and the list is
+    # the only place the account sees what those strings left behind. The walk starts from a fresh
+    # minute: the reads and the writes here are auth calls, and the 20-a-minute window is the rule
+    # stage 46 measured rather than something this script negotiates.
+    pace()
+    ua_phone = {"User-Agent": "BeFoS/1.0.0 (Pixel 7, Android 14)"}
+    ua_tablet = {"User-Agent": "BeFoS/1.0.0 (SM-X213, Android 13)"}
+    phone = c.post(f"{BASE}/auth/login", json={"email": email_a, "password": pw_new}, headers=ua_phone)
+    check(phone.status_code == 200, "A signs in from the first device", str(phone.status_code))
+    tok_phone = phone.json()["tokens"]["access_token"]
+    ref_phone = phone.json()["tokens"]["refresh_token"]
+    hp = {"Authorization": f"Bearer {tok_phone}"}
+    tablet = c.post(f"{BASE}/auth/login", json={"email": email_a, "password": pw_new}, headers=ua_tablet)
+    check(tablet.status_code == 200, "A signs in from the second device", str(tablet.status_code))
+    ref_tablet = tablet.json()["tokens"]["refresh_token"]
+
+    listed = c.get(f"{BASE}/auth/sessions", headers=hp)
+    check(listed.status_code == 200, "the account reads its own list of devices", str(listed.status_code))
+    rows = listed.json()["sessions"]
+    devices = {row["device"] for row in rows}
+    check(ua_phone["User-Agent"] in devices and ua_tablet["User-Agent"] in devices,
+          "both devices the account signed in from are named by what they said", str(sorted(devices))[:160])
+    current_rows = [row for row in rows if row["current"]]
+    check(len(current_rows) == 1, "exactly one row is this device", str(len(current_rows)))
+    check(bool(current_rows) and current_rows[0]["device"] == ua_phone["User-Agent"],
+          "the badge stands on the row the request itself comes from",
+          str(current_rows[0]["device"]) if current_rows else "")
+    check(listed.json()["has_more"] is False, "a list that fits says it fits",
+          str(listed.json())[:80])
+    anon = c.get(f"{BASE}/auth/sessions")
+    check(anon.status_code == 401, "a stranger gets no look at somebody's devices", str(anon.status_code))
+    other_rows = [row for row in rows if not row["current"]]
+    tablet_id = other_rows[0]["id"] if other_rows else "s-none"
+    foreign = c.post(f"{BASE}/auth/sessions/{tablet_id}/revoke", headers=hb)
+    check(foreign.status_code >= 400, "a partner's token cannot end this account's row",
+          str(foreign.status_code))
+    still_there = c.get(f"{BASE}/auth/sessions", headers=hp)
+    check(still_there.status_code == 200 and tablet_id in {row["id"] for row in still_there.json()["sessions"]},
+          "the refusal changed nothing about the row it named", str(still_there.status_code))
+    ended = c.post(f"{BASE}/auth/sessions/{tablet_id}/revoke", headers=hp)
+    check(ended.status_code == 204 and ended.content == b"", "A ends the second device by its id",
+          str(ended.status_code))
+    after = c.get(f"{BASE}/auth/sessions", headers=hp)
+    check(tablet_id not in {row["id"] for row in after.json()["sessions"]},
+          "the cut row is gone from the next read", str([r["device"] for r in after.json()["sessions"]])[:120])
+    dead_refresh = c.post(f"{BASE}/auth/refresh", json={"refresh_token": ref_tablet})
+    check(dead_refresh.status_code == 401, "the ended device cannot renew itself", str(dead_refresh.status_code))
+    alive_refresh = c.post(f"{BASE}/auth/refresh", json={"refresh_token": ref_phone})
+    check(alive_refresh.status_code == 200, "the device that stayed is untouched by the cut",
+          str(alive_refresh.status_code))
+    gone_id = c.post(f"{BASE}/auth/sessions/{tablet_id}/revoke", headers=hp)
+    check(gone_id.status_code == 404, "ending the same row twice is one refusal, not a second erasure",
+          str(gone_id.status_code))
+    sweep = c.post(f"{BASE}/auth/sessions/revoke-all", headers=hp)
+    check(sweep.status_code == 204 and sweep.content == b"", "A ends every session it holds",
+          str(sweep.status_code))
+    emptied = c.get(f"{BASE}/auth/sessions", headers=hp)
+    check(emptied.status_code == 200 and emptied.json()["sessions"] == [],
+          "the sweep leaves the account no live rows, this device among them",
+          str(len(emptied.json()["sessions"])))
+    swept_refresh = c.post(f"{BASE}/auth/refresh", json={"refresh_token": ref_phone})
+    check(swept_refresh.status_code == 401, "the device that fired the sweep is signed out at its next refresh",
+          str(swept_refresh.status_code))
+    # The hour already handed out still opens the account's own data — the boundary stage 109 names and
+    # stage 110 inherits: sessions are revoked, access tokens expire on their own.
+    token_survives = c.get(f"{BASE}/users/me", headers=hp)
+    check(token_survives.status_code == 200, "an access token is not recalled by a sweep it was made with",
+          str(token_survives.status_code))
+    # Step 17 deletes the account from the token this stretch started on, so the walk signs in once
+    # more before handing the rest of it over.
+    pace()
+    reopened = c.post(f"{BASE}/auth/login", json={"email": email_a, "password": pw_new}, headers=ua_phone)
+    check(reopened.status_code == 200, "the account still opens with its own word", str(reopened.status_code))
+    tok_a2 = reopened.json()["tokens"]["access_token"]
+    ha2 = {"Authorization": f"Bearer {tok_a2}"}
+    # The fresh sign-in writes exactly one row: the sweep really took the account's whole list, and the
+    # row it left standing belongs to the new pair rather than to a device nobody has since ended.
+    fresh_list = c.get(f"{BASE}/auth/sessions", headers=ha2)
+    check(fresh_list.status_code == 200 and len(fresh_list.json()["sessions"]) == 1,
+          "one new sign-in leaves one live row", str(len(fresh_list.json().get("sessions", []))))
+
     # 16. unauthorized access rejected
     noauth = c.get(f"{BASE}/users/me")
     check(noauth.status_code in (401, 403), "unauthorized /users/me rejected", str(noauth.status_code))

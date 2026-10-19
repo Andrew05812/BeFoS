@@ -34,6 +34,9 @@ _UNKNOWN_VALUES = {
     "activity_id": lambda: "999999",
     "photo_id": lambda: str(uuid.uuid4()),
     "report_id": lambda: str(uuid.uuid4()),
+    # The number a person gives to end one of their own sessions. It is an object identifier in the
+    # same sense as the rest: it names a row, and the row belongs to whoever signed in.
+    "session_id": lambda: str(uuid.uuid4()),
 }
 
 _HTTP_METHODS = ("GET", "POST", "PATCH", "PUT", "DELETE")
