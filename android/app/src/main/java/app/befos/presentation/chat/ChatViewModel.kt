@@ -36,6 +36,19 @@ data class ChatUiState(
     val historyError: String? = null,
     val sendError: String? = null,
     /**
+     * Why a line that was meant to go on living stayed on the screen. The refusal is the only case
+     * where the person is told about a tap that erased nothing, because the erasure cannot be undone
+     * and the words are already gone from the server's side.
+     */
+    val recallError: String? = null,
+    /**
+     * The typed line whose erasure the person has been asked to confirm. Holding the whole line,
+     * rather than its id, is what lets the question quote the words back — once the answer is given
+     * the server keeps nothing of them, and a confirmation that named only a number would ask about
+     * something the person can no longer read.
+     */
+    val recallConfirmation: Message? = null,
+    /**
      * Why the socket is not live, in the same product voice as every other failure. Null until
      * the dial answers: a drop that ended cleanly leaves the generic reconnecting line.
      */
@@ -159,6 +172,7 @@ class ChatViewModel(
                     is ChatEvent.Read -> _uiState.update { st ->
                         st.copy(messages = st.messages.map { if (it.isOwn) it.copy(isRead = true) else it })
                     }
+                    is ChatEvent.Recalled -> drop(event.messageId)
                     is ChatEvent.Presence -> _uiState.update { it.copy(otherOnline = event.online) }
                     is ChatEvent.Connected -> {
                         _uiState.update { it.copy(connected = true, socketReason = null) }
@@ -229,6 +243,53 @@ class ChatViewModel(
         if (!message.isOwn) {
             viewModelScope.launch { chatRepository.markRead(matchId) }
         }
+    }
+
+    /**
+     * Takes a line the thread no longer holds out of the screen. Both the frame and the answer to
+     * this screen's own tap end up here, and either may be the second to say it: a tap whose socket
+     * had dropped still erased the line on the server, and a frame can arrive while the HTTP answer
+     * is on its way.
+     */
+    private fun drop(messageId: String) {
+        _uiState.update { state ->
+            if (state.messages.none { it.id == messageId }) return@update state
+            state.copy(messages = state.messages.filterNot { it.id == messageId })
+        }
+    }
+
+    /**
+     * Opens the question about a line the person typed. Only a sentence somebody typed can be asked
+     * about: the lines the pair's agreement writes are the plan's own record, and the server refuses
+     * them as firmly as it refuses a partner's — an action the tap cannot perform is not offered.
+     */
+    fun askRecall(message: Message) {
+        if (!message.isOwn || message.isPlanEvent) return
+        _uiState.update { it.copy(recallConfirmation = message, recallError = null) }
+    }
+
+    fun cancelRecall() {
+        _uiState.update { it.copy(recallConfirmation = null) }
+    }
+
+    /**
+     * Erases the confirmed line. The words are gone either way, so the screen does not wait for the
+     * frame to say it: the socket that would carry it may be down on this very device, and a bubble
+     * that outlives its own erasure promises a text the server no longer holds.
+     */
+    fun confirmRecall() {
+        val message = _uiState.value.recallConfirmation ?: return
+        _uiState.update { it.copy(recallConfirmation = null) }
+        viewModelScope.launch {
+            when (val result = chatRepository.recall(matchId, message.id)) {
+                is ApiResult.Success -> drop(message.id)
+                is ApiResult.Error -> _uiState.update { it.copy(recallError = result.message) }
+            }
+        }
+    }
+
+    fun dismissRecallError() {
+        _uiState.update { it.copy(recallError = null) }
     }
 
     fun onDraftChange(v: String) {

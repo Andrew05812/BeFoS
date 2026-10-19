@@ -173,7 +173,7 @@ class ChatSocket(
         session?.outgoing?.send(Frame.Text(payload.toString()))
     }
 
-    private suspend fun parse(text: String): ChatEvent? {
+    internal suspend fun parse(text: String): ChatEvent? {
         val obj = runCatching { befosJson.parseToJsonElement(text) as JsonObject }.getOrNull() ?: return null
         val me = tokenStore.current()?.userId
         return when (obj["type"]?.jsonPrimitive?.content) {
@@ -200,6 +200,7 @@ class ChatSocket(
                 typing = obj["typing"]?.jsonPrimitive?.boolean ?: true,
             )
             "read" -> ChatEvent.Read(obj["user_id"]?.jsonPrimitive?.content ?: "")
+            "message_recalled" -> ChatEvent.Recalled(obj["message_id"]?.jsonPrimitive?.content ?: "")
             "presence" -> ChatEvent.Presence(
                 userId = obj["user_id"]?.jsonPrimitive?.content ?: "",
                 online = obj["online"]?.jsonPrimitive?.boolean ?: false,
@@ -324,6 +325,9 @@ class ChatRepositoryImpl(
         api.sendMessage(matchId, body, clientMsgId).map { it.toDomain() }
 
     override suspend fun markRead(matchId: String): ApiResult<Unit> = api.markRead(matchId)
+
+    override suspend fun recall(matchId: String, messageId: String): ApiResult<Unit> =
+        api.recallMessage(matchId, messageId)
 
     override fun socket(matchId: String): Flow<ChatEvent> = socketFor(matchId).events
 

@@ -35,12 +35,14 @@ import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -105,6 +107,49 @@ fun ChatScreen(
     }
     val state by vm.uiState.collectAsState()
     val reportState by vm.report.state.collectAsState()
+    val haptics = rememberHaptics()
+
+    // A line that was meant to leave the thread and stayed says nothing the reader can act on
+    // twice: the notice names the failed tap, and the thread itself is unchanged by it.
+    LaunchedEffect(state.recallError) {
+        if (state.recallError != null) {
+            delay(Motion.Notice.toLong())
+            vm.dismissRecallError()
+        }
+    }
+
+    state.recallConfirmation?.let { line ->
+        AlertDialog(
+            onDismissRequest = vm::cancelRecall,
+            title = { Text("Забрать сообщение?") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                    Text(
+                        // The words go with the question, because they are the last place they can
+                        // still be read: the answer erases them from the server and from both
+                        // screens, and a confirmation that named only the moment of the line would
+                        // ask about something the person cannot check.
+                        text = "«${line.body}»",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 4,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        "Сообщение исчезнет из переписки у вас и у собеседника и не вернётся. " +
+                            "Если собеседник уже успел его прочесть, этого не отменить — у него останется то, что он прочитал.",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = vm::confirmRecall) {
+                    Text("Забрать сообщение", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = { TextButton(onClick = vm::cancelRecall) { Text("Отмена") } },
+        )
+    }
 
     if (reportState.open) {
         ReportDialog(
@@ -227,6 +272,19 @@ fun ChatScreen(
                 )
             }
 
+            // A tap that did not erase anything leaves the line exactly where it was, so the thread
+            // cannot report it: the words stay, the bubble stays, and only this notice says that the
+            // answer came back refusing. It is placed over the thread rather than in the composer
+            // because the composer belongs to a send, and nothing about this tap touched the draft.
+            if (state.recallError != null) {
+                InlineNotice(
+                    text = state.recallError!!,
+                    modifier = Modifier
+                        .padding(horizontal = Spacing.gutter)
+                        .padding(bottom = Spacing.xs),
+                )
+            }
+
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 when {
                     state.loading -> ListSkeleton(rows = 6)
@@ -277,6 +335,18 @@ fun ChatScreen(
                                     val ui = planCardUi(message, state.partnerName)
                                     PlanEventCard(ui = ui, onClick = { onOpenPlan(ui.planId, ui.activityId) })
                                 } else {
+                                    // Only a sentence somebody typed can be held: the lines the
+                                    // pair's agreement writes record a plan that has its own
+                                    // lifecycle, and a gesture that leads to a refusal the server
+                                    // will answer on every kind but one is not offered for them.
+                                    val hold: (() -> Unit)? = if (message.isOwn) {
+                                        {
+                                            haptics.light()
+                                            vm.askRecall(message)
+                                        }
+                                    } else {
+                                        null
+                                    }
                                     MessageBubble(
                                         body = message.body,
                                         isOwn = message.isOwn,
@@ -285,6 +355,8 @@ fun ChatScreen(
                                         } else {
                                             formatTime(message.createdAt)
                                         },
+                                        onLongClick = hold,
+                                        onLongClickLabel = if (message.isOwn) "Забрать сообщение" else null,
                                     )
                                 }
                             }
