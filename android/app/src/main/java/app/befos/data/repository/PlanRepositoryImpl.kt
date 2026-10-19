@@ -4,6 +4,7 @@ import app.befos.core.network.ApiResult
 import app.befos.core.network.map
 import app.befos.data.mapper.toDomain
 import app.befos.data.remote.ApiService
+import app.befos.domain.model.Message
 import app.befos.domain.model.Plan
 import app.befos.domain.repository.PlanRepository
 
@@ -14,6 +15,12 @@ class PlanRepositoryImpl(private val api: ApiService) : PlanRepository {
 
     override suspend fun plan(planId: String): ApiResult<Plan> =
         api.getPlan(planId).map { dto -> dto.plan.toDomain() }
+
+    // One read answers both questions: the server attaches the plan's journal lines to its own row,
+    // so opening a history costs the same request as opening the plan and cannot show a chronology
+    // that was read while the arrangement was somewhere else.
+    override suspend fun history(planId: String): ApiResult<List<Message>> =
+        api.getPlan(planId).map { dto -> dto.events.map { it.toDomain() } }
 
     override suspend fun accept(planId: String): ApiResult<Unit> = api.acceptPlan(planId)
 

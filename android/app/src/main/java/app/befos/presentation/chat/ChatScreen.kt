@@ -366,8 +366,12 @@ internal data class PlanCardUi(
  * on can be called standing, and only they can be walked past by the clock — so the words belong to
  * the kind, and a kind this build does not know says that on its face instead of falling through to
  * a promise nobody made.
+ *
+ * The plan's history page reads this same map: its rows are built from the very lines the chat draws,
+ * and a second copy of the vocabulary would let the two screens start calling one move two different
+ * things.
  */
-private data class PlanKindWords(
+internal data class PlanKindWords(
     val overline: String,
     val current: String,
     val superseded: String,
@@ -379,14 +383,14 @@ internal const val PLAN_STANDING_WORD = "действует"
 
 private const val PLAN_SUPERSEDED_WORD = "позже пара сказала другое"
 
-private val PLAN_KIND_UNKNOWN = PlanKindWords(
+internal val PLAN_KIND_UNKNOWN = PlanKindWords(
     overline = "План пары",
     current = "эта версия приложения её не читает",
     superseded = PLAN_SUPERSEDED_WORD,
     holdsAgreedHour = false,
 )
 
-private val PLAN_KIND_WORDS: Map<String, PlanKindWords> = mapOf(
+internal val PLAN_KIND_WORDS: Map<String, PlanKindWords> = mapOf(
     MessageKinds.PLAN_PROPOSED to PlanKindWords(
         overline = "Идея",
         current = "ждёт ответа",

@@ -235,6 +235,11 @@ fun planHourWord(plan: Plan, now: ZonedDateTime): String? {
     val passed = planMomentPassed(hour, now)
     return when {
         plan.status == PlanStatuses.COMPLETED -> "Встреча была: $moment"
+        // The badge on a called-off card already says «отменена», while an hour ahead of the clock
+        // would still read as an agreement under the pair's feet. Cancellation is the one move that
+        // retires an hour while the clock is behind it, so here the state names the sentence and the
+        // passed hour adds nothing to it.
+        plan.status == PlanStatuses.CANCELLED -> "Час был назван: $moment"
         // The hour stands in the pair's rows while the pair no longer stands on it: an answer changed
         // after the agreement leaves the moment behind, and a card that called it «договорились»
         // would promise an evening to a person who has just said they are not coming.
@@ -249,13 +254,14 @@ fun planHourWord(plan: Plan, now: ZonedDateTime): String? {
  * Whether the hour the row holds is the hour the pair currently stands on.
  *
  * The card marks that hour with a check and leaves it selected; an evening that has been replaced,
- * outlived or refused is the plan's history rather than its promise, and the same reading has to hold
- * whatever the chip is drawn with.
+ * outlived, called off or refused is the plan's history rather than its promise, and the same reading
+ * has to hold whatever the chip is drawn with.
  */
 fun planHourIsThePairWord(plan: Plan, now: ZonedDateTime): Boolean {
     val hour = plan.startsAt ?: return false
     if (plan.status == PlanStatuses.RESCHEDULED || plan.status == PlanStatuses.DECLINED ||
-        plan.status == PlanStatuses.COMPLETED || plan.myDecision == PlanDecisions.DECLINED
+        plan.status == PlanStatuses.COMPLETED || plan.status == PlanStatuses.CANCELLED ||
+        plan.myDecision == PlanDecisions.DECLINED
     ) {
         return false
     }

@@ -100,12 +100,16 @@ fun planChipText(plan: String, now: ZonedDateTime): String {
 /**
  * What the tap that opens the hour row is called.
  *
- * Once the agreed hour is behind them the pair is not editing a plan they still stand on — there is
- * nothing of it left to keep — so the row invites a new evening by name. Calling that «Изменить
- * время» would leave the person to work out which of the two the tap does.
+ * Three states of the pair's evening, and the row cannot be honest with one word for all of them.
+ * Nothing has been named yet, so the tap *arranges* one; the pair stands on an hour still ahead of
+ * them, so the tap *moves* it — the arrangement stays, only the moment changes, and calling that
+ * «Договориться о времени» would read as if nothing had been agreed; once the hour is behind them
+ * there is nothing of that plan left to keep, so the row invites a new evening by name. A person
+ * choosing between two of these words with their own card open is the reason the label is a function
+ * rather than a string on the button.
  */
 fun offerButtonLabel(mine: String?, plan: String?, now: ZonedDateTime): String = when {
-    plan != null && planMomentPassed(plan, now) -> "Договориться о новом часе"
-    mine != null -> "Изменить время"
-    else -> "Договориться о времени"
+    plan == null -> if (mine != null) "Изменить время" else "Договориться о времени"
+    planMomentPassed(plan, now) -> "Договориться о новом часе"
+    else -> "Перенести встречу"
 }

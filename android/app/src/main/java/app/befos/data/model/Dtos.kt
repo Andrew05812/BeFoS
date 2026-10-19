@@ -529,9 +529,18 @@ data class PlanListDto(
     val plans: List<PlanDto> = emptyList(),
 )
 
+/**
+ * One plan with the story the pair's chat holds about it.
+ *
+ * `events` are the same journal lines the conversation draws, in the order the pair lived through
+ * them: the server writes them on the state moves rather than on the taps, so a retry whose answer
+ * was lost left one line behind rather than two and this list is the record rather than a counter of
+ * touches. Defaulted to empty, so a build reading an older server's answer still gets its plan.
+ */
 @Serializable
 data class PlanDetailDto(
     val plan: PlanDto,
+    val events: List<MessageDto> = emptyList(),
 )
 
 // ---------- Safety ----------

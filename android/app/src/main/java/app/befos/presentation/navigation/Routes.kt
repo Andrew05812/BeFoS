@@ -62,6 +62,12 @@ object Routes {
     fun plans(matchId: String, planId: String? = null): String =
         if (planId == null) "plans/$matchId" else "plans/$matchId?$PLAN_ARG=$planId"
 
+    // One plan's chronology, opened from the card that holds the plan. The id is the whole address:
+    // whose pair it is and whether the reader belongs to it are answered by the session on the
+    // server, so a route copied to another device reads as somebody else's plan rather than leaking.
+    const val PLAN_HISTORY = "planHistory/{$PLAN_ARG}"
+    fun planHistory(planId: String) = "planHistory/$planId"
+
     const val USER_ARG = "userId"
     const val PUBLIC_PROFILE = "user/{$USER_ARG}"
     fun publicProfile(userId: String) = "user/$userId"
