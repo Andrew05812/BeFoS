@@ -181,6 +181,78 @@ def realtime(match_id: str, uid_a: str, uid_b: str, tok_a: str, tok_b: str, stra
         check(False, "both members hold a socket on the pair", f"{type(exc).__name__}: {exc}")
 
 
+def a_typed_line_is_taken_back(match_id: str, uid_a: str, uid_b: str,
+                               tok_a: str, tok_b: str, c: httpx.Client) -> None:
+    """Ask the live pair whether a sentence can be unsaid, and by whom.
+
+    REST answers for the row and the history answers for the page, but neither proves what the
+    second phone sees at the moment the words disappear from it. So both halves sit open on a socket
+    while the walk erases a line, and every step is read back from both histories: a line that comes
+    back on a reload, an erasure that reaches only the device that asked for it, and a refusal that
+    quietly took the row anyway all fail here rather than on a phone.
+
+    The authorisation is the part a client cannot be trusted with. The route says the same sentence
+    for a line that is not the caller's own and an id that never was, so the walk presses on that
+    sameness from the partner's side and checks the line it refused is still there in both reads — a
+    refusal that erased is exactly the bug that looks like a success on the screen that asked.
+    """
+    ha = {"Authorization": f"Bearer {tok_a}"}
+    hb = {"Authorization": f"Bearer {tok_b}"}
+
+    def lines(headers: dict) -> list[dict]:
+        return c.get(f"{BASE}/matches/{match_id}/messages", headers=headers).json()["messages"]
+
+    async def drive() -> None:
+        uri_a = f"{WS_BASE}/ws/chat/{match_id}?token={tok_a}"
+        uri_b = f"{WS_BASE}/ws/chat/{match_id}?token={tok_b}"
+        async with websockets.connect(uri_a, open_timeout=5) as ws_a, websockets.connect(uri_b, open_timeout=5) as ws_b:
+            a, b = Peer(ws_a), Peer(ws_b)
+
+            sent = c.post(f"{BASE}/matches/{match_id}/messages", headers=ha,
+                          json={"body": "Это я напишу и заберу."})
+            check(sent.status_code in (200, 201), "A types a line", str(sent.status_code))
+            line_id = sent.json().get("id")
+            seen_by_b = await b.next("message", id=line_id)
+            check(seen_by_b is not None, "the partner's open screen has the line", str(seen_by_b))
+
+            partner_lines = [m for m in lines(hb) if m["is_own"]]
+            check(bool(partner_lines), "the partner has a line of their own for this to be about",
+                  str(len(partner_lines)))
+            foreign = c.delete(f"{BASE}/matches/{match_id}/messages/"
+                               f"{partner_lines[-1]['id'] if partner_lines else 'no-line'}", headers=ha)
+            check(foreign.status_code == 404,
+                  "a line is not taken back by the half who did not type it", str(foreign.status_code))
+            check(line_id in [m["id"] for m in lines(ha)], "the refusal left the row alone", str(line_id))
+            check(await b.nothing("message_recalled", 0.6) is True,
+                  "and said nothing about it to the open screen")
+
+            erased = c.delete(f"{BASE}/matches/{match_id}/messages/{line_id}", headers=ha)
+            check(erased.status_code == 204 and erased.content == b"",
+                  "A takes its own line back", str(erased.status_code))
+
+            frame = await b.next("message_recalled", message_id=line_id)
+            check(frame is not None, "the other device is told without a reload", str(frame))
+
+            after = [m["id"] for m in lines(ha)], [m["id"] for m in lines(hb)]
+            check(all(line_id not in ids for ids in after), "neither history carries the line any more",
+                  str([len(ids) for ids in after]))
+            again = c.delete(f"{BASE}/matches/{match_id}/messages/{line_id}", headers=ha)
+            check(again.status_code == 404, "the second erasure is a refusal, not a second removal",
+                  str(again.status_code))
+
+            still_there = c.post(f"{BASE}/matches/{match_id}/messages", headers=ha,
+                                 json={"body": "Эта строка остаётся."})
+            kept_id = still_there.json().get("id")
+            check(still_there.status_code in (200, 201) and kept_id in [m["id"] for m in lines(hb)],
+                  "the thread the erasure went through still writes and reads",
+                  f"{still_there.status_code}/{len(lines(hb))}")
+
+    try:
+        asyncio.run(drive())
+    except Exception as exc:  # a socket that will not open is a failure, not a traceback
+        check(False, "both members hold a socket while the line is erased", f"{type(exc).__name__}: {exc}")
+
+
 def agreed_hour_reaches_the_chat(match_id: str, tok_a: str, tok_b: str, activity_id: int,
                                  title: str, first: str, moved: str, c: httpx.Client) -> None:
     """Ask the live pair whether the hour they land on is said in their conversation.
@@ -1228,6 +1300,10 @@ def main() -> int:
     check(rc.status_code in (200, 201), "register C (a stranger to the pair)", str(rc.status_code))
     tok_c = rc.json()["tokens"]["access_token"]
     realtime(match_id, uid_a, uid_b, tok_a, tok_b, tok_c, c)
+    # 11c. a sentence the pair can unsay, and the half who cannot say it for the other. The route is
+    # new with stage 111, and what it promises is not a row moving but a row leaving: only a second
+    # open screen can show that the words went with it.
+    a_typed_line_is_taken_back(match_id, uid_a, uid_b, tok_a, tok_b, c)
     stranger_map = c.get(f"{BASE}/matches/{match_id}/universe",
                          headers={"Authorization": f"Bearer {tok_c}"}).status_code
     check(stranger_map == 404, "the map is not open to a stranger", str(stranger_map))
