@@ -64,6 +64,25 @@ async def send_message(
     return MessageOut(**msg)
 
 
+@router.delete("/{match_id}/messages/{message_id}", status_code=204)
+async def recall_message(
+    match_id: uuid.UUID,
+    message_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    service = ChatService(session)
+    await service.recall(match_id, current_user.id, message_id)
+    # The line has to leave the screen that is already open, not only the page the next reload
+    # brings. Both ends get the frame: the pair's other socket drops the sentence, and a second
+    # device of the person who tapped finds the same empty place it just made.
+    await manager.broadcast_to_match(
+        match_id,
+        {"type": "message_recalled", "match_id": str(match_id), "message_id": str(message_id)},
+    )
+    return None
+
+
 @router.post("/{match_id}/read", status_code=200)
 async def mark_read(
     match_id: uuid.UUID,

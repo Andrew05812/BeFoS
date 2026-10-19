@@ -143,6 +143,21 @@ class ChatService:
         # the receipts it already carries are its author's own.
         return message_dto(msg, sender_id, is_read=False), created
 
+    async def recall(self, match_id: uuid.UUID, user_id: uuid.UUID, message_id: uuid.UUID) -> None:
+        """End the line this person typed, or say that no line here is theirs to end.
+
+        The write is one conditional UPDATE, so a second tap on a line the first tap already ended
+        answers exactly as a stranger's line, a page of the pair's plan, or an absent id does: the
+        same 404 the chat routes give for a match that is not yours. Nothing here tells the tapper
+        which of those it was, and that is the point — a difference between them is an oracle over
+        lines this account may not read.
+        """
+        await self._require_membership_for_write(match_id, user_id)
+        ended = await self.repo.recall(match_id, user_id, message_id)
+        await self.session.commit()
+        if not ended:
+            raise NotFoundError("Message not found.")
+
     async def history(
         self, match_id: uuid.UUID, user_id: uuid.UUID, *, limit: int = 50, before_id: uuid.UUID | None = None
     ) -> dict:
