@@ -20,6 +20,7 @@ import app.befos.presentation.editprofile.EditProfileScreen
 import app.befos.presentation.main.MainScreen
 import app.befos.presentation.moderation.ModerationScreen
 import app.befos.presentation.onboarding.OnboardingScreen
+import app.befos.presentation.plans.PlanHistoryScreen
 import app.befos.presentation.plans.PlansScreen
 import app.befos.presentation.profile.MyProfileScreen
 import app.befos.presentation.publicprofile.PublicProfileScreen
@@ -330,6 +331,19 @@ fun BeFosNavHost(navController: NavHostController) {
                 // The plan a chat line named, or null when the page was opened from the top bar and
                 // has nothing to bring into view.
                 focusPlanId = entry.arguments?.getString(Routes.PLAN_ARG),
+                onBack = { navController.popBackStack() },
+                onOpenHistory = { planId ->
+                    navController.navigate(Routes.planHistory(planId)) { launchSingleTop = true }
+                },
+            )
+        }
+
+        composable(
+            route = Routes.PLAN_HISTORY,
+            arguments = listOf(navArgument(Routes.PLAN_ARG) { type = NavType.StringType }),
+        ) { entry ->
+            PlanHistoryScreen(
+                planId = entry.arguments?.getString(Routes.PLAN_ARG).orEmpty(),
                 onBack = { navController.popBackStack() },
             )
         }

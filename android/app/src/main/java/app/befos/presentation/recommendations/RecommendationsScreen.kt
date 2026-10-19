@@ -484,8 +484,8 @@ private fun MeetingTimeSection(
                 selected = !planPassed,
             )
         }
-        // An hour the pair still stands on closes the rest of the row: an offer beside a live plan
-        // would say the arranging is still open. Once that hour is behind them the offers come back,
+        // An hour the pair still stands on closes the questions about the hours nobody took: beside a
+        // live plan there is nobody being asked. Once that hour is behind them the offers come back,
         // because what the pair needs is the next one — and the agreed instant is not among them,
         // since the server refuses a moment that has already passed.
         if (plan == null || planPassed) {
@@ -520,56 +520,59 @@ private fun MeetingTimeSection(
                     Icons.Filled.Schedule,
                 )
             }
-            if (canOffer) {
-                if (editing) {
-                    Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-                        Text(
-                            "КОГДА ВАМ УДОБНО",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
-                            verticalArrangement = Arrangement.spacedBy(Spacing.sm),
-                        ) {
-                            days.forEach { date ->
-                                InterestChip(
-                                    label = meetingDayLabel(date, now),
-                                    selected = date == day,
-                                    onClick = { chosenDay = date },
-                                )
-                            }
+        }
+        // Moving the evening is a different act from answering an old offer, and it is owed to the
+        // person the plan is standing on: the row opens beside a live hour too, and its own button
+        // says which of the three things the tap will do — arrange, move, or replace a spent evening.
+        if (canOffer) {
+            if (editing) {
+                Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                    Text(
+                        "КОГДА ВАМ УДОБНО",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                        verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+                    ) {
+                        days.forEach { date ->
+                            InterestChip(
+                                label = meetingDayLabel(date, now),
+                                selected = date == day,
+                                onClick = { chosenDay = date },
+                            )
                         }
-                        FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
-                            verticalArrangement = Arrangement.spacedBy(Spacing.sm),
-                        ) {
-                            hours.forEach { candidate ->
-                                InterestChip(
-                                    label = meetingHourLabel(candidate),
-                                    selected = candidate == hour,
-                                    onClick = { chosenHour = candidate },
-                                )
-                            }
-                        }
-                        AppButton(
-                            text = "Предложить: ${meetingDayLabel(day, now)}, ${meetingHourLabel(hour)}",
-                            onClick = {
-                                onProposeTime(meetingInstant(day, hour, ZoneId.systemDefault()))
-                                editing = false
-                            },
-                            variant = AppButtonVariant.Tonal,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
                     }
-                } else {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                        verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+                    ) {
+                        hours.forEach { candidate ->
+                            InterestChip(
+                                label = meetingHourLabel(candidate),
+                                selected = candidate == hour,
+                                onClick = { chosenHour = candidate },
+                            )
+                        }
+                    }
                     AppButton(
-                        text = offerButtonLabel(mine, plan, now),
-                        onClick = { editing = true },
-                        variant = AppButtonVariant.Ghost,
+                        text = "Предложить: ${meetingDayLabel(day, now)}, ${meetingHourLabel(hour)}",
+                        onClick = {
+                            onProposeTime(meetingInstant(day, hour, ZoneId.systemDefault()))
+                            editing = false
+                        },
+                        variant = AppButtonVariant.Tonal,
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
+            } else {
+                AppButton(
+                    text = offerButtonLabel(mine, plan, now),
+                    onClick = { editing = true },
+                    variant = AppButtonVariant.Ghost,
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         }
         time.failure?.let { failure ->

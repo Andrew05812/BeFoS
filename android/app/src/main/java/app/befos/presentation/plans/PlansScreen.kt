@@ -25,6 +25,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -62,7 +63,6 @@ import app.befos.core.notifications.PlanReminders
 import app.befos.domain.model.Plan
 import app.befos.domain.model.PlanDecisions
 import app.befos.domain.model.PlanStatuses
-import app.befos.presentation.common.planMomentPassed
 import app.befos.presentation.recommendations.formatMeetingInstant
 import app.befos.presentation.recommendations.meetingDayLabel
 import app.befos.presentation.recommendations.meetingDays
@@ -88,6 +88,7 @@ fun PlansScreen(
     matchId: String,
     focusPlanId: String?,
     onBack: () -> Unit,
+    onOpenHistory: (String) -> Unit,
 ) {
     val vm: PlansViewModel =
         beFosViewModel { PlansViewModel(it.planRepository, it.chatRepository, matchId) }
@@ -251,6 +252,7 @@ fun PlansScreen(
                             onMarkAttended = { vm.markAttended(plan.id) },
                             onUndoAttended = { vm.undoAttended(plan.id) },
                             onSaveWords = { place, note -> vm.saveWords(plan.id, place, note) },
+                            onOpenHistory = { onOpenHistory(plan.id) },
                         )
                     }
                 }
@@ -293,6 +295,7 @@ private fun PlanCard(
     onMarkAttended: () -> Unit,
     onUndoAttended: () -> Unit,
     onSaveWords: (String, String) -> Unit,
+    onOpenHistory: () -> Unit,
 ) {
     val settled = plan.status == PlanStatuses.CANCELLED || plan.status == PlanStatuses.DECLINED
     // Whose hour the plan is waiting on, said once: the card shows it as an offer, the hour row names
@@ -407,7 +410,41 @@ private fun PlanCard(
                 )
             }
             if (plan.iAttended) QuietAction("Снять отметку", busy, onUndoAttended)
-            if (plan.canCancel) QuietAction("Отменить план", busy, onCancel)
+            // Calling the plan off is the one tap here that ends something the other half is reading as
+            // standing, so the card asks before it writes. The dialog says what survives — the pair's
+            // conversation, the plan's history, the hour the arrangement stood on — and whose word it
+            // does not touch: the partner's own answer about the idea stays theirs.
+            if (plan.canCancel) {
+                var confirmingCancel by remember { mutableStateOf(false) }
+                QuietAction("Отменить план", busy) { confirmingCancel = true }
+                if (confirmingCancel) {
+                    AlertDialog(
+                        onDismissRequest = { confirmingCancel = false },
+                        title = { Text("Отменить план «${plan.title}»?") },
+                        text = {
+                            Text(
+                                "Отмена видна вам обоим: план перейдёт в «Отменено», а названный час " +
+                                    "перестанет держаться. Переписка и история плана останутся, и " +
+                                    "вернётся тот же час, если план вернуть. Ваш партнёр ничего не " +
+                                    "отменяет — его ответ об идее остаётся его словом."
+                            )
+                        },
+                        confirmButton = {
+                            TextButton(
+                                onClick = {
+                                    confirmingCancel = false
+                                    onCancel()
+                                },
+                            ) {
+                                Text("Отменить план", color = MaterialTheme.colorScheme.error)
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { confirmingCancel = false }) { Text("Назад") }
+                        },
+                    )
+                }
+            }
             if (plan.status == PlanStatuses.CANCELLED) {
                 AppButton(
                     text = "Вернуть план",
@@ -438,6 +475,11 @@ private fun PlanCard(
                     )
                 }
             }
+            // The plan's own chronology, openable from the card that holds it. This door is the one
+            // the card never closes: a plan that was called off or lived through keeps every line
+            // the pair wrote about it, and the record is the thing a person reaches for exactly when
+            // the arrangement is no longer standing.
+            QuietAction("Посмотреть историю изменений", busy = false) { onOpenHistory() }
             error?.let { InlineNotice(text = it) }
         }
     }
@@ -447,9 +489,11 @@ private fun PlanCard(
  * The hour row, opened only for a plan this person may still move.
  *
  * Which evening to offer is a decision being made, not a fact about the pair, so it never enters the
- * view state — the card holds it until the tap that sends it. The offers close over a plan the pair
- * still stands on and come back once that hour is behind them, because then the only thing left to
- * arrange is the next evening, and the server refuses a moment that has already passed.
+ * view state — the card holds it until the tap that sends it. The row opens over a standing hour too:
+ * an evening the pair has agreed on and not yet lived through is exactly the thing a person can be
+ * asked to move, and the button names that act rather than leaving the row hidden until the hour has
+ * been missed. The offers themselves close over a plan the pair still stands on and come back once
+ * that hour is behind them, because the server refuses a moment that has already passed.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -462,7 +506,6 @@ private fun HourEditor(
 ) {
     if (!canOfferHour(plan)) return
     val agreed = plan.startsAt
-    if (agreed != null && !planMomentPassed(agreed, now)) return
 
     var editing by remember { mutableStateOf(false) }
     var chosenDay by remember { mutableStateOf<LocalDate?>(null) }

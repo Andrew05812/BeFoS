@@ -118,6 +118,16 @@ interface PlanRepository {
      */
     suspend fun plan(planId: String): ApiResult<Plan>
 
+    /**
+     * The plan's own chronology, as the pair's conversation holds it.
+     *
+     * These are the same journal lines the chat draws, read through the plan rather than through the
+     * thread: the server writes one line per state the pair moved through, with its kind, the person
+     * whose tap produced it, and both edges of whatever field moved. No screen keeps a second copy of
+     * that record, so a history cannot disagree with the chat about a tap whose answer was lost.
+     */
+    suspend fun history(planId: String): ApiResult<List<Message>>
+
     /** Stand behind the idea — the same write as the tap on the pair's card, from another door. */
     suspend fun accept(planId: String): ApiResult<Unit>
     suspend fun decline(planId: String): ApiResult<Unit>

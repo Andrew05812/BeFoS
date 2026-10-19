@@ -57,14 +57,21 @@ class SharedPlan(TimestampMixin, Base):
     This row is that name: every subsystem that speaks of a plan now speaks of one id.
 
     The hour it carries is a projection, not a second negotiator. `starts_at` holds the instant the
-    pair stands on — the one their two rows agree on — and `pending_hour` holds the single instant
-    one of them has named and the other has not confirmed. `app.services.plan_time.agreed_instant`
-    remains the only rule that decides whether an instant is agreed, and `PlanService.sync_pair`
-    re-reads the rows on every read of the pair, so the plan cannot drift ahead of them.
+    pair stands on — the one their two rows agree on — and `pending_hour` holds the single instant one
+    of them has named and the other has not confirmed. `app.services.plan_time.agreed_instant` remains
+    the only rule that decides whether an instant is agreed, and `PlanService.sync_pair` re-reads the
+    rows on every read of the pair, so the plan cannot drift ahead of them.
 
     `was_planned` is the one fact the rows cannot say: whether this pair ever stood on an hour.
     Without it "the hour is up for a move" and "an hour is being offered for the first time" are the
     same state to the card, and the first of them is the one a person needs to be warned about.
+    `pending_hour` and `pending_by` are the second, and they are the same pair of questions: the rows
+    of a pair whose standing evening has just been moved hold two different instants, which is exactly
+    what a pair talking past each other holds too, and no reading of the rows tells the two apart. So
+    the verb that moves an hour writes the question it is asking onto the plan, and the projection keeps
+    that record only while the row of the person who asked it still names that instant — see
+    `PlanService._ask_of` and `PlanService._record_ask`. A pair that has never settled on an hour still
+    gets its question out of the rows alone.
 
     `note` and `place` belong to the plan rather than to the activity because they are what the two
     of them add to it, and both stay NULL until somebody says them: an idea from the catalogue has

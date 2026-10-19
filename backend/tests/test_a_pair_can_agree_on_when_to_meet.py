@@ -28,10 +28,12 @@ Moscow offset has to match the one written in UTC.
 Accepting a time is not proposing the idea. The row a person holds can carry an acceptance and no
 proposal, and the mark «выбрали эту идею» — the one stage 63 was opened to make honest — stays off.
 
-A pair that traded offers has not agreed. One names 19:00 and the other takes it, then the second
-names 20:00 and the first takes it; the rows then support two different «договорились», and the
-card shows the two proposals with no plan line. Printing the earlier of the two would invent a
-promise neither of them holds.
+A pair that named two different moments has not agreed. One names 19:00 and the other names 20:00, and
+the card shows the two proposals with no plan line: the rows support two different «договорились» and
+printing the earlier of the two would invent a promise neither of them holds. What *is* a promise is an
+evening one half moved and the other then took — and that reading needs the mover's own earlier
+acceptance to stop counting, because a row holding two accepted instants as though both still stood is
+what made the half who had only ever agreed unable to move the hour at all (stage 108).
 """
 from __future__ import annotations
 
@@ -293,11 +295,45 @@ async def test_moving_the_offer_voids_the_plan(client: AsyncClient, pair_with_an
     )
 
 
-async def test_a_pair_that_traded_offers_has_no_plan(client: AsyncClient, pair_with_an_idea_in_chat):
-    """Two answers, each taking the other's moment, is a conversation, not a promise.
+async def test_a_pair_naming_two_different_hours_has_no_plan(
+    client: AsyncClient, pair_with_an_idea_in_chat
+):
+    """Two offers, neither of them taken, is a conversation, not a promise.
 
-    The rows genuinely support both readings, so the honest answer is the one that claims neither;
-    folding the trade into the earlier instant would print a meeting one of them has already moved.
+    This is the case `_agreed_instant` refuses to decide between: each half holds a different instant
+    and neither has agreed to the other's, so the rows support two different «договорились» and the
+    honest answer is the one that claims neither. The card shows both proposals and no plan line;
+    folding the two into the earlier instant would print a meeting one of them has never accepted.
+
+    It used to be pinned with a different pair of taps — offer, accept, offer, accept — whose last
+    answer genuinely does land both halves on one instant. That chronology read as no plan only
+    because the mover's stale acceptance kept the *first* hour agreed beside the second offer, which
+    is the reading `set_meeting_time` now withdraws; what the pair that ends on one accepted hour has
+    is a plan, and `test_a_moved_hour_the_pair_accepts_is_the_plan` says so.
+    """
+    a, b, match_id, idea = pair_with_an_idea_in_chat
+    first, second = _whole_hour(48), _whole_hour(96)
+    assert await _send(client, b["token"], match_id, idea) in (200, 204)
+    assert (await _offer(client, a["token"], match_id, idea, first))[0] == 204
+    assert (await _offer(client, b["token"], match_id, idea, second))[0] == 204
+
+    mine = _card(await _page(client, a["token"], match_id), idea)
+    theirs = _card(await _page(client, b["token"], match_id), idea)
+    assert mine["agreed_time"] is None and theirs["agreed_time"] is None
+    assert _parsed(mine, "my_meeting_time") == first
+    assert _parsed(mine, "partner_meeting_time") == second
+    assert _parsed(mine, "i_accepted_time") is None
+
+
+async def test_a_moved_hour_the_pair_accepts_is_the_plan(
+    client: AsyncClient, pair_with_an_idea_in_chat
+):
+    """A pair that moved an evening and accepted the move stands on the new one, from either half.
+
+    The mover here is the half who had only ever agreed, and the tap that follows is the other half
+    accepting the moved instant. Two promises in order, each taken by the other: what the rows hold at
+    the end is one instant both halves point at, and a card that read it as no plan was reading the
+    mover's withdrawn acceptance as though it still stood.
     """
     a, b, match_id, idea = pair_with_an_idea_in_chat
     first, second = _whole_hour(48), _whole_hour(96)
@@ -305,14 +341,19 @@ async def test_a_pair_that_traded_offers_has_no_plan(client: AsyncClient, pair_w
     assert (await _offer(client, a["token"], match_id, idea, first))[0] == 204
     assert (await _accept(client, b["token"], match_id, idea, first))[0] == 204
     assert (await _offer(client, b["token"], match_id, idea, second))[0] == 204
+    assert _card(await _page(client, a["token"], match_id), idea)["agreed_time"] is None, (
+        "the hour the pair stood on still read as agreed after the half who agreed to it moved away"
+    )
     assert (await _accept(client, a["token"], match_id, idea, second))[0] == 204
 
     mine = _card(await _page(client, a["token"], match_id), idea)
     theirs = _card(await _page(client, b["token"], match_id), idea)
-    assert mine["agreed_time"] is None and theirs["agreed_time"] is None
+    assert _parsed(mine, "agreed_time") == second
+    assert _parsed(theirs, "agreed_time") == second
+    # And the acceptance the mover withdrew is not left reading as a second promise: the new instant
+    # is the only one anybody stands on, so exactly one plan is agreed rather than two.
+    assert _parsed(theirs, "i_accepted_time") is None
     assert _parsed(mine, "my_meeting_time") == first
-    assert _parsed(mine, "partner_meeting_time") == second
-    assert _parsed(mine, "i_accepted_time") == second
 
 
 async def test_a_moment_in_the_past_is_refused(client: AsyncClient, pair_with_an_idea_in_chat):

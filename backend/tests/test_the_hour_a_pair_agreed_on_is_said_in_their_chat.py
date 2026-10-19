@@ -232,14 +232,19 @@ async def test_moving_the_hour_reports_the_end_of_the_plan(
     assert title in lines[2]["body"]
 
 
-async def test_the_pair_that_traded_hours_announces_no_agreement_at_the_end(
+async def test_a_moved_hour_the_pair_lands_on_is_said_as_the_new_agreement(
     client: AsyncClient, pair_talking_about_one_idea
 ):
-    """Two hours each taking the other's is a conversation, not a promise, and the chat says so.
+    """The chat tells the whole move, including the one made by the half who had only agreed.
 
-    `_agreed_instant` refuses to pick one of the two, and a journal that wrote a line per tap would
-    have called the trade a plan twice. What the pair has instead is the proposal, the idea they both
-    stood behind, the agreement they did reach and its end — with nothing claiming to still stand.
+    A, B, then A again: A names the first evening, B takes it, B moves it, A accepts the moved instant.
+    What the pair has at the end is one promise, and it is the second one — B named 20:00 and A agreed
+    to 20:00 — while the first is a moment B has already walked away from. Stage 108 found this
+    chronology told wrongly: B's own stale acceptance kept the first hour standing, so B's tap ended
+    nothing, asked nothing, and the pair's chat went on reading the first promise as current until A's
+    accept cancelled it. The four lines below are the same two facts the half who named the hour always
+    produced, now arriving whoever moves it, and the answer to the moved question is said as its own
+    agreement rather than as a cancellation.
     """
     a, b, match_id, idea = pair_talking_about_one_idea[:4]
     first, second = _whole_hour(48), _whole_hour(96)
@@ -255,11 +260,21 @@ async def test_the_pair_that_traded_hours_announces_no_agreement_at_the_end(
         "plan_accepted",
         "plan_agreed",
         "plan_voided",
+        "plan_rescheduled",
+        "plan_agreed",
     ], lines
-    assert [line["plan"]["is_latest"] for line in lines] == [False, False, False, True]
-    assert lines[-1]["plan"]["when"] is not None, (
-        "the line that ends the agreement does not name the hour it ended"
+    # Read from A, who put the idea to the pair and answered the moved hour: each line belongs to the
+    # half whose tap produced it, and the two lines of B's move are B's.
+    assert [line["is_own"] for line in lines] == [True, False, False, False, False, True], lines
+    assert [
+        datetime.fromisoformat(line["plan"]["when"]).astimezone(timezone.utc) if line["plan"]["when"] else None
+        for line in lines
+    ] == [None, None, first, first, second, second], lines
+    assert [line["plan"]["is_latest"] for line in lines] == [False] * 5 + [True], (
+        "the moved agreement is not the newest word about the pair's plan"
     )
+    for token in (a["token"], b["token"]):
+        assert _card(await _page(client, token, match_id), idea)["agreed_time"] is not None
 
 
 async def test_an_older_page_of_the_chat_knows_its_agreement_was_cancelled(

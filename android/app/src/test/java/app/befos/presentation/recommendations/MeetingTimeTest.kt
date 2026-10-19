@@ -127,4 +127,16 @@ class MeetingTimeTest {
         assertEquals("Изменить время", offerButtonLabel(live, null, clockAt(14, 9)))
         assertEquals("Договориться о времени", offerButtonLabel(null, null, clockAt(14, 9)))
     }
+
+    @Test
+    fun `an evening the pair stands on is moved by name, not arranged for the first time`() {
+        val live = "2026-10-15T19:00+03:00"
+
+        // The arrangement stays and only its moment changes: «Договориться о времени» over a plan the
+        // pair already stands on would read as though nothing had been agreed yet.
+        assertEquals("Перенести встречу", offerButtonLabel(null, live, clockAt(14, 9)))
+        // The same holds when this person's own offer is what the row waits on — the pair's hour is
+        // still the one being replaced.
+        assertEquals("Перенести встречу", offerButtonLabel(live, live, clockAt(14, 9)))
+    }
 }

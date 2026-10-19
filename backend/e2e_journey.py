@@ -207,6 +207,15 @@ def agreed_hour_reaches_the_chat(match_id: str, tok_a: str, tok_b: str, activity
     chat after every tap. A server that let one confirmation carry the other person's answer, that
     answered for the partner, that wrote the same refusal twice into the conversation, or that let a
     stranger tap the plan's door, fails here rather than in one test per method.
+
+    Stage 108 asks the same question of the rest of the plan's life, and asks it over one connection
+    that is then closed: which of the two halves may put a called-off plan back on its feet, what
+    happens to the hour and to both answers when either of them moves it, how a meeting becomes
+    «состоялось» with no process watching the clock, what the plan's history is read as, and whether a
+    half who was not connected when the change happened can still find it. Nothing here fakes a
+    timestamp — the passed hour is reached by the route's own rule that a meeting may still be
+    arranged for a few minutes ago, so every state the walk asserts is one an ordinary client can put
+    a pair into.
     """
     ha = {"Authorization": f"Bearer {tok_a}"}
     hb = {"Authorization": f"Bearer {tok_b}"}
@@ -499,11 +508,17 @@ def agreed_hour_reaches_the_chat(match_id: str, tok_a: str, tok_b: str, activity
             stranger_yes = await asyncio.to_thread(
                 c.post, f"{BASE}/plans/{plan_id}/accept", headers=hd
             )
+            # The chronology is the read this stage's screen exists for, and it sits behind the same
+            # door as the taps: a stranger who cannot decline a plan must not be able to read what the
+            # pair wrote into it.
+            stranger_history = await asyncio.to_thread(
+                c.get, f"{BASE}/plans/{plan_id}", headers=hd
+            )
             dropped = await asyncio.to_thread(c.delete, f"{BASE}/users/me", headers=hd)
             check(stranger_no.status_code == 404 and stranger_yes.status_code == 404
-                  and dropped.status_code == 200,
-                  "a stranger has no answer to give this plan",
-                  f"{stranger_no.status_code}/{stranger_yes.status_code}")
+                  and stranger_history.status_code == 404 and dropped.status_code == 200,
+                  "a stranger has no answer to give this plan and no history to read",
+                  f"{stranger_no.status_code}/{stranger_yes.status_code}/{stranger_history.status_code}")
 
             closed = await asyncio.to_thread(
                 c.post, f"{BASE}/plans/{plan_id}/cancel", headers=ha
@@ -534,6 +549,231 @@ def agreed_hour_reaches_the_chat(match_id: str, tok_a: str, tok_b: str, activity
                   and plan_ids(ha) == ids_off and await b.nothing("message", 1.0),
                   "a closed plan takes no new answer and no refusal taken back",
                   f"{accept_closed.status_code}/{restore_closed.status_code}")
+
+            # Stage 108 asks the other half of the lifecycle: who may put a called-off plan back on its
+            # feet, what the hour does meanwhile, and how the plan becomes «состоялось» when nobody is
+            # watching a background process. A cancellation belongs to the person who wrote it — the
+            # other half's tap would reopen an arrangement the first one just ended and leave them
+            # answering a question nobody asked them — so the walk knocks on that door from the wrong
+            # hand, retries the right one, and only then takes the plan back.
+            off_row = await pair_row(ha)
+            wrong_hand = await asyncio.to_thread(
+                c.delete, f"{BASE}/plans/{plan_id}/cancel", headers=hb
+            )
+            check(wrong_hand.status_code == 409
+                  and "Only the person who called this plan off" in wrong_hand.text
+                  and (await pair_row(ha))["cancelled_at"] == off_row["cancelled_at"]
+                  and await b.nothing("message", 1.0),
+                  "the partner cannot take back a cancellation that is not theirs",
+                  str(wrong_hand.text)[:120])
+
+            retried = await asyncio.to_thread(
+                c.post, f"{BASE}/plans/{plan_id}/cancel", headers=ha
+            )
+            check(retried.status_code == 204 and plan_ids(ha) == ids_off
+                  and await b.nothing("message", 1.0),
+                  "a cancellation retried is one end, not two lines", f"{len(ids_off)} lines")
+
+            back_up = await asyncio.to_thread(
+                c.delete, f"{BASE}/plans/{plan_id}/cancel", headers=ha
+            )
+            revived = await b.next("message", 3.0)
+            standing_again = await pair_row(ha)
+            check(back_up.status_code == 204
+                  and revived is not None and revived.get("kind") == "plan_agreed"
+                  and len(plan_ids(ha)) == len(ids_off) + 1
+                  and standing_again["status"] == "planned"
+                  and standing_again["cancelled_at"] is None
+                  and "21:00" in str(standing_again["starts_at"])
+                  and standing_again["my_decision"] == standing_again["partner_decision"] == "joined"
+                  and standing_again["can_cancel"] is True,
+                  "the half who called the plan off puts it back, and the hour comes with it",
+                  str(standing_again)[:170])
+
+            # The hour has two doors, and until this stage only the half who named an evening could walk
+            # through one of them: the half who had agreed to it could not move the moment they were
+            # standing on, because their own stale acceptance kept the old instant agreed. Moving the
+            # hour must also cost the pair neither of their answers — they arrange a different evening,
+            # they do not stop wanting the idea — so the walk moves it from the agreeing half and reads
+            # both cards before the new hour is answered.
+            third = moved[:11] + "22:00:00+00:00"
+            mover = await asyncio.to_thread(
+                c.post, f"{BASE}/plans/{plan_id}/hour", headers=hb, json={"when": third}
+            )
+            ended_hour = await b.next("message", 3.0)
+            new_question = await b.next("message", 3.0)
+            asked_card = await my_row(ha)
+            mover_card = await my_row(hb)
+            check(mover.status_code == 204
+                  and ended_hour is not None and ended_hour.get("kind") == "plan_voided"
+                  and new_question is not None and new_question.get("kind") == "plan_rescheduled"
+                  and asked_card["status"] == "rescheduled"
+                  and asked_card["starts_at"] is None
+                  and "22:00" in str(asked_card["pending_hour"])
+                  and asked_card["needs_my_answer"] is True
+                  and asked_card["my_decision"] == asked_card["partner_decision"] == "joined"
+                  and mover_card["needs_my_answer"] is False,
+                  "the half who only agreed moves the evening, and neither answer is lost",
+                  "http=%s frames=%s A=%s/%s/%s/ask=%s/%s/%s B_ask=%s" % (
+                      mover.status_code,
+                      [frame and frame.get("kind") for frame in (ended_hour, new_question)],
+                      asked_card["status"], asked_card["starts_at"], asked_card["pending_hour"],
+                      asked_card["needs_my_answer"], asked_card["my_decision"],
+                      asked_card["partner_decision"], mover_card["needs_my_answer"]))
+
+            lands = await asyncio.to_thread(
+                c.post, f"{BASE}/plans/{plan_id}/hour/confirm", headers=ha, json={"when": third}
+            )
+            landed_frame = await b.next("message", 3.0)
+            landed = await pair_row(ha)
+            check(lands.status_code == 204
+                  and landed_frame is not None and landed_frame.get("kind") == "plan_agreed"
+                  and landed["status"] == "planned"
+                  and "22:00" in str(landed["starts_at"]) and landed["pending_hour"] is None
+                  and landed["needs_my_answer"] is False,
+                  "the other half answers a moved hour from their own card", str(landed)[:160])
+
+            # The chronology this stage's screen exists for is asked in the pair's own words: a place
+            # written for the first time has to be said as a move *from* nothing, and the history the
+            # plan hands back must be the conversation itself rather than a second journal that agrees
+            # with it. Two readers, one list of lines, and whose word each line is differs between them.
+            wrote_place = await asyncio.to_thread(
+                c.patch, words_url, headers=ha, json={"place": "У главного входа"},
+            )
+            place_frame = await b.next("message", 3.0)
+            check(wrote_place.status_code == 200
+                  and wrote_place.json()["place"] == "У главного входа"
+                  and place_frame is not None and place_frame.get("kind") == "plan_changed"
+                  and "место" in str(place_frame.get("body"))
+                  and "не было" in str(place_frame.get("body"))
+                  and "У главного входа" in str(place_frame.get("body")),
+                  "a place named for the first time is said as a move from nothing",
+                  "http=%s kind=%s names_field=%s names_both_edges=%s" % (
+                      wrote_place.status_code, place_frame and place_frame.get("kind"),
+                      "место" in str(place_frame and place_frame.get("body")),
+                      "не было" in str(place_frame and place_frame.get("body"))
+                      and "У главного входа" in str(place_frame and place_frame.get("body"))))
+
+            as_a = (await asyncio.to_thread(c.get, words_url, headers=ha)).json()
+            as_b = (await asyncio.to_thread(c.get, words_url, headers=hb)).json()
+            chat = plan_lines(ha)
+            check([e["id"] for e in as_a["events"]] == [m["id"] for m in chat]
+                  and [e["kind"] for e in as_a["events"]] == [m["kind"] for m in chat]
+                  and len([e for e in as_a["events"] if e["plan"]["is_latest"]]) == 1
+                  and as_a["events"][-1]["plan"]["is_latest"] is True
+                  and all(left["is_own"] != right["is_own"]
+                          for left, right in zip(as_a["events"], as_b["events"]))
+                  and any("место: не было" in str(e["body"]) and "У главного входа" in str(e["body"])
+                          for e in as_a["events"]),
+                  "the plan's history is the pair's conversation, read by both halves",
+                  f"{len(as_a['events'])} events")
+
+            # A meeting becomes «состоялось» without a process that watches the clock: an hour the clock
+            # has left is derived when the row is read, and the plan is completed only once both halves
+            # have said so. The walk therefore needs an hour that has already gone by, and the route
+            # answers one — a pair may still arrange a meeting for fifteen minutes ago.
+            past = time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime(time.time() - 120))
+            to_the_past = await asyncio.to_thread(
+                c.post, f"{BASE}/plans/{plan_id}/hour", headers=ha, json={"when": past}
+            )
+            voided_again = await b.next("message", 3.0)
+            asked_again = await b.next("message", 3.0)
+            check(to_the_past.status_code == 204
+                  and voided_again is not None and voided_again.get("kind") == "plan_voided"
+                  and asked_again is not None and asked_again.get("kind") == "plan_rescheduled",
+                  "the evening is moved onto an hour the clock has already left",
+                  str(asked_again)[:140])
+            confirm_past = await asyncio.to_thread(
+                c.post, f"{BASE}/plans/{plan_id}/hour/confirm", headers=hb, json={"when": past}
+            )
+            stood = await b.next("message", 3.0)
+            out_of_time = await pair_row(ha)
+            check(confirm_past.status_code == 204
+                  and stood is not None and stood.get("kind") == "plan_agreed"
+                  and out_of_time["status"] == "planned"
+                  and out_of_time["hour_passed"] is True
+                  and out_of_time["i_attended"] is False,
+                  "a passed hour is named by the read, not by a process nobody ran",
+                  str(out_of_time)[:170])
+
+            first_mark = await asyncio.to_thread(
+                c.post, f"{BASE}/plans/{plan_id}/complete", headers=ha
+            )
+            half_word = await pair_row(hb)
+            check(first_mark.status_code == 204 and half_word["status"] == "planned"
+                  and half_word["i_attended"] is False and half_word["partner_attended"] is True
+                  and await b.nothing("message", 1.0),
+                  "one half's word that the meeting happened completes nobody's plan",
+                  str(half_word)[:170])
+
+            second_mark = await asyncio.to_thread(
+                c.post, f"{BASE}/plans/{plan_id}/complete", headers=hb
+            )
+            done_frame = await b.next("message", 3.0)
+            meeting = await pair_row(ha)
+            ids_done = plan_ids(ha)
+            marked_again = await asyncio.to_thread(
+                c.post, f"{BASE}/plans/{plan_id}/complete", headers=ha
+            )
+            hour_again = await asyncio.to_thread(
+                c.post, f"{BASE}/plans/{plan_id}/hour", headers=ha, json={"when": third}
+            )
+            words_again = await asyncio.to_thread(
+                c.patch, words_url, headers=ha, json={"note": "После встречи"},
+            )
+            answer_again = await asyncio.to_thread(
+                c.post, f"{BASE}/plans/{plan_id}/accept", headers=hb
+            )
+            cancel_again = await asyncio.to_thread(
+                c.post, f"{BASE}/plans/{plan_id}/cancel", headers=ha
+            )
+            check(second_mark.status_code == 204
+                  and done_frame is not None and done_frame.get("kind") == "plan_completed"
+                  and meeting["status"] == "completed" and meeting["can_cancel"] is False
+                  and marked_again.status_code == 204
+                  and hour_again.status_code == 409 and "no hour left to arrange" in hour_again.text
+                  and words_again.status_code == 409 and "closed" in words_again.text
+                  and answer_again.status_code == 409 and "closed" in answer_again.text
+                  and cancel_again.status_code == 409 and "not a plan to cancel" in cancel_again.text
+                  and plan_ids(ha) == ids_done and await b.nothing("message", 1.0),
+                  "a meeting both halves reported keeps its record against every door",
+                  f"{hour_again.status_code}/{words_again.status_code}/{cancel_again.status_code}")
+
+            # Taking the word back is not a second ending: the pair still stands on the moment they
+            # arranged and has simply stopped claiming it happened, so the line is a change and the
+            # other half's word is left alone.
+            took_word = await asyncio.to_thread(
+                c.delete, f"{BASE}/plans/{plan_id}/complete", headers=hb
+            )
+            unword = await b.next("message", 3.0)
+            open_plan = await pair_row(ha)
+            check(took_word.status_code == 204
+                  and unword is not None and unword.get("kind") == "plan_changed"
+                  and open_plan["status"] == "planned"
+                  and open_plan["i_attended"] is True
+                  and open_plan["partner_attended"] is False,
+                  "a word taken back reopens the plan and leaves the partner's word standing",
+                  str(open_plan)[:170])
+
+        # §7's last question is asked with the socket shut. B's screen has been open on one connection
+        # for the whole walk, so the walk closes it and asks whether an ordinary read of the pair's rows
+        # answers the same thing the frame that was never delivered would have said.
+        moved_note = await asyncio.to_thread(
+            c.patch, words_url, headers=ha, json={"note": "Ждём у входа"},
+        )
+        quiet_row = await pair_row(hb)
+        quiet_chat = plan_lines(hb)
+        check(moved_note.status_code == 200
+              and quiet_row["note"] == "Ждём у входа"
+              and quiet_row["place"] == "У главного входа"
+              and quiet_chat[-1]["kind"] == "plan_changed"
+              and "Ждём у входа" in str(quiet_chat[-1]["body"])
+              and "Билеты у кассы" in str(quiet_chat[-1]["body"]),
+              "a half who missed the frame reads the same change from the API",
+              "http=%s kind=%s old_word=%s new_word=%s place=%s" % (
+                  moved_note.status_code, quiet_chat[-1]["kind"],
+                  "Билеты у кассы" in str(quiet_chat[-1]["body"]),
+                  "Ждём у входа" in str(quiet_chat[-1]["body"]), quiet_row["place"]))
 
     try:
         asyncio.run(drive())
