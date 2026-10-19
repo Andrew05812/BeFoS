@@ -13,10 +13,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Logout
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
@@ -35,10 +37,12 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import app.befos.core.designsystem.AppButton
 import app.befos.core.designsystem.AppButtonVariant
 import app.befos.core.designsystem.AppCard
+import app.befos.core.designsystem.AppTextField
 import app.befos.core.designsystem.AppTopBar
 import app.befos.core.designsystem.Avatar
 import app.befos.core.designsystem.Elev
@@ -228,6 +232,25 @@ fun SettingsScreen(onBack: () -> Unit, onLoggedOut: () -> Unit, onOpenModeration
             Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
                 SectionHeader("Аккаунт")
                 AppButton(
+                    text = "Сменить пароль",
+                    onClick = vm::askPasswordChange,
+                    variant = AppButtonVariant.Tonal,
+                    leadingIcon = Icons.Outlined.Lock,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                if (state.passwordEditorOpen) {
+                    AppCard(modifier = Modifier.fillMaxWidth()) {
+                        PasswordEditor(
+                            state = state,
+                            onCancel = vm::cancelPasswordChange,
+                            onSubmit = vm::submitPasswordChange,
+                            onOldChange = vm::onPasswordOldChange,
+                            onNewChange = vm::onPasswordNewChange,
+                            onConfirmChange = vm::onPasswordConfirmChange,
+                        )
+                    }
+                }
+                AppButton(
                     text = "Выйти из аккаунта",
                     onClick = vm::logout,
                     variant = AppButtonVariant.Tonal,
@@ -284,6 +307,75 @@ fun SettingsScreen(onBack: () -> Unit, onLoggedOut: () -> Unit, onOpenModeration
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+        }
+    }
+}
+
+/**
+ * The three words the account's own door asks for, in the order the server asks them.
+ *
+ * The old word comes first because a refusal must not cost the person a half-written password: the
+ * server checks the new word's shape before it touches the old one, and neither the hash nor the live
+ * sessions move when either question is answered wrong. The confirmation field is here for the same
+ * reason register has it — the word is written once, and there is no second copy to read back from.
+ */
+@Composable
+private fun PasswordEditor(
+    state: SettingsUiState,
+    onCancel: () -> Unit,
+    onSubmit: () -> Unit,
+    onOldChange: (String) -> Unit,
+    onNewChange: (String) -> Unit,
+    onConfirmChange: (String) -> Unit,
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(Spacing.lg),
+        verticalArrangement = Arrangement.spacedBy(Spacing.md),
+    ) {
+        Text(
+            "Новый пароль нужно ввести дважды. После смены ни одно устройство не останется в сессии, " +
+                "включая это, — войти придётся заново.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        AppTextField(
+            value = state.passwordOld,
+            onValueChange = onOldChange,
+            label = "Текущий пароль",
+            isPassword = true,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        AppTextField(
+            value = state.passwordNew,
+            onValueChange = onNewChange,
+            label = "Новый пароль",
+            isPassword = true,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        AppTextField(
+            value = state.passwordConfirm,
+            onValueChange = onConfirmChange,
+            label = "Повторите новый пароль",
+            isPassword = true,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            onImeAction = onSubmit,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.md),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            AppButton(
+                text = "Сменить пароль",
+                onClick = onSubmit,
+                enabled = !state.busy,
+                loading = state.busy,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = onCancel) { Text("Отмена") }
         }
     }
 }

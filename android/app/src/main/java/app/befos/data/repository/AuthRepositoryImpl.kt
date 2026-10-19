@@ -47,6 +47,22 @@ class AuthRepositoryImpl(
         tokenStore.clear()
     }
 
+    /**
+     * The server keeps no session after a changed word — this device's included — so the stored pair
+     * is dropped on the success rather than left for the next refresh to fail on. A token the backend
+     * has already revoked cannot reopen anything, and a screen that still holds it would keep
+     * reporting a session it no longer has.
+     */
+    override suspend fun changePassword(
+        oldPassword: String,
+        newPassword: String,
+        passwordConfirm: String,
+    ): ApiResult<Unit> {
+        val result = api.changePassword(oldPassword, newPassword, passwordConfirm)
+        if (result is ApiResult.Success) tokenStore.clear()
+        return result
+    }
+
     private suspend fun persist(tokens: TokenPairDto, userId: String, email: String) {
         tokenStore.save(StoredAuth(tokens.accessToken, tokens.refreshToken, userId), email.trim())
     }

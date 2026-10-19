@@ -44,6 +44,13 @@ data class RefreshRequest(
     @SerialName("refresh_token") val refreshToken: String,
 )
 
+@Serializable
+data class ChangePasswordRequest(
+    @SerialName("old_password") val oldPassword: String,
+    @SerialName("new_password") val newPassword: String,
+    @SerialName("password_confirm") val passwordConfirm: String,
+)
+
 // ---------- Profile ----------
 @Serializable
 data class PhotoDto(

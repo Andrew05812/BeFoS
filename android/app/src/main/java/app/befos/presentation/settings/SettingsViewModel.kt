@@ -47,6 +47,17 @@ data class SettingsUiState(
     val blocksUnknown: Boolean = false,
     val blocksBusy: Boolean = false,
     val confirmUnblock: BlockedUser? = null,
+    /**
+     * The account's own word, being replaced.
+     *
+     * Three fields rather than one dialog over the profile: the server asks the old word before it
+     * writes the new one, and the new one has to be said twice before it is accepted — the same two
+     * questions registration asks, in the same order.
+     */
+    val passwordEditorOpen: Boolean = false,
+    val passwordOld: String = "",
+    val passwordNew: String = "",
+    val passwordConfirm: String = "",
 )
 
 class SettingsViewModel(
@@ -136,6 +147,72 @@ class SettingsViewModel(
 
     fun askDelete() = _uiState.update { it.copy(confirmDelete = true) }
     fun cancelDelete() = _uiState.update { it.copy(confirmDelete = false) }
+
+    fun askPasswordChange() = _uiState.update {
+        it.copy(passwordEditorOpen = true, message = null, messageIsError = false)
+    }
+
+    /**
+     * Closes the editor and drops the three words with it.
+     *
+     * A half-typed password left in the state is a secret the screen keeps showing after the person
+     * has walked away from it, and it would be carried into the next attempt they open.
+     */
+    fun cancelPasswordChange() = _uiState.update {
+        it.copy(passwordEditorOpen = false, passwordOld = "", passwordNew = "", passwordConfirm = "")
+    }
+
+    fun onPasswordOldChange(value: String) = _uiState.update { it.copy(passwordOld = value) }
+    fun onPasswordNewChange(value: String) = _uiState.update { it.copy(passwordNew = value) }
+    fun onPasswordConfirmChange(value: String) = _uiState.update { it.copy(passwordConfirm = value) }
+
+    /**
+     * Writes the new word, and signs this device out when the server accepts it.
+     *
+     * The two questions the server asks are asked here first, in the same order and with the same
+     * words registration uses, so a person who mistypes does not spend a round trip to learn the
+     * rule. A refusal leaves both words and the session exactly where they were: the account is not
+     * half-changed by an attempt the server did not accept.
+     */
+    fun submitPasswordChange() {
+        if (_uiState.value.busy) return
+        val s = _uiState.value
+        if (s.passwordOld.isEmpty()) {
+            _uiState.update { it.copy(messageIsError = true, message = "Введите текущий пароль.") }
+            return
+        }
+        if (s.passwordNew.length < 8) {
+            _uiState.update { it.copy(messageIsError = true, message = "Пароль должен быть не короче 8 символов.") }
+            return
+        }
+        if (s.passwordNew != s.passwordConfirm) {
+            _uiState.update { it.copy(messageIsError = true, message = "Пароли не совпадают.") }
+            return
+        }
+        _uiState.update { it.copy(busy = true, message = null) }
+        viewModelScope.launch {
+            when (val result = authRepository.changePassword(s.passwordOld, s.passwordNew, s.passwordConfirm)) {
+                is ApiResult.Success -> _uiState.update {
+                    it.copy(
+                        busy = false,
+                        passwordEditorOpen = false,
+                        passwordOld = "",
+                        passwordNew = "",
+                        passwordConfirm = "",
+                        messageIsError = false,
+                        // The account's other devices are signed out by the same write, and this one
+                        // is among them: the screen goes to the login door, so the sentence is for
+                        // whoever comes back with the email still in the field.
+                        message = "Пароль изменён. Все устройства просят войти заново.",
+                        loggedOut = true,
+                    )
+                }
+                is ApiResult.Error -> _uiState.update {
+                    it.copy(busy = false, messageIsError = true, message = result.message)
+                }
+            }
+        }
+    }
 
     fun deleteAccount() {
         if (_uiState.value.busy) return
