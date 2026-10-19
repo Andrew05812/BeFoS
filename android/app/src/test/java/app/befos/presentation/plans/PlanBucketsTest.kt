@@ -330,6 +330,24 @@ class PlanBucketsTest {
     }
 
     @Test
+    fun `an hour the pair called off keeps its place in the record and promises nothing`() {
+        val calledOff = plan(status = PlanStatuses.CANCELLED, startsAt = ahead)
+
+        // The badge on this card says «отменена», and a chip checked over the same hour would say the
+        // pair still stands on it. Cancellation is the one move that retires an hour while the clock is
+        // still ahead of it, so here the state decides the word rather than the clock.
+        assertFalse(planHourIsThePairWord(calledOff, now))
+        val word = planHourWord(calledOff, now)
+        assertTrue(word.orEmpty(), word!!.startsWith("Час был назван: 17"))
+
+        // The same plan, an evening later, is still the pair's history rather than a spent agreement.
+        val spent = plan(status = PlanStatuses.CANCELLED, startsAt = behind, hourPassed = true)
+        val spentWord = planHourWord(spent, now).orEmpty()
+        assertFalse(spentWord, spentWord.startsWith("Договорились"))
+        assertTrue(spentWord, spentWord.startsWith("Час был назван: 14"))
+    }
+
+    @Test
     fun `the pair can write its own words while the arrangement is still open`() {
         assertTrue(canEditPlanWords(plan()))
         assertTrue(canEditPlanWords(plan(status = PlanStatuses.ACCEPTED)))
