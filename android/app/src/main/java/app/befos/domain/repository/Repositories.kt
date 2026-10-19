@@ -44,6 +44,16 @@ interface AuthRepository {
     suspend fun register(email: String, password: String): ApiResult<String>
     suspend fun login(email: String, password: String): ApiResult<String>
     suspend fun logout()
+
+    /**
+     * Write a new word over the account's old one. A success means the device's own session is gone
+     * with every other one the account holds, so the caller must not stay signed in afterwards.
+     */
+    suspend fun changePassword(
+        oldPassword: String,
+        newPassword: String,
+        passwordConfirm: String,
+    ): ApiResult<Unit>
 }
 
 interface ProfileRepository {

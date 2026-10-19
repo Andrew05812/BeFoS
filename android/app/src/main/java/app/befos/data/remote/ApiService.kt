@@ -7,6 +7,7 @@ import app.befos.core.network.apiCallUnit
 import app.befos.data.model.AnswersRequest
 import app.befos.data.model.AuthResponseDto
 import app.befos.data.model.BlockedUsersDto
+import app.befos.data.model.ChangePasswordRequest
 import app.befos.data.model.CompatibilityDto
 import app.befos.data.model.UniverseDto
 import app.befos.data.model.DiscoveryPageDto
@@ -90,6 +91,23 @@ class ApiService(private val client: HttpClient) {
             url(endpoint("auth/logout"))
             setBody(RefreshRequest(refreshToken))
         }
+
+    /**
+     * Replace the account's own word with one the caller says twice.
+     *
+     * The answer carries no token pair on purpose: the server revokes the session this call was made
+     * from together with every other one the account holds, so a fresh pair would be a promise the
+     * backend has just broken. The body names no account — the bearer token already said whose.
+     */
+    suspend fun changePassword(
+        oldPassword: String,
+        newPassword: String,
+        passwordConfirm: String,
+    ): ApiResult<Unit> = client.apiCallUnit {
+        method = HttpMethod.Post
+        url(endpoint("auth/change-password"))
+        setBody(ChangePasswordRequest(oldPassword, newPassword, passwordConfirm))
+    }
 
     // ---------- Users / Profile ----------
     suspend fun getMe(): ApiResult<ProfileDto> =

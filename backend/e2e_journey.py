@@ -3,8 +3,10 @@
 Exercises the full BeFoS value chain with two fresh users who mutually like each
 other so a real match + chat + recommendations flow is produced. A third account is
 created, given the moderator role the way the operator does it, and used to walk one
-complaint from the tap that writes it to the decision that closes it. Every step
-asserts on live backend data; nothing is mocked or hardcoded. All three accounts are
+complaint from the tap that writes it to the decision that closes it. One of the two also
+replaces its own word on the live server, so the erasure of the sessions that word opened is
+measured rather than assumed. Every step asserts on live backend data; nothing is mocked or
+hardcoded. All three accounts are
 deleted at the end, so a run leaves no probe rows in the development database.
 """
 from __future__ import annotations
@@ -1337,13 +1339,48 @@ def main() -> int:
     check(lo.status_code in (200, 204), "logout A", str(lo.status_code))
     la2 = c.post(f"{BASE}/auth/login", json={"email": email_a, "password": pw})
     check(la2.status_code == 200, "login A again", str(la2.status_code))
+    tok_a2 = la2.json()["tokens"]["access_token"]
+    ref_a2 = la2.json()["tokens"]["refresh_token"]
+    ha2 = {"Authorization": f"Bearer {tok_a2}"}
+
+    # 15b. the account's own word, changed on the live server. The step runs on the session step 15
+    # opened again, so the erasure is measured against a pair that had already been used rather than
+    # against a registration nobody signed in from. The walk waits first: seven auth calls in a row is
+    # a density a phone never produces, and a 429 here has to stay a defect.
+    pace()
+    pw_new = "RotatedW0rd!456"
+    guess = c.post(f"{BASE}/auth/change-password", headers=ha2, json={
+        "old_password": "NotTheirWord123", "new_password": pw_new, "password_confirm": pw_new})
+    check(guess.status_code == 401, "a wrong guess at the old word changes nothing", str(guess.status_code))
+    old_still_opens = c.post(f"{BASE}/auth/login", json={"email": email_a, "password": pw})
+    check(old_still_opens.status_code == 200, "the account keeps its word after a failed guess",
+          str(old_still_opens.status_code))
+    rotated = c.post(f"{BASE}/auth/change-password", headers=ha2, json={
+        "old_password": pw, "new_password": pw_new, "password_confirm": pw_new})
+    check(rotated.status_code == 204 and rotated.content == b"", "A changes its own word",
+          str(rotated.status_code))
+    refresh_dies = c.post(f"{BASE}/auth/refresh", json={"refresh_token": ref_a2})
+    check(refresh_dies.status_code == 401, "the session the change was made from cannot renew itself",
+          str(refresh_dies.status_code))
+    old_refused = c.post(f"{BASE}/auth/login", json={"email": email_a, "password": pw})
+    check(old_refused.status_code == 401, "the old word no longer opens the account",
+          str(old_refused.status_code))
+    new_opens = c.post(f"{BASE}/auth/login", json={"email": email_a, "password": pw_new})
+    check(new_opens.status_code == 200, "the new word does", str(new_opens.status_code))
+    # The hour already handed out is not taken back: the access token the pair is standing on stays
+    # valid until its own expiry, which is the boundary stage 109 names as open rather than closed.
+    still_reading = c.get(f"{BASE}/users/me", headers=ha2)
+    check(still_reading.status_code == 200, "a token issued before the change is not recalled by it",
+          str(still_reading.status_code))
+    partner_untouched = c.get(f"{BASE}/users/me", headers=hb)
+    check(partner_untouched.status_code == 200, "one account's word is not the other one's door",
+          str(partner_untouched.status_code))
 
     # 16. unauthorized access rejected
     noauth = c.get(f"{BASE}/users/me")
     check(noauth.status_code in (401, 403), "unauthorized /users/me rejected", str(noauth.status_code))
 
     # 17. delete account
-    tok_a2 = la2.json()["tokens"]["access_token"]
     dele = c.delete(f"{BASE}/users/me", headers={"Authorization": f"Bearer {tok_a2}"})
     check(dele.status_code == 200, "delete account A", str(dele.status_code))
 
