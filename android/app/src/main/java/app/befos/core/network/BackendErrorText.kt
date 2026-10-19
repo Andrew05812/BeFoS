@@ -95,6 +95,10 @@ private val translated: Map<String, String> = mapOf(
     "you are not a participant of this chat." to CHAT_CLOSED,
     "you are not a participant of this match." to CHAT_CLOSED,
     "match not found." to "Пара не найдена. Обновите список.",
+    // The one refusal of the recall. The server answers the same way for a line that belongs to the
+    // partner, a journal page, and a line already taken back, so the words must not name a cause the
+    // person cannot check — only the thing they can act on: it is not there to take any more.
+    "message not found." to "Эту строку уже нельзя забрать.",
     // Frames the live socket refuses. Reached only when this client sends something the
     // server cannot use; the wording stays advice-shaped, never the English contract text.
     "invalid frame." to "Сервер не понял это сообщение. Попробуйте ещё раз.",

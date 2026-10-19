@@ -6,10 +6,12 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -1428,12 +1430,23 @@ fun ChoiceChip(
     }
 }
 
+/**
+ * A chat line.
+ *
+ * [onLongClick] is the hold that asks about this bubble, and it is null wherever the product has no
+ * question to ask: a held line that answers nothing is worse than no gesture at all, and the words
+ * the hold leads to can erase what the bubble shows. The label goes with it because a gesture a
+ * screen-reader cannot be told about is a gesture only sighted people have.
+ */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun MessageBubble(
     body: String,
     isOwn: Boolean,
     footer: String,
     modifier: Modifier = Modifier,
+    onLongClick: (() -> Unit)? = null,
+    onLongClickLabel: String? = null,
 ) {
     val appear = remember { Animatable(0f) }
     LaunchedEffect(Unit) { appear.animateTo(1f, Motion.enterSpring()) }
@@ -1468,6 +1481,13 @@ fun MessageBubble(
                         Modifier
                             .background(MaterialTheme.colorScheme.surface, cornerShape)
                             .border(Elev.hairlineWidth, MaterialTheme.colorScheme.outlineVariant, cornerShape)
+                    }
+                )
+                .then(
+                    if (onLongClick == null) {
+                        Modifier
+                    } else {
+                        Modifier.combinedClickable(onClick = {}, onLongClickLabel = onLongClickLabel, onLongClick = onLongClick)
                     }
                 )
                 .padding(horizontal = Spacing.lg, vertical = Spacing.md),

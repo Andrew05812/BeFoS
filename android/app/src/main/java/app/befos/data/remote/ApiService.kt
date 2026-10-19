@@ -393,6 +393,18 @@ class ApiService(private val client: HttpClient) {
             setBody(MessageRequest(body, clientMsgId))
         }
 
+    /**
+     * Take back a line the person typed. The answer is empty on purpose: the words are gone, so
+     * there is nothing left to hand back, and a line that is not the caller's own — a partner's, a
+     * page of the pair's plan, one already taken back — is refused by the same route and says no
+     * more about itself than an id that never was a line.
+     */
+    suspend fun recallMessage(matchId: String, messageId: String): ApiResult<Unit> =
+        client.apiCallUnit {
+            method = HttpMethod.Delete
+            url(endpoint("matches/$matchId/messages/$messageId"))
+        }
+
     suspend fun markRead(matchId: String): ApiResult<Unit> =
         client.apiCallUnit {
             method = HttpMethod.Post

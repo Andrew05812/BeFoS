@@ -30,6 +30,12 @@ sealed interface ChatEvent {
     data class IncomingMessage(val message: Message) : ChatEvent
     data class Typing(val userId: String, val typing: Boolean) : ChatEvent
     data class Read(val userId: String) : ChatEvent
+    /**
+     * A line the pair's chat no longer holds. The frame arrives for both halves — the one who took
+     * the line back may be reading it on a second device, and the other half has to lose it from the
+     * screen that is already open.
+     */
+    data class Recalled(val messageId: String) : ChatEvent
     data class Presence(val userId: String, val online: Boolean) : ChatEvent
     data class Error(val message: String) : ChatEvent
     /** Live socket opened successfully. */
@@ -198,6 +204,14 @@ interface ChatRepository {
     suspend fun history(matchId: String, beforeId: String? = null): ApiResult<List<Message>>
     suspend fun send(matchId: String, body: String, clientMsgId: String?): ApiResult<Message>
     suspend fun markRead(matchId: String): ApiResult<Unit>
+
+    /**
+     * Take back a line this person typed. Only its own author may end it, and the server answers
+     * the same way whether the line belongs to the partner, is a journal page, or is already gone —
+     * so the screen must not promise a success it cannot check.
+     */
+    suspend fun recall(matchId: String, messageId: String): ApiResult<Unit>
+
     fun socket(matchId: String): Flow<ChatEvent>
     suspend fun sendTyping(matchId: String, typing: Boolean)
 }

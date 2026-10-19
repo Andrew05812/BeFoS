@@ -4,7 +4,7 @@ import uuid
 from collections import namedtuple
 from datetime import datetime, timezone
 
-from sqlalchemy import select, func, and_, bindparam, exists, or_, text, tuple_, DateTime
+from sqlalchemy import select, func, and_, bindparam, exists, or_, text, tuple_, update, DateTime
 from sqlalchemy.dialects.postgresql import UUID as pg_uuid, insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -144,6 +144,35 @@ class ChatRepository:
         self._note_read_by_sender(msg.id, actor_id)
         await self.session.flush()
         return msg
+
+    async def recall(
+        self, match_id: uuid.UUID, sender_id: uuid.UUID, message_id: uuid.UUID
+    ) -> bool:
+        """End one person's own typed line and say whether this tap is the one that ended it.
+
+        The condition is the whole authorisation: the row has to be this sender's, sit in this match,
+        be something a person typed rather than a page of the pair's plan, and still be standing. A
+        tap that finds no such row answers exactly as an absent line does, and the caller turns both
+        into the 404 the chat routes already give for a match that is not yours.
+
+        The words go with the line. `is_deleted` already hides the row from every read the product
+        has, so a body left behind is a sentence nobody will ever be shown and only a leak could show
+        it — the account-deletion path erases the same way, for the same reason. The dedup key goes
+        too, because `find_by_client_id` does not filter deleted rows: a key left on a recalled line
+        would hand a later retry the dead row back as if it were an answer.
+        """
+        stmt = (
+            update(Message)
+            .where(
+                Message.id == message_id,
+                Message.match_id == match_id,
+                Message.sender_id == sender_id,
+                Message.kind == KIND_TEXT,
+                Message.is_deleted.is_(False),
+            )
+            .values(is_deleted=True, body="", client_msg_id=None)
+        )
+        return (await self.session.execute(stmt)).rowcount == 1
 
     async def latest_plan_events(self, match_id: uuid.UUID) -> dict[int, uuid.UUID]:
         """The newest journal line of every idea this pair arranged, by activity.
