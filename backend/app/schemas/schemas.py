@@ -76,6 +76,28 @@ class UserBrief(ORMModel):
     created_at: datetime
 
 
+class SessionCard(BaseModel):
+    """One live session of the account reading it.
+
+    `device` is the `User-Agent` string the session arrived with, stored and returned as it came: the
+    server does not translate a phone's model or a browser's build into words it found neither. It is
+    None for a session that arrived with no header at all, which is a fact worth showing rather than
+    a blank to explain. `current` is the row this very access token opened, so a list of devices can
+    say which one the reader must not cut off.
+    """
+
+    id: str
+    device: str | None
+    signed_in_at: datetime
+    expires_at: datetime
+    current: bool
+
+
+class SessionsPage(BaseModel):
+    sessions: list[SessionCard]
+    has_more: bool
+
+
 # ---------- Profile ----------
 class InterestOut(ORMModel):
     slug: str

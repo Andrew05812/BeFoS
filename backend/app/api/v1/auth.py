@@ -5,7 +5,7 @@ import uuid
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.deps import get_current_user
+from app.auth.deps import get_current_session_id, get_current_user
 from app.core.database import get_session
 from app.core.rate_limit import auth_rate_limit_dependency
 from app.core.security import decode_token
@@ -16,6 +16,8 @@ from app.schemas.schemas import (
     LoginRequest,
     RefreshRequest,
     RegisterRequest,
+    SessionCard,
+    SessionsPage,
     TokenPair,
     UserBrief,
 )
@@ -80,4 +82,59 @@ async def change_password(
     await service.change_password(
         current_user, payload.old_password, payload.new_password, payload.password_confirm
     )
+    return None
+
+
+@router.get("/sessions", response_model=SessionsPage)
+async def read_sessions(
+    current_user: User = Depends(get_current_user),
+    current_session_id: uuid.UUID | None = Depends(get_current_session_id),
+    session: AsyncSession = Depends(get_session),
+):
+    """The devices this account can still open a token pair on, the newest one first.
+
+    Three of the app's routes already write a row here — registration, sign-in and refresh each hand
+    their `user-agent` to `issue_tokens` — and none of them ever gave the row back: the account could
+    learn that it holds a session it does not recognise only by changing its word, which ends every
+    session at once, including the one it is reading the answer with. Nothing in the body names an
+    account, and no other account's row can reach this list whatever its id.
+    """
+    service = AuthService(session)
+    data = await service.own_sessions(current_user, current_session_id)
+    return SessionsPage(
+        sessions=[SessionCard(**card) for card in data["sessions"]],
+        has_more=data["has_more"],
+    )
+
+
+@router.post("/sessions/revoke-all", status_code=204)
+async def revoke_all_sessions(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """End every session the account holds, the caller's own among them, and keep no door.
+
+    The answer is empty for the same reason `change-password`'s is: the row this request stands on is
+    among the ones ended, so handing back a fresh pair would be the server un-revoking its own write.
+    The access token in hand stays usable until it expires on its own — the product revokes sessions,
+    not tokens it has already signed — and `docs/API.md` says which of the two this route ends.
+    """
+    service = AuthService(session)
+    await service.end_all_sessions(current_user)
+    return None
+
+
+@router.post("/sessions/{session_id}/revoke", status_code=204)
+async def revoke_session(
+    session_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """End the one live session of this account that carries that id; nothing else moves.
+
+    An id that is foreign, already ended, or past its expiry answers the same refusal as an id that
+    was never written: this route is not a place to find out which sessions existed.
+    """
+    service = AuthService(session)
+    await service.end_session(current_user, session_id)
     return None
