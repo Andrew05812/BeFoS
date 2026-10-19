@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.deps import get_current_user
 from app.core.database import get_session
 from app.models import User
-from app.schemas.schemas import DiscoveryResponse, LikeResponse, PassResponse
+from app.schemas.schemas import DiscoveryResponse, LikedMeResponse, LikeResponse, PassResponse
 from app.services.discovery_service import DiscoveryService
 from app.services.match_service import MatchService
 
@@ -30,6 +30,22 @@ async def discover(
     service = DiscoveryService(session)
     data = await service.feed(current_user.id, limit=limit, cursor=cursor)
     return DiscoveryResponse(**data)
+
+
+@router.get("/discover/liked-me", response_model=LikedMeResponse)
+async def liked_me(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Who tapped the account, newest tap first, at most fifty of them.
+
+    The tap is written by the route below and, until this one existed, could be read back only as
+    a yes-or-no about one named stranger. This answers the account's own question — «кто меня
+    выбрал» — and says with it whether more taps stand behind the page.
+    """
+    service = DiscoveryService(session)
+    data = await service.liked_me(current_user.id)
+    return LikedMeResponse(**data)
 
 
 @router.post("/users/{user_id}/like", response_model=LikeResponse)

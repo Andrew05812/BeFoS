@@ -400,6 +400,30 @@ class PassResponse(BaseModel):
     passed: bool
 
 
+class IncomingLikeCard(BaseModel):
+    """One tap that pointed at the reader.
+
+    The percent is the number the tapper's own card carried when they tapped, read out of the like
+    row — not a fresh calculation about whether the two still fit. It can be null, and null is not
+    zero: a score nobody measured has no business arriving as the bottom of a scale (defect 72-1).
+    """
+
+    user_id: str
+    name: str
+    age: int
+    city: str
+    photo_url: str | None
+    compatibility: int | None = Field(default=None, ge=0, le=100)
+    liked_at: datetime
+
+
+class LikedMeResponse(BaseModel):
+    """The newest ``LIKED_ME_SHOWN`` taps, and whether the account holds more than those."""
+
+    likes: list[IncomingLikeCard]
+    has_more: bool
+
+
 # ---------- Matches ----------
 class MatchSummary(BaseModel):
     match_id: str

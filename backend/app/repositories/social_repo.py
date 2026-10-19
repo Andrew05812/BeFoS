@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import calendar
 import uuid
-from datetime import date
+from datetime import date, datetime
 
 from sqlalchemy import and_, or_, select, func, delete, update, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -369,11 +369,14 @@ class DiscoveryRepository:
         ]
 
     @staticmethod
-    def _acted_conditions(viewer_id: uuid.UUID, subject) -> list:
-        """The viewer's own gestures and the mutual block, as anti-joins."""
+    def _relationship_conditions(viewer_id: uuid.UUID, subject) -> list:
+        """The pair these two already formed, and the block either side holds.
+
+        Both are anti-joins on the unordered pair, because neither relationship has a direction a
+        reader may forget: a match whose `user_a_id` is the subject and a match whose `user_b_id`
+        is it are the same pair, and so are the two ways one person can block the other.
+        """
         return [
-            ~select(Like.id).where(Like.from_user_id == viewer_id, Like.to_user_id == subject).exists(),
-            ~select(Pass.id).where(Pass.from_user_id == viewer_id, Pass.to_user_id == subject).exists(),
             ~select(Block.id)
             .where(
                 or_(
@@ -390,6 +393,15 @@ class DiscoveryRepository:
                 )
             )
             .exists(),
+        ]
+
+    @staticmethod
+    def _acted_conditions(viewer_id: uuid.UUID, subject) -> list:
+        """The viewer's own gestures and the mutual block, as anti-joins."""
+        return [
+            ~select(Like.id).where(Like.from_user_id == viewer_id, Like.to_user_id == subject).exists(),
+            ~select(Pass.id).where(Pass.from_user_id == viewer_id, Pass.to_user_id == subject).exists(),
+            *DiscoveryRepository._relationship_conditions(viewer_id, subject),
         ]
 
     @staticmethod
@@ -642,3 +654,43 @@ class DiscoveryRepository:
             DiscoveryQueue.viewer_id == viewer_id, DiscoveryQueue.status == READY
         )
         return (await self.session.execute(stmt)).rowcount or 0
+
+    # --- incoming likes --------------------------------------------------------
+    async def liked_me(
+        self, viewer_id: uuid.UUID, limit: int
+    ) -> list[tuple[uuid.UUID, float | None, datetime]]:
+        """The taps that pointed at this account, newest first, at most ``limit`` of them.
+
+        Until stage 112 this table was read in one direction only: ``has_liked_back`` asks whether
+        one specific person tapped, and the deck's anti-join asks whether the viewer tapped them.
+        Nobody asked who tapped the viewer, so the rows a person's own card wrote — with the score
+        that card carried — were readable only by the account that wrote them.
+
+        Three rules decide who appears, and none of them is invented here. The person must still be
+        showable at all (``_candidate_conditions``: not deleted, not deactivated, profile not
+        hidden, onboarding actually finished), the two must not already be a pair, and neither may
+        hold a block on the other (``_relationship_conditions``). A hidden account that tapped
+        before hiding stays out, or the list would go on naming a person who asked not to be named.
+
+        The viewer's own gestures are deliberately *not* copied from the deck's rule. A pass answers
+        the deck's question — «показывать ли этот снова» — while the tap behind it is the other
+        person's answer about the viewer, and that record belongs to them both. Dropping it here
+        would make a pass irrevocable in secret: nobody would ever learn that somebody they passed
+        had said yes.
+        """
+        stmt = (
+            select(Like.from_user_id, Like.compatibility_score, Like.created_at)
+            .join(Profile, Profile.user_id == Like.from_user_id)
+            .join(User, User.id == Profile.user_id)
+            .where(
+                Like.to_user_id == viewer_id,
+                *self._candidate_conditions(viewer_id, Profile.user_id),
+                *self._relationship_conditions(viewer_id, Profile.user_id),
+            )
+            # `created_at` alone is not a total order — two taps can land on the same microsecond —
+            # and a tie the database resolves freely makes the page's order a coin flip. The id
+            # breaks it once, the same way the history cursor's tie-break was fixed (stage 54).
+            .order_by(Like.created_at.desc(), Like.id.desc())
+            .limit(limit)
+        )
+        return [(row[0], row[1], row[2]) for row in (await self.session.execute(stmt)).all()]
