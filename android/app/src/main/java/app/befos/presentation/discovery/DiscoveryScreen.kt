@@ -87,6 +87,7 @@ import app.befos.domain.model.DiscoveryCard
 import app.befos.domain.model.LikeOutcome
 import app.befos.presentation.common.ReportDialog
 import app.befos.presentation.common.identityLine
+import app.befos.presentation.common.likedMeEntryWord
 import kotlinx.coroutines.launch
 
 /** Fraction of the card width past which a released card counts as like/pass. */
@@ -99,7 +100,11 @@ private const val FLICK_VELOCITY_DP_PER_S = 1400f
 private const val DRAG_RESISTANCE = 0.35f
 
 @Composable
-fun DiscoveryScreen(onOpenMatch: (String) -> Unit, onOpenProfile: (String) -> Unit) {
+fun DiscoveryScreen(
+    onOpenMatch: (String) -> Unit,
+    onOpenProfile: (String) -> Unit,
+    onOpenLikedMe: () -> Unit,
+) {
     val vm: DiscoveryViewModel = beFosViewModel {
         DiscoveryViewModel(it.discoveryRepository, it.safetyRepository, it.answeredUsers)
     }
@@ -154,13 +159,18 @@ fun DiscoveryScreen(onOpenMatch: (String) -> Unit, onOpenProfile: (String) -> Un
                 onAction = if (stalled) vm::fetchMore else vm::load,
             )
         }
-        else -> DiscoveryContent(state, vm, onOpenProfile)
+        else -> DiscoveryContent(state, vm, onOpenProfile, onOpenLikedMe)
     }
 }
 
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-private fun DiscoveryContent(state: DiscoveryUiState, vm: DiscoveryViewModel, onOpenProfile: (String) -> Unit) {
+private fun DiscoveryContent(
+    state: DiscoveryUiState,
+    vm: DiscoveryViewModel,
+    onOpenProfile: (String) -> Unit,
+    onOpenLikedMe: () -> Unit,
+) {
     val card = state.current ?: return
     val scope = rememberCoroutineScope()
     val haptics = rememberHaptics()
@@ -210,6 +220,20 @@ private fun DiscoveryContent(state: DiscoveryUiState, vm: DiscoveryViewModel, on
                 text = "ПОДБОР",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            // The door to the incoming taps is drawn while the deck still runs, not after it ends:
+            // a count of them would cost the root screen an extra read (the rule stage 40 set), and
+            // a door that only appears once the cards are gone is the hidden-button trap the client
+            // must not lean on. The profile tab carries the same door under the same word.
+            Text(
+                text = likedMeEntryWord(),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(Spacing.sm))
+                    .clickable(onClick = onOpenLikedMe)
+                    .padding(horizontal = Spacing.sm, vertical = Spacing.xs),
             )
             Text(
                 text = "${state.index + 1} / ${state.cards.size}",

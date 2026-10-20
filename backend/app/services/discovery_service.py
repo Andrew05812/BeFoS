@@ -12,6 +12,7 @@ from app.analytics.tracker import Event, tracker
 from app.compatibility.engine import CompatibilityInput, CompatibilityResult, compute_compatibility
 from app.core.exceptions import NotFoundError, ValidationError
 from app.models import PHOTO_DISPLAY_ORDER, Photo, Profile
+from app.models.base import age_years, utc_today
 from app.repositories.social_repo import DiscoveryRepository, SocialRepository
 from app.repositories.user_repo import UserRepository
 from app.services.compatibility_service import CompatibilityService
@@ -26,6 +27,10 @@ DECK_FLOOR = 40
 # rows that went stale while they waited, and a page needing more than this has more
 # broken promises than a refill can be expected to repair in a single request.
 CLAIM_ROUNDS = 4
+# How many taps one answer of «who liked me» carries. The list is read newest-first, so the cap
+# cuts the oldest taps rather than the newest ones, and the flag beside it says the account had
+# more. The device list made the same bargain for the same reason (auth_service.SESSIONS_SHOWN).
+LIKED_ME_SHOWN = 50
 
 CURSOR_PREFIX = "rank"
 BAD_CURSOR = "The link to the next page is broken."
@@ -301,6 +306,45 @@ class DiscoveryService:
             "next_cursor": encode_cursor(last_rank) if advanced else None,
             "has_more": has_more,
         }
+
+
+    async def liked_me(self, viewer_id: uuid.UUID) -> dict:
+        """Who tapped this account, with the number their own card carried at that moment.
+
+        Nothing here is recomputed. The deck spends a compatibility engine per card because it has
+        to rank candidates nobody has scored yet; a row of ``likes`` already carries the percent the
+        tapper was shown when they tapped (stage 26 wrote it into the gesture), and re-deriving it
+        now would answer the reader's question with a number that was never anybody's reason.
+
+        A score that is absent stays absent. The column is nullable, and the schema has never been
+        told otherwise; answering `0` would dress an unread value up as a measured one, which is
+        the defect 72-1 named for the compatibility bars.
+        """
+        rows = await self.discovery.liked_me(viewer_id, LIKED_ME_SHOWN + 1)
+        shown = rows[:LIKED_ME_SHOWN]
+        ids = [row[0] for row in shown]
+        # Three batch reads for the whole page, none of them inside the loop: the same card
+        # projection the match list pays for (name, birth date, city) and the one photo that leads.
+        profiles = {p.user_id: p for p in await self.users.get_profile_cards(ids)}
+        photos = await self.users.get_primary_photos(ids)
+        today = utc_today()
+        likes: list[dict] = []
+        for tapper_id, score, tapped_at in shown:
+            profile = profiles.get(tapper_id)
+            if profile is None:
+                continue
+            likes.append(
+                {
+                    "user_id": str(tapper_id),
+                    "name": profile.name,
+                    "age": age_years(profile.birth_date, today),
+                    "city": profile.city,
+                    "photo_url": photos.get(tapper_id),
+                    "compatibility": None if score is None else int(round(score * 100)),
+                    "liked_at": tapped_at,
+                }
+            )
+        return {"likes": likes, "has_more": len(rows) > LIKED_ME_SHOWN}
 
 
     async def get_public_profile(

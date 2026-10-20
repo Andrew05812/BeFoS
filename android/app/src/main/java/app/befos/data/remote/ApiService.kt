@@ -12,6 +12,7 @@ import app.befos.data.model.CompatibilityDto
 import app.befos.data.model.UniverseDto
 import app.befos.data.model.DiscoveryPageDto
 import app.befos.data.model.InterestListDto
+import app.befos.data.model.LikedMeDto
 import app.befos.data.model.LikeResponseDto
 import app.befos.data.model.LoginRequest
 import app.befos.data.model.MatchDetailDto
@@ -281,6 +282,18 @@ class ApiService(private val client: HttpClient) {
             url(endpoint("discover"))
             parameter("limit", limit)
             if (cursor != null) parameter("cursor", cursor)
+        }
+
+    /**
+     * Who tapped this account, newest first, at most fifty of them. The deck never showed the
+     * tap: a card leaves it once the account answers, so a heart that came back had no place to
+     * be read. No identifier travels with this call — the token says whose inbox it is — and the
+     * percent each row carries is the one the tap was made carrying, not a fresh score.
+     */
+    suspend fun likedMe(): ApiResult<LikedMeDto> =
+        client.apiCall {
+            method = HttpMethod.Get
+            url(endpoint("discover/liked-me"))
         }
 
     suspend fun like(userId: String): ApiResult<LikeResponseDto> =

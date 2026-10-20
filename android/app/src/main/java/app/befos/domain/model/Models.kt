@@ -233,6 +233,40 @@ data class DiscoveryPage(
     val hasMore: Boolean,
 )
 
+/**
+ * One person who tapped the account, as the server's like row remembers them.
+ *
+ * The deck is the only other place this person was ever visible, and it showed them going the
+ * other way: until this read existed, a heart that came back never came back as anything.
+ * `compatibility` is the percent the tap carried — the number the tapper was shown, read out of
+ * the row the tap wrote, not recomputed here; null means the row carries no percent at all, and
+ * the row says so rather than borrowing a zero. `likedAt` is the server's instant kept as text,
+ * and a row whose text cannot be read as a moment shows no moment.
+ */
+data class IncomingLike(
+    val userId: String,
+    val name: String,
+    val age: Int,
+    val city: String,
+    val photoUrl: String?,
+    val compatibility: Int?,
+    val likedAt: String,
+)
+
+/**
+ * What the account's own read of its incoming likes answered: the rows it named, and whether
+ * it stopped.
+ *
+ * There is no cursor here, unlike the deck: this page is ordered by when the tap happened, and a
+ * tap does not leave the list when it is read — only when the pair forms or the person hides. So
+ * the newest fifty are enough to say whether anything older waits behind them, which is exactly
+ * what [truncated] claims.
+ */
+data class LikedMePage(
+    val likes: List<IncomingLike>,
+    val truncated: Boolean,
+)
+
 data class PublicProfile(
     val userId: String,
     val name: String,

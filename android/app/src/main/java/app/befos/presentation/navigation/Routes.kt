@@ -72,6 +72,11 @@ object Routes {
     const val PUBLIC_PROFILE = "user/{$USER_ARG}"
     fun publicProfile(userId: String) = "user/$userId"
 
+    // Who tapped the account. One route, no identifier, like the moderation queue: whose inbox this
+    // is comes from the session, and `GET /discover/liked-me` reads the token on every request, so
+    // reaching the page by a restored back stack shows the reader their own taps and nobody else's.
+    const val LIKED_ME = "likedMe"
+
     // The moderation queue. One route, no identifier: whose complaints these are comes from the
     // session. The route is a place to stand, not a door — `GET /reports` reads the role off the
     // account row on every request, so reaching this screen by any other way than the entry on

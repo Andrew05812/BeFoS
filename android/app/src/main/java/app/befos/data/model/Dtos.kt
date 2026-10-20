@@ -354,6 +354,28 @@ data class DiscoveryPageDto(
     @SerialName("has_more") val hasMore: Boolean = false,
 )
 
+/**
+ * Who tapped the account, newest tap first. `compatibility` is the percent the tap was made
+ * carrying, read out of the like row itself — the client must not recompute it, and a null
+ * stays null rather than turning into a zero the tapper never saw.
+ */
+@Serializable
+data class IncomingLikeDto(
+    @SerialName("user_id") val userId: String,
+    val name: String,
+    val age: Int,
+    val city: String,
+    @SerialName("photo_url") val photoUrl: String? = null,
+    val compatibility: Int? = null,
+    @SerialName("liked_at") val likedAt: String = "",
+)
+
+@Serializable
+data class LikedMeDto(
+    val likes: List<IncomingLikeDto> = emptyList(),
+    @SerialName("has_more") val hasMore: Boolean = false,
+)
+
 @Serializable
 data class LikeResponseDto(
     val liked: Boolean = false,

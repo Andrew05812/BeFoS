@@ -7,6 +7,7 @@ import app.befos.domain.model.Compatibility
 import app.befos.domain.model.DiscoveryPage
 import app.befos.domain.model.Interest
 import app.befos.domain.model.LikeOutcome
+import app.befos.domain.model.LikedMePage
 import app.befos.domain.model.MatchSummary
 import app.befos.domain.model.Message
 import app.befos.domain.model.OnboardingData
@@ -115,6 +116,13 @@ interface TestRepository {
 
 interface DiscoveryRepository {
     suspend fun feed(limit: Int, cursor: String?): ApiResult<DiscoveryPage>
+
+    /**
+     * The account's own inbox of taps. Read-only, and it carries no cursor: a tap stays in the
+     * list while it is being read, unlike a card leaving the deck, so the page that answered is
+     * the page the screen shows, and [LikedMePage.truncated] is the only cut it can hide.
+     */
+    suspend fun likedMe(): ApiResult<LikedMePage>
     suspend fun like(userId: String): ApiResult<LikeOutcome>
     suspend fun pass(userId: String): ApiResult<Unit>
 }

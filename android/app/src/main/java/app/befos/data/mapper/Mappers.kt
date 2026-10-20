@@ -7,6 +7,7 @@ import app.befos.data.model.CategoryScoreDto
 import app.befos.data.model.CompatibilityDto
 import app.befos.data.model.DiscoveryCardDto
 import app.befos.data.model.ExplanationItemDto
+import app.befos.data.model.IncomingLikeDto
 import app.befos.data.model.InterestDto
 import app.befos.data.model.MatchSummaryDto
 import app.befos.data.model.MessageDto
@@ -43,6 +44,7 @@ import app.befos.domain.model.Connection
 import app.befos.domain.model.DeviceSession
 import app.befos.domain.model.DiscoveryCard
 import app.befos.domain.model.Explanation
+import app.befos.domain.model.IncomingLike
 import app.befos.domain.model.Interest
 import app.befos.domain.model.MatchSummary
 import app.befos.domain.model.Message
@@ -190,6 +192,16 @@ fun DiscoveryCardDto.toDomain() = DiscoveryCard(
     compatibility = compatibility,
     sharedInterestsCount = sharedInterestsCount,
     highlight = highlight,
+)
+
+fun IncomingLikeDto.toDomain() = IncomingLike(
+    userId = userId,
+    name = name,
+    age = age,
+    city = city,
+    photoUrl = ApiConfig.absolute(photoUrl),
+    compatibility = compatibility,
+    likedAt = likedAt,
 )
 
 fun PublicProfileDto.toDomain() = PublicProfile(

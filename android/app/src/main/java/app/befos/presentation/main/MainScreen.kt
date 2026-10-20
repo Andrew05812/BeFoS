@@ -60,6 +60,7 @@ fun MainScreen(
     onOpenSettings: () -> Unit,
     onOpenTest: () -> Unit,
     onOpenMyProfile: () -> Unit,
+    onOpenLikedMe: () -> Unit,
     onLoggedOut: () -> Unit,
 ) {
     // Saveable, not plain remember: NavHost disposes MAIN when the user opens a chat,
@@ -95,7 +96,11 @@ fun MainScreen(
         val contentModifier = Modifier.padding(padding)
         when (tab) {
             0 -> androidx.compose.foundation.layout.Box(contentModifier) {
-                DiscoveryScreen(onOpenMatch = onOpenChat, onOpenProfile = onOpenProfile)
+                DiscoveryScreen(
+                    onOpenMatch = onOpenChat,
+                    onOpenProfile = onOpenProfile,
+                    onOpenLikedMe = onOpenLikedMe,
+                )
             }
             1 -> androidx.compose.foundation.layout.Box(contentModifier) {
                 MatchListScreen(onOpenChat = onOpenChat, onGoDiscover = { tab = 0 })
@@ -106,6 +111,7 @@ fun MainScreen(
                     onSettings = onOpenSettings,
                     onTest = onOpenTest,
                     onOpenMyProfile = onOpenMyProfile,
+                    onOpenLikedMe = onOpenLikedMe,
                     onLoggedOut = onLoggedOut,
                 )
             }
