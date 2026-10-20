@@ -81,7 +81,7 @@ def test_the_stand_carries_a_path_for_the_inbox() -> None:
     assert "liked_me" in paths, (
         "the hot-path harness has no row for `GET /discover/liked-me`, so the door stage 112 "
         "opened is priced by nobody, while the screen next to it in the same flow — the deck — "
-        "has carried a row in the same table since stage 20"
+        "has carried a row in the same table since stage 27"
     )
 
 
