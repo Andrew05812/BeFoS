@@ -31,6 +31,10 @@ CLAIM_ROUNDS = 4
 # cuts the oldest taps rather than the newest ones, and the flag beside it says the account had
 # more. The device list made the same bargain for the same reason (auth_service.SESSIONS_SHOWN).
 LIKED_ME_SHOWN = 50
+# How many dismissed people one page of the account's own pass list carries. The same bargain as the
+# inbox and for the same reason: the read is newest-first, so the cap cuts the oldest answers, and
+# the flag beside it admits the rest exist.
+PASSED_SHOWN = 50
 
 CURSOR_PREFIX = "rank"
 BAD_CURSOR = "The link to the next page is broken."
@@ -346,6 +350,72 @@ class DiscoveryService:
             )
         return {"likes": likes, "has_more": len(rows) > LIKED_ME_SHOWN}
 
+    async def passed(self, viewer_id: uuid.UUID) -> dict:
+        """Whom this account dismissed, newest answer first, at most ``PASSED_SHOWN`` of them.
+
+        The read is the mirror of the inbox and shares its projection, not its rule: the rows are the
+        reader's own gestures, so they are addressed by who wrote them, and each card is built from
+        the batch reads the inbox already pays for.
+        """
+        cards, rows = await self._passed_page(viewer_id)
+        return {"passed": cards, "has_more": len(rows) > PASSED_SHOWN}
+
+    async def _passed_page(self, viewer_id: uuid.UUID) -> tuple[list[dict], list]:
+        rows = await self.discovery.passed(viewer_id, PASSED_SHOWN + 1)
+        shown = rows[:PASSED_SHOWN]
+        ids = [row[0] for row in shown]
+        profiles = {p.user_id: p for p in await self.users.get_profile_cards(ids)}
+        photos = await self.users.get_primary_photos(ids)
+        today = utc_today()
+        cards: list[dict] = []
+        for passed_id, passed_at in shown:
+            profile = profiles.get(passed_id)
+            if profile is None:
+                continue
+            cards.append(
+                {
+                    "user_id": str(passed_id),
+                    "name": profile.name,
+                    "age": age_years(profile.birth_date, today),
+                    "city": profile.city,
+                    "photo_url": photos.get(passed_id),
+                    "passed_at": passed_at,
+                }
+            )
+        return cards, rows
+
+    async def unpass(self, viewer_id: uuid.UUID, target_id: uuid.UUID) -> dict:
+        """Take one's own pass back, and answer with the list that is left.
+
+        Sitting with the deck rather than with ``MatchService.pass_user`` is the point: the gesture is
+        two records, and only the one that owns the queue can clear it. ``_reject_unavailable`` in the
+        like path is what makes a pass unreachable, together with ``new_candidate_ids`` refusing any
+        candidate the deck has already held — deleting the ``passes`` row alone would leave that
+        second lock in place and put the person on no list at all.
+
+        The pair lock is the same one a like, a block and a purge take, so a retry racing the first
+        DELETE cannot produce two releases: whichever request holds the row when its turn comes is
+        the one that removes it, and the other answers the same 404 as a stranger would. Self answers
+        422 instead, the way blocking yourself does — a row that could never exist is not a missing
+        one, and 404 would send the caller looking for an answer they never gave. The sentence is the
+        one ``MatchService._reject_unavailable`` already gives for a pass aimed at yourself, because
+        it is the same input error seen from the other side; a second wording for one fact is how two
+        screens start disagreeing about it.
+
+        What comes back is the page, not a boolean: the screen that asked paints the list the server
+        actually holds, the same bargain ``SafetyService.unblock`` struck.
+        """
+        if viewer_id == target_id:
+            raise ValidationError("You cannot act on your own profile.")
+        await self.social.lock_pair(viewer_id, target_id)
+        if not await self.social.delete_pass(viewer_id, target_id):
+            # A person this account never passed and a person nobody holds answer alike, so the route
+            # cannot be used to ask whether some other pair has an answer written.
+            raise NotFoundError("You have not passed this user.")
+        await self.discovery.deck_release(viewer_id, target_id)
+        await self.session.commit()
+        cards, rows = await self._passed_page(viewer_id)
+        return {"passed": cards, "has_more": len(rows) > PASSED_SHOWN}
 
     async def get_public_profile(
         self, viewer_id: uuid.UUID, target_id: uuid.UUID, *, for_match_member: bool = False

@@ -92,10 +92,22 @@ class SocialRepository:
             .on_conflict_do_nothing(constraint="uq_pass_pair")
         )
 
-    async def delete_pass(self, from_id: uuid.UUID, to_id: uuid.UUID) -> None:
-        await self.session.execute(
-            delete(Pass).where(Pass.from_user_id == from_id, Pass.to_user_id == to_id)
-        )
+    async def delete_pass(self, from_id: uuid.UUID, to_id: uuid.UUID) -> bool:
+        """Take the answer back, and say whether this request is the one that took it.
+
+        The like path called this for its side effect and never looked at the answer. The undo route
+        has to look: under the pair lock two requests can both reach the DELETE, and only the one that
+        actually removed a row is allowed to say the deck is open again. The other gets the same
+        "not found" as a stranger's pair, the way ``remove_block`` answers.
+        """
+        removed = (
+            await self.session.execute(
+                delete(Pass)
+                .where(Pass.from_user_id == from_id, Pass.to_user_id == to_id)
+                .returning(Pass.id)
+            )
+        ).scalar()
+        return removed is not None
 
     async def has_liked_back(self, from_id: uuid.UUID, to_id: uuid.UUID) -> bool:
         """True if `to_id` already liked `from_id` (i.e. a mutual like exists)."""
@@ -655,6 +667,20 @@ class DiscoveryRepository:
         )
         return (await self.session.execute(stmt)).rowcount or 0
 
+    async def deck_release(self, viewer_id: uuid.UUID, candidate_id: uuid.UUID) -> int:
+        """Forget the deck's memory of one pair, so that person can be offered again.
+
+        One row, addressed by the pair — never the viewer's whole queue. A release that cleared
+        everything behind it would hand back cards the deck already served and re-rank a deck that
+        was working, and the rank a released candidate gets later comes from ``deck_next_rank``,
+        which is the tail of the same ordering.
+        """
+        stmt = delete(DiscoveryQueue).where(
+            DiscoveryQueue.viewer_id == viewer_id,
+            DiscoveryQueue.candidate_id == candidate_id,
+        )
+        return (await self.session.execute(stmt)).rowcount or 0
+
     # --- incoming likes --------------------------------------------------------
     async def liked_me(
         self, viewer_id: uuid.UUID, limit: int
@@ -694,3 +720,39 @@ class DiscoveryRepository:
             .limit(limit)
         )
         return [(row[0], row[1], row[2]) for row in (await self.session.execute(stmt)).all()]
+
+    # --- the account's own passes ----------------------------------------------
+    async def passed(
+        self, viewer_id: uuid.UUID, limit: int
+    ) -> list[tuple[uuid.UUID, datetime]]:
+        """Who this account dismissed, newest answer first, at most ``limit`` of them.
+
+        The rows are read in one direction only: ``from_user_id`` is the reader, and a row where the
+        reader is the *passed* side belongs to the other person's list. That is the same one-way rule
+        the blocked list keeps, and for the same reason — the read would otherwise tell one person
+        what another decided about them.
+
+        Only ``_candidate_conditions`` is copied from the deck's rule, and the two halves left out
+        are left out on purpose. The preference filters are the deck's question — who to offer next —
+        while this is a record of answers already given: changing one's age range or city must not
+        quietly delete somebody from a list the account can undo an answer on. And the block and
+        match anti-joins of ``_relationship_conditions`` guard an invitation to meet, which this page
+        is not; the undo route re-applies all of them when the pair goes back into the deck.
+
+        A pass that a later like undid is simply not here, because it is not in the table: stage 26
+        made ``like`` delete the pass row, and this read follows the row rather than the history.
+        """
+        stmt = (
+            select(Pass.to_user_id, Pass.created_at)
+            .join(Profile, Profile.user_id == Pass.to_user_id)
+            .join(User, User.id == Profile.user_id)
+            .where(
+                Pass.from_user_id == viewer_id,
+                *self._candidate_conditions(viewer_id, Profile.user_id),
+            )
+            # The pair's own timestamp is not a total order — two swipes inside one microsecond are
+            # common once a deck is walked fast — so the id decides, as the inbox read does.
+            .order_by(Pass.created_at.desc(), Pass.id.desc())
+            .limit(limit)
+        )
+        return [(row[0], row[1]) for row in (await self.session.execute(stmt)).all()]
