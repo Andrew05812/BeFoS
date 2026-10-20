@@ -622,6 +622,33 @@ def _build_paths():
 
         return await liked_me_route(current_user=ctx["viewer_user"], session=session)
 
+    async def passed_list(session, ctx):
+        # The list stage 114 opened, priced by the handler the route dispatches: the route hands
+        # the work to `DiscoveryService.passed` and assembles the answer into
+        # `PassedUsersResponse`, and re-assembling those steps here is how stage 76 and stage 77
+        # each published yesterday's call as today's number. The reader comes from the context,
+        # outside the window. Unlike the inbox this door needs no setup: `_seed_activity` has
+        # been passing 40 % of the crowd off the viewer since stage 20, so the stand already
+        # holds the page — a row shot as-is prices the real list, not an empty box.
+        from app.api.v1.discover import passed_users as passed_users_route
+
+        return await passed_users_route(current_user=ctx["viewer_user"], session=session)
+
+    async def undo_pass(session, ctx):
+        from app.api.v1.discover import undo_pass as undo_pass_route
+
+        peers = ctx["unpass_peers"]
+        # A fresh target per run, the same bargain the `like` path struck: the second return of
+        # one pass answers 404 and writes nothing, so a static target would time a refusal after
+        # the first call and publish it as the price of the gesture. The pool is addressed in
+        # `_context`, outside every window, from the viewer's own `passes` rows; the return
+        # clears them whatever the deck's filter says, so the pool needs no candidate conditions.
+        target = peers[ctx["unpass_turn"] % len(peers)]
+        ctx["unpass_turn"] += 1
+        return await undo_pass_route(
+            target, current_user=ctx["viewer_user"], session=session
+        )
+
     async def session_refresh(session, ctx):
         # The call a client makes when its access token died: redeem the stored refresh token and
         # mint the pair that replaces it. The redeemed string is replaced in the context by the one
@@ -666,6 +693,8 @@ def _build_paths():
         "deck_exhausted": deck_exhausted,
         "universe_map": universe_map,
         "liked_me": liked_me,
+        "passed": passed_list,
+        "unpass": undo_pass,
         "session_refresh": session_refresh,
         "session_logout": session_logout,
     }
@@ -875,6 +904,24 @@ async def _context(engine) -> dict:
                 )
             ).scalars()
         )
+        # People the viewer has actually passed: the return path rotates its undo over these,
+        # because the gesture consumes its own row and a second return of the same pass answers
+        # 404. The pool is addressed here — before any window opens — the same way `like_peers`
+        # is; `_seed_activity` wrote every one of these rows. Showability is not part of the
+        # address: the return clears the answer whatever the deck's filter says about the person.
+        unpass_peers = list(
+            (
+                await session.execute(
+                    text(
+                        "SELECT ps.to_user_id FROM passes ps "
+                        "JOIN users u ON u.id = ps.to_user_id "
+                        "WHERE ps.from_user_id = :v AND u.is_active AND NOT u.is_deleted "
+                        "ORDER BY md5(u.email::text) LIMIT 64"
+                    ),
+                    {"v": viewer},
+                )
+            ).scalars()
+        )
     return {
         "viewer_email": VIEWER_EMAIL,
         "viewer_id": viewer,
@@ -883,6 +930,8 @@ async def _context(engine) -> dict:
         "match_id": match_id,
         "like_peers": like_peers,
         "like_turn": 0,
+        "unpass_peers": unpass_peers,
+        "unpass_turn": 0,
     }
 
 
