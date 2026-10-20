@@ -42,6 +42,12 @@ MAINTENANCE_DB = os.environ.get("SCALE_MAINT_DB", "postgres")
 VIEWER_EMAIL = "scale_probe_viewer@befos.test"
 PASSWORD = "Demo12345"
 DECK_SIZE = 20
+# Incoming taps the inbox setup writes: one per this many accounts on the stand, with a floor of
+# `LIKED_ME_SHOWN + 1` so the measured page always has a queue behind its fifty cards. A tap is
+# the one social row the stand never pointed *at* the viewer before stage 113 — passes, matches
+# and the `like` path all start from the viewer — so without this knob the inbox row would price
+# an empty list.
+LIKED_ME_TAPS_DIVISOR = 10
 # The string the stand writes into `refresh_tokens.user_agent`. Named because the session paths
 # mint rows the crowd never had, and a reader of the table has to be able to tell a session this
 # harness made from a session somebody else's run left behind.
@@ -606,6 +612,16 @@ def _build_paths():
             ctx["match_id"], current_user=ctx["viewer_user"], session=session
         )
 
+    async def liked_me(session, ctx):
+        # The inbox stage 112 opened, priced by the handler the route dispatches: the route hands
+        # the work to `DiscoveryService.liked_me` and assembles the answer into `LikedMeResponse`,
+        # and re-assembling those steps here is how stage 76 and stage 77 each published yesterday's
+        # call as today's number. The reader arrives the way `get_current_user` would hand it over,
+        # from the context and outside the window.
+        from app.api.v1.discover import liked_me as liked_me_route
+
+        return await liked_me_route(current_user=ctx["viewer_user"], session=session)
+
     async def session_refresh(session, ctx):
         # The call a client makes when its access token died: redeem the stored refresh token and
         # mint the pair that replaces it. The redeemed string is replaced in the context by the one
@@ -649,6 +665,7 @@ def _build_paths():
         "like": like,
         "deck_exhausted": deck_exhausted,
         "universe_map": universe_map,
+        "liked_me": liked_me,
         "session_refresh": session_refresh,
         "session_logout": session_logout,
     }
@@ -668,7 +685,67 @@ def _build_setups():
         "answers_submit": _answer_payload,
         "session_refresh": _prime_session,
         "session_logout": _prime_sessions,
+        "liked_me": _seed_incoming_taps,
     }
+
+
+async def _seed_incoming_taps(session, ctx) -> None:
+    """Point taps from the crowd at the viewer, before the inbox is timed and outside its window.
+
+    Every social row the stand writes about the viewer points outward: `_seed_activity` passes and
+    pairs them with slices of the crowd, and the `like` path taps fresh peers. The rows stage 112's
+    door reads — `likes` with `to_user_id` equal to the viewer — were written by nobody, so a path
+    without this setup would publish the price of an empty inbox as the price of the page.
+
+    The likers are exactly the accounts the door can name at that moment: active, not deleted,
+    onboarded, not hidden, not the viewer, and not already a pair of theirs. The last condition is
+    the one that decides the count: `_seed_activity` pairs the viewer with the newest 20/60/60
+    accounts of the crowd, and `liked_me` drops a formed pair (`_relationship_conditions`), so
+    without it the seeded rows would silently outnumber the readable ones and the document's
+    «число запросов за вызов» would describe a page the screen never shows. Blocks are the other
+    half of that anti-join and the stand seeds none.
+
+    The percent is written as a number because the door answers with the stored
+    `likes.compatibility_score` (defect 72-1 taught the row to keep its own number), and the taps
+    step back in time by their rank, so the page's `(created_at DESC, id DESC)` order reads a real
+    queue rather than one timestamp a sort resolves freely.
+    """
+    from sqlalchemy import text
+
+    from app.services.discovery_service import LIKED_ME_SHOWN
+
+    await session.execute(
+        text(
+            """
+            WITH pool AS (
+                SELECT u.id, row_number() OVER (ORDER BY md5(u.email::text)) AS n,
+                       count(*) OVER () AS total
+                FROM users u JOIN profiles p ON p.user_id = u.id
+                WHERE u.is_active AND NOT u.is_deleted
+                  AND p.is_hidden IS FALSE AND p.onboarding_completed_at IS NOT NULL
+                  AND u.id <> :viewer
+                  AND NOT EXISTS (
+                      SELECT 1 FROM matches m
+                      WHERE (m.user_a_id = :viewer AND m.user_b_id = u.id)
+                         OR (m.user_b_id = :viewer AND m.user_a_id = u.id)
+                  )
+            )
+            INSERT INTO likes (id, from_user_id, to_user_id, compatibility_score,
+                               created_at, updated_at)
+            SELECT gen_random_uuid(), pool.id, :viewer, 0.72,
+                   now() - make_interval(mins => pool.n::int), now()
+            FROM pool
+            WHERE pool.n <= GREATEST(pool.total / :divisor, :floor)
+            ON CONFLICT DO NOTHING
+            """
+        ),
+        {
+            "viewer": ctx["viewer_id"],
+            "divisor": LIKED_ME_TAPS_DIVISOR,
+            "floor": LIKED_ME_SHOWN + 1,
+        },
+    )
+    await session.commit()
 
 
 async def _empty_deck(session, ctx) -> None:
