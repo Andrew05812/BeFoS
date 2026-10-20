@@ -131,9 +131,9 @@ async def _seed(asyncpg, database: str, size: int, password_hash: str) -> dict:
 
         await conn.execute(
             """
-            INSERT INTO users (id, email, password_hash, is_active, is_verified, is_deleted, created_at, updated_at)
+            INSERT INTO users (id, email, password_hash, is_active, is_verified, is_deleted, is_moderator, created_at, updated_at)
             SELECT gen_random_uuid(), 'scale_' || g || '@befos.test', $1::text,
-                   true, true, false, now() - make_interval(mins => g), now() - make_interval(mins => g)
+                   true, true, false, false, now() - make_interval(mins => g), now() - make_interval(mins => g)
             FROM generate_series(1, $2::int) g
             ON CONFLICT DO NOTHING
             """,
@@ -142,8 +142,8 @@ async def _seed(asyncpg, database: str, size: int, password_hash: str) -> dict:
         )
         await conn.execute(
             """
-            INSERT INTO users (id, email, password_hash, is_active, is_verified, is_deleted, created_at, updated_at)
-            VALUES (gen_random_uuid(), $1, $2, true, true, false, now(), now())
+            INSERT INTO users (id, email, password_hash, is_active, is_verified, is_deleted, is_moderator, created_at, updated_at)
+            VALUES (gen_random_uuid(), $1, $2, true, true, false, false, now(), now())
             ON CONFLICT (email) DO NOTHING
             """,
             VIEWER_EMAIL,
