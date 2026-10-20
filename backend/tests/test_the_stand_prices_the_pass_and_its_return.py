@@ -1,7 +1,7 @@
 """The pair of doors stage 114 opened left the stand without a price, and its open end said so.
 
 `CHANGELOG.md` recorded the gap in stage 114's own open end: the latency table of
-`docs/SCALE_PLAN.md` names seventeen paths, and neither `GET /api/v1/discover/passed` nor
+`docs/SCALE_PLAN.md` then named seventeen paths, and neither `GET /api/v1/discover/passed` nor
 `DELETE /api/v1/users/{id}/pass` is among them — the newest reversible gesture of the app carries
 no number the way the tap that sits beside it on the same card has carried one since stage 26.
 The instrument cannot simply be pointed at the two doors: the pass read needs the viewer's own
