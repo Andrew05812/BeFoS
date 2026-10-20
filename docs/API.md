@@ -1778,7 +1778,8 @@ complaint that is being closed needs a comment saying why.»), коммента�
 `moderator_id` — `ON DELETE RESTRICT`, и это не перестраховка: accounts в этом продукте не
 удаляются жёстко, а запись о том, что было решено о человеке, не должна становиться досягаемой
 вопросом о том, работает ли решавший ещё здесь. `GET /reports/{report_id}` отдаёт её целиком, от
-первого движения к последнему, и вместе с ней — `allowed_next_statuses` (`backend/app/schemas/schemas.py:683`):
+первого движения к последнему, и вместе с ней — `allowed_next_statuses`
+(`backend/app/schemas/schemas.py:723`):
 статусы, в которые эта жалоба ещё может уйти, снятые с той же таблицы `ALLOWED_TRANSITIONS`, против которой
 проверяет запрос и маршрут записи (`backend/app/services/moderation_service.py:92`, сверка при записи — `:131`), поэтому экран решения
 рисует только те переходы, которые сервер ещё не отверг; у закрытой жалобы список пуст, а не прежний путь.
@@ -1792,7 +1793,7 @@ decide a complaint about their own account.»): роль говорит, кто 
 модераторов и пригласительных ссылок в продукте нет: `is_moderator` — колонку, которую не записывает
 ни один маршрут и ни одна форма клиента (массовое назначение проверено рядом
 `test_an_ordinary_account_cannot_reach_the_moderation_surface.py`). С правки стадии 103 аккаунт и
-читает её — `ProfileOut.is_moderator` (`backend/app/schemas/schemas.py:110`) отвечают только хозяйские
+читает её — `ProfileOut.is_moderator` (`backend/app/schemas/schemas.py:138`) отвечают лишь хозяйские
 маршруты `/users/me…`, и клиент ставит по этому слову дверь в очередь на странице «Настройки», а
 публичный `GET /users/{user_id}` (`backend/app/api/v1/users.py:200`) поля не знает: чужой профиль не
 сообщает, кто здесь модератор. Чтение — единственное, что даёт это поле; запись роли оно не открывает,
