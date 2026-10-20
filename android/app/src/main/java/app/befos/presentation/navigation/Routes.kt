@@ -77,6 +77,12 @@ object Routes {
     // reaching the page by a restored back stack shows the reader their own taps and nobody else's.
     const val LIKED_ME = "likedMe"
 
+    // Who the account passed. One route, no identifier, like the inbox above: whose list this is
+    // comes from the session, and the same person opening it from the deck header or from the
+    // profile tab reads the same rows — the gesture lives in the `passes` table, not in the page of
+    // cards the deck holds in memory.
+    const val PASSED = "passed"
+
     // The moderation queue. One route, no identifier: whose complaints these are comes from the
     // session. The route is a place to stand, not a door — `GET /reports` reads the role off the
     // account row on every request, so reaching this screen by any other way than the entry on

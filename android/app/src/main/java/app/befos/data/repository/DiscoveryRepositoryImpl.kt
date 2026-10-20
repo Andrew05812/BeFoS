@@ -3,10 +3,12 @@ package app.befos.data.repository
 import app.befos.core.network.ApiResult
 import app.befos.core.network.map
 import app.befos.data.mapper.toDomain
+import app.befos.data.model.PassedUsersDto
 import app.befos.data.remote.ApiService
 import app.befos.domain.model.DiscoveryPage
 import app.befos.domain.model.LikeOutcome
 import app.befos.domain.model.LikedMePage
+import app.befos.domain.model.PassedPage
 import app.befos.domain.repository.DiscoveryRepository
 
 class DiscoveryRepositoryImpl(private val api: ApiService) : DiscoveryRepository {
@@ -33,4 +35,20 @@ class DiscoveryRepositoryImpl(private val api: ApiService) : DiscoveryRepository
 
     override suspend fun pass(userId: String): ApiResult<Unit> =
         api.pass(userId).map { Unit }
+
+    override suspend fun passed(): ApiResult<PassedPage> =
+        api.passedUsers().map { it.toPage() }
+
+    /**
+     * The list the screen paints, built from the server's rows rather than from the deck left in
+     * memory: a released person is gone from this page because the write said so, and comes back to
+     * the deck through its own next refill.
+     */
+    override suspend fun unpass(userId: String): ApiResult<PassedPage> =
+        api.unpass(userId).map { it.toPage() }
+
+    private fun PassedUsersDto.toPage() = PassedPage(
+        passed = passed.map { it.toDomain() },
+        truncated = hasMore,
+    )
 }

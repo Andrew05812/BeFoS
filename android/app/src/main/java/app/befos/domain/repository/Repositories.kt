@@ -11,6 +11,7 @@ import app.befos.domain.model.LikedMePage
 import app.befos.domain.model.MatchSummary
 import app.befos.domain.model.Message
 import app.befos.domain.model.OnboardingData
+import app.befos.domain.model.PassedPage
 import app.befos.domain.model.Plan
 import app.befos.domain.model.Profile
 import app.befos.domain.model.ProfileUpdateData
@@ -125,6 +126,19 @@ interface DiscoveryRepository {
     suspend fun likedMe(): ApiResult<LikedMePage>
     suspend fun like(userId: String): ApiResult<LikeOutcome>
     suspend fun pass(userId: String): ApiResult<Unit>
+
+    /**
+     * The account's own list of the cards it passed, read the same way the inbox is: no cursor, and
+     * the newest fifty rows are the whole answer the screen gets.
+     */
+    suspend fun passed(): ApiResult<PassedPage>
+
+    /**
+     * Takes one of this account's own passes back. The answer is the list that stands after the
+     * write, because the person released has to disappear from the screen by the server's word and
+     * not by the tap's hope — and the deck picks that person up again on its own next refill.
+     */
+    suspend fun unpass(userId: String): ApiResult<PassedPage>
 }
 
 interface MatchRepository {

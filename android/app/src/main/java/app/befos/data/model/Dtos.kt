@@ -376,6 +376,29 @@ data class LikedMeDto(
     @SerialName("has_more") val hasMore: Boolean = false,
 )
 
+/**
+ * One person this account passed, newest answer first.
+ *
+ * There is no percent here, unlike the incoming like: a pass never carried a score worth showing,
+ * because the person who made it was looking at the card rather than at a result. `passedAt` stays
+ * text for the same reason `blocked_at` does — the moment belongs to the server's clock.
+ */
+@Serializable
+data class PassedUserDto(
+    @SerialName("user_id") val userId: String,
+    val name: String,
+    val age: Int,
+    val city: String,
+    @SerialName("photo_url") val photoUrl: String? = null,
+    @SerialName("passed_at") val passedAt: String = "",
+)
+
+@Serializable
+data class PassedUsersDto(
+    val passed: List<PassedUserDto> = emptyList(),
+    @SerialName("has_more") val hasMore: Boolean = false,
+)
+
 @Serializable
 data class LikeResponseDto(
     val liked: Boolean = false,

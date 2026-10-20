@@ -108,6 +108,10 @@ private val translated: Map<String, String> = mapOf(
     "you cannot act on your own profile." to "Это ваша анкета.",
     "profile not found." to "Анкета не найдена.",
     "user not found." to "Пользователь не найден.",
+    // The release tap on a pass the server does not hold: the list went stale, or the account behind
+    // the row is gone. The same 404 answers a stranger's id, so the copy cannot promise the person
+    // was ever passed — it sends the reader back to the list, the way the unblock refusal does.
+    "you have not passed this user." to "Вы этого человека не пропускали. Обновите список.",
 
     // recommendations + meeting time. The pair's plan is arranged in minutes and hours, so an
     // refusal about a moment is answered with the moment's own words, not with «проверьте данные».

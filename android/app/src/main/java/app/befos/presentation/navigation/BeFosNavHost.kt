@@ -16,6 +16,7 @@ import app.befos.presentation.auth.AuthScreen
 import app.befos.presentation.chat.ChatScreen
 import app.befos.presentation.compatibility.CompatibilityScreen
 import app.befos.presentation.discovery.LikedMeScreen
+import app.befos.presentation.discovery.PassedScreen
 import app.befos.presentation.universe.UniverseScreen
 import app.befos.presentation.editprofile.EditProfileScreen
 import app.befos.presentation.main.MainScreen
@@ -143,6 +144,7 @@ fun BeFosNavHost(navController: NavHostController) {
                 onOpenTest = { navController.navigate(Routes.test()) { launchSingleTop = true } },
                 onOpenMyProfile = { navController.navigate(Routes.MY_PROFILE) { launchSingleTop = true } },
                 onOpenLikedMe = { navController.navigate(Routes.LIKED_ME) { launchSingleTop = true } },
+                onOpenPassed = { navController.navigate(Routes.PASSED) { launchSingleTop = true } },
                 onLoggedOut = {
                     navController.navigate(Routes.AUTH) {
                         popUpTo(Routes.MAIN) { inclusive = true }
@@ -179,6 +181,16 @@ fun BeFosNavHost(navController: NavHostController) {
                 // route: opening it here is the same read, with the same filter the server applies.
                 onOpenProfile = { userId -> navController.navigate(Routes.publicProfile(userId)) { launchSingleTop = true } },
                 onOpenMatch = { matchId -> navController.navigate(Routes.chat(matchId)) { launchSingleTop = true } },
+            )
+        }
+
+        composable(Routes.PASSED) {
+            PassedScreen(
+                onBack = { navController.popBackStack() },
+                // The row names a person, and the only card this screen can honestly lead to is that
+                // person's own: a released pass answers «Профиль недоступен» nowhere, because the
+                // server filter it would hit («Скрыть из подбора») belongs to the profile tab, not here.
+                onOpenProfile = { userId -> navController.navigate(Routes.publicProfile(userId)) { launchSingleTop = true } },
             )
         }
 
