@@ -13,6 +13,7 @@ import app.befos.data.model.MatchSummaryDto
 import app.befos.data.model.MessageDto
 import app.befos.data.model.OnboardingRequest
 import app.befos.data.model.OptionDto
+import app.befos.data.model.PassedUserDto
 import app.befos.data.model.PlanDto
 import app.befos.data.model.ProfileDto
 import app.befos.data.model.ProfileUpdateRequest
@@ -51,6 +52,7 @@ import app.befos.domain.model.Message
 import app.befos.domain.model.MessagePlan
 import app.befos.domain.model.OnboardingData
 import app.befos.domain.model.Option
+import app.befos.domain.model.PassedUser
 import app.befos.domain.model.Profile
 import app.befos.domain.model.ProfilePhoto
 import app.befos.domain.model.ProfileUpdateData
@@ -202,6 +204,16 @@ fun IncomingLikeDto.toDomain() = IncomingLike(
     photoUrl = ApiConfig.absolute(photoUrl),
     compatibility = compatibility,
     likedAt = likedAt,
+)
+
+/** The row arrives with its own name, age and city, so nothing here is looked up or filled in. */
+fun PassedUserDto.toDomain() = PassedUser(
+    userId = userId,
+    name = name,
+    age = age,
+    city = city,
+    photoUrl = ApiConfig.absolute(photoUrl),
+    passedAt = passedAt,
 )
 
 fun PublicProfileDto.toDomain() = PublicProfile(

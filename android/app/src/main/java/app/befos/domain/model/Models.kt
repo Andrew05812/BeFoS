@@ -267,6 +267,36 @@ data class LikedMePage(
     val truncated: Boolean,
 )
 
+/**
+ * One person the account passed, as the server's own read of those rows names them.
+ *
+ * A pass used to be readable only as an absence: the deck stopped calling the person, and no other
+ * door did either, which made the wrong swipe final without ever saying so. `passedAt` is the
+ * server's instant kept as text, and a row whose text cannot be read as a moment shows no moment.
+ * There is no percent on this row, because the pass was the answer a card got before any result
+ * was worth showing.
+ */
+data class PassedUser(
+    val userId: String,
+    val name: String,
+    val age: Int,
+    val city: String,
+    val photoUrl: String?,
+    val passedAt: String,
+)
+
+/**
+ * What the account's own read of its passes answered: the rows it named, and whether it stopped.
+ *
+ * No cursor, for the same reason the inbox has none — a pass row stays in this list while it is read
+ * and leaves only when the account takes it back. So the newest fifty are enough to say whether
+ * older answers wait behind them, which is all [truncated] claims.
+ */
+data class PassedPage(
+    val passed: List<PassedUser>,
+    val truncated: Boolean,
+)
+
 data class PublicProfile(
     val userId: String,
     val name: String,

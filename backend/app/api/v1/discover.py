@@ -8,7 +8,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.deps import get_current_user
 from app.core.database import get_session
 from app.models import User
-from app.schemas.schemas import DiscoveryResponse, LikedMeResponse, LikeResponse, PassResponse
+from app.schemas.schemas import (
+    DiscoveryResponse,
+    LikedMeResponse,
+    LikeResponse,
+    PassedUsersResponse,
+    PassResponse,
+)
 from app.services.discovery_service import DiscoveryService
 from app.services.match_service import MatchService
 
@@ -48,6 +54,22 @@ async def liked_me(
     return LikedMeResponse(**data)
 
 
+@router.get("/discover/passed", response_model=PassedUsersResponse)
+async def passed_users(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Whom the account dismissed, newest answer first, at most fifty of them.
+
+    The deck answers «show me people I have not decided about», so a pass could only be read back as
+    an absence — and the row that stores it had no door of its own. This is that door, and the row
+    beside it says when the card was swiped past.
+    """
+    service = DiscoveryService(session)
+    data = await service.passed(current_user.id)
+    return PassedUsersResponse(**data)
+
+
 @router.post("/users/{user_id}/like", response_model=LikeResponse)
 async def like_user(
     user_id: uuid.UUID,
@@ -68,3 +90,21 @@ async def pass_user(
     service = MatchService(session)
     result = await service.pass_user(current_user.id, user_id)
     return PassResponse(**result)
+
+
+@router.delete("/users/{user_id}/pass", response_model=PassedUsersResponse)
+async def undo_pass(
+    user_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Take one's own pass back, and answer with the list that is left.
+
+    A swipe past a card is an answer about the deck, not a seal on the pair: this clears both records
+    the answer left — the row the deck's rule reads, and the row that remembers the card was already
+    shown — so the person comes back through the same door that hid them, at the end of the deck
+    rather than in front of cards still waiting.
+    """
+    service = DiscoveryService(session)
+    data = await service.unpass(current_user.id, user_id)
+    return PassedUsersResponse(**data)

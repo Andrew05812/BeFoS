@@ -424,6 +424,33 @@ class LikedMeResponse(BaseModel):
     has_more: bool
 
 
+class PassedUserSummary(BaseModel):
+    """One person this account dismissed, and the moment the card was swiped past.
+
+    The same projection the blocked list and the inbox are built from — a name, an age, a city, the
+    leading photograph — and no compatibility number. A pass carries no score, and inventing one for
+    a gesture that refused the person would be a number about nothing.
+    """
+
+    user_id: str
+    name: str
+    age: int
+    city: str
+    photo_url: str | None
+    passed_at: datetime
+
+
+class PassedUsersResponse(BaseModel):
+    """The newest ``PASSED_SHOWN`` answers of the account's own, and whether more stand behind them.
+
+    The undo route answers with this same shape: the screen that asked has to paint the list the
+    server actually holds after the row went, the way unblocking paints the blocked list.
+    """
+
+    passed: list[PassedUserSummary]
+    has_more: bool
+
+
 # ---------- Matches ----------
 class MatchSummary(BaseModel):
     match_id: str

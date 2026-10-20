@@ -23,6 +23,7 @@ import app.befos.data.model.MessagePageDto
 import app.befos.data.model.MessageRequest
 import app.befos.data.model.OnboardingRequest
 import app.befos.data.model.PassResponseDto
+import app.befos.data.model.PassedUsersDto
 import app.befos.data.model.PhotoOrderRequest
 import app.befos.data.model.PlanDetailDto
 import app.befos.data.model.PlanEditRequest
@@ -305,6 +306,29 @@ class ApiService(private val client: HttpClient) {
     suspend fun pass(userId: String): ApiResult<PassResponseDto> =
         client.apiCall {
             method = HttpMethod.Post
+            url(endpoint("users/$userId/pass"))
+        }
+
+    /**
+     * Whom the account passed, newest answer first, at most fifty of them.
+     *
+     * The deck answers this by silence — a person it has an answer for simply never comes back — so
+     * the only way to learn the list until now was to notice who was missing. No identifier travels
+     * with this call either: the token says whose passes these are.
+     */
+    suspend fun passedUsers(): ApiResult<PassedUsersDto> =
+        client.apiCall {
+            method = HttpMethod.Get
+            url(endpoint("discover/passed"))
+        }
+
+    /**
+     * Takes one pass back. The answer is the list that stands after the write, the way the unblock
+     * answers: the screen paints the rows the server holds rather than the row the tap named.
+     */
+    suspend fun unpass(userId: String): ApiResult<PassedUsersDto> =
+        client.apiCall {
+            method = HttpMethod.Delete
             url(endpoint("users/$userId/pass"))
         }
 

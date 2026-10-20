@@ -304,7 +304,7 @@ onboarding_completed_at IS NOT NULL` добавлен миграцией `f3a07c
 `DELETE /matches/{match_id}` (`backend/app/api/v1/matches.py:303`, сервис
 `matches_service.dissolve` — `backend/app/services/matches_service.py:76`) удаляет ряд под
 advisory-замком пары по `DELETE … RETURNING user_a_id, user_b_id`
-(`backend/app/repositories/social_repo.py:159`) и в той же транзакции снимает оба ряда `likes`
+(`backend/app/repositories/social_repo.py:171`) и в той же транзакции снимает оба ряда `likes`
 (`delete_likes_between`, `:164`): без этого шага одна оставшаяся строка лайка значила бы, что
 следующий тап одного человека собирает расторгнутую пару заново, а «расторгнуть» и «начать заново»
 переставали бы быть двумя решениями. Ни одной строки `blocks` этот порядок не пишет и флаг

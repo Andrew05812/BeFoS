@@ -73,6 +73,7 @@ import app.befos.domain.model.ProfilePhoto
 import app.befos.presentation.common.goalLabel
 import app.befos.presentation.common.likedMeEntryWord
 import app.befos.presentation.common.myProfileEntryWord
+import app.befos.presentation.common.passedEntryWord
 import java.io.FileNotFoundException
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -83,6 +84,7 @@ fun ProfileScreen(
     onTest: () -> Unit,
     onOpenMyProfile: () -> Unit,
     onOpenLikedMe: () -> Unit,
+    onOpenPassed: () -> Unit,
     onLoggedOut: () -> Unit,
 ) {
     val vm: ProfileViewModel = beFosViewModel {
@@ -214,6 +216,16 @@ fun ProfileScreen(
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Text(likedMeEntryWord())
+                    }
+                    // The same bargain for the other half of the account's answers: who it dismissed
+                    // lives in rows, not in the deck, and the deck header that shows the cards also
+                    // drops them. Full width like the buttons above it, following the precedent this
+                    // column already records for side-by-side words on a narrow screen.
+                    TextButton(
+                        onClick = onOpenPassed,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(passedEntryWord())
                     }
                 }
             }

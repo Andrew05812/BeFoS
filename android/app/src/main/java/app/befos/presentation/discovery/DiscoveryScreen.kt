@@ -88,6 +88,7 @@ import app.befos.domain.model.LikeOutcome
 import app.befos.presentation.common.ReportDialog
 import app.befos.presentation.common.identityLine
 import app.befos.presentation.common.likedMeEntryWord
+import app.befos.presentation.common.passedEntryWord
 import kotlinx.coroutines.launch
 
 /** Fraction of the card width past which a released card counts as like/pass. */
@@ -104,6 +105,7 @@ fun DiscoveryScreen(
     onOpenMatch: (String) -> Unit,
     onOpenProfile: (String) -> Unit,
     onOpenLikedMe: () -> Unit,
+    onOpenPassed: () -> Unit,
 ) {
     val vm: DiscoveryViewModel = beFosViewModel {
         DiscoveryViewModel(it.discoveryRepository, it.safetyRepository, it.answeredUsers)
@@ -159,7 +161,7 @@ fun DiscoveryScreen(
                 onAction = if (stalled) vm::fetchMore else vm::load,
             )
         }
-        else -> DiscoveryContent(state, vm, onOpenProfile, onOpenLikedMe)
+        else -> DiscoveryContent(state, vm, onOpenProfile, onOpenLikedMe, onOpenPassed)
     }
 }
 
@@ -170,6 +172,7 @@ private fun DiscoveryContent(
     vm: DiscoveryViewModel,
     onOpenProfile: (String) -> Unit,
     onOpenLikedMe: () -> Unit,
+    onOpenPassed: () -> Unit,
 ) {
     val card = state.current ?: return
     val scope = rememberCoroutineScope()
@@ -210,36 +213,37 @@ private fun DiscoveryContent(
             .padding(horizontal = Spacing.gutter, vertical = Spacing.md),
         verticalArrangement = Arrangement.spacedBy(Spacing.xl),
     ) {
-        // Header: overline brand + queue position.
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = "ПОДБОР",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            // The door to the incoming taps is drawn while the deck still runs, not after it ends:
-            // a count of them would cost the root screen an extra read (the rule stage 40 set), and
-            // a door that only appears once the cards are gone is the hidden-button trap the client
-            // must not lean on. The profile tab carries the same door under the same word.
-            Text(
-                text = likedMeEntryWord(),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(Spacing.sm))
-                    .clickable(onClick = onOpenLikedMe)
-                    .padding(horizontal = Spacing.sm, vertical = Spacing.xs),
-            )
-            Text(
-                text = "${state.index + 1} / ${state.cards.size}",
-                style = MaterialTheme.typography.labelLarge.tabularDigits(),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+        // Header: overline brand + queue position, and under them the two doors that read the
+        // account's own answers — who tapped it, and whom it dismissed.
+        Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "ПОДБОР",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = "${state.index + 1} / ${state.cards.size}",
+                    style = MaterialTheme.typography.labelLarge.tabularDigits(),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            // The doors are drawn while the deck still runs, not after it ends: a count of incoming
+            // taps would cost the root screen an extra read (the rule stage 40 set), and a door that
+            // only appears once the cards are gone is the hidden-button trap the client must not lean
+            // on. Two words on one line is a wrap risk on a narrow screen, so the row is a FlowRow and
+            // the profile tab carries the same two doors stacked.
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(Spacing.xs, Alignment.End),
+            ) {
+                DeckDoor(likedMeEntryWord(), onOpenLikedMe)
+                DeckDoor(passedEntryWord(), onOpenPassed)
+            }
         }
 
         Box(
@@ -363,6 +367,27 @@ private fun DiscoveryContent(
             InlineNotice(it, actionLabel = "Повторить", onAction = vm::fetchMore)
         }
     }
+}
+
+/**
+ * One door under one word: the same drawing both of the deck's reads use.
+ *
+ * Two handcopies of the same Text-shaped link is how one of them ends up a different weight or a
+ * different ember from the other, and the pair of doors has to read as one line of the header rather
+ * than as an action and an afterthought.
+ */
+@Composable
+private fun DeckDoor(word: String, onClick: () -> Unit) {
+    Text(
+        text = word,
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.primary,
+        fontWeight = FontWeight.SemiBold,
+        modifier = Modifier
+            .clip(RoundedCornerShape(Spacing.sm))
+            .clickable(onClick = onClick)
+            .padding(horizontal = Spacing.sm, vertical = Spacing.xs),
+    )
 }
 
 /** Full-bleed photo card shell with branded fallback when the photo is missing. */

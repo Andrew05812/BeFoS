@@ -1199,6 +1199,78 @@ def main() -> int:
     check("city_preference" not in others_card,
           "a card of somebody else does not say where they search", str(sorted(others_card)[:8]))
 
+    # 5c. an answer the deck can take back. Until this stage a pass was written and never readable: the
+    # deck spoke of it by silence — the person simply stopped coming — and the row sat in the table with
+    # no door back.
+    #
+    # The reader is a fresh one, and the order of the steps is the claim: she dismisses the person BEFORE
+    # anybody has read her deck, so the two deck reads below bracket the answer instead of restating the
+    # queue. A deck remembers whom it has shown — the rule stage 104 wrote into this walk — so a reader
+    # whose whole narrowed deck has just been paged answers «0 cards» to every later read, and the
+    # dismissed person would be missing from her whether the pass had been written or not. That is
+    # exactly how the first journey shoot of this stage failed: the step asked C, whose 57-card narrowed
+    # deck this very walk had just paged, to still be holding the card
+    # (`the person about to be dismissed is in this reader's deck :: 0 cards`, `s114_journey.log`,
+    # 243/244). The false premise was the walk's, not the product's: the product answered emptiness
+    # correctly, and the read two lines after the release proves it by putting that same person back.
+    rp = c.post(f"{BASE}/auth/register", json={"email": f"e2e.pass.{stamp}@befosmail.com",
+                                               "password": pw, "password_confirm": pw})
+    tok_p = rp.json()["tokens"]["access_token"]
+    hp = {"Authorization": f"Bearer {tok_p}"}
+    op = c.post(f"{BASE}/users/me/onboarding", headers=hp,
+                json=onboard_payload("Галина", "other", ["female", "male"], shared))
+    ap = c.post(f"{BASE}/tests/answers", headers=hp,
+                json={"answers": [{"question_id": q["id"], "option_id": q["options"][0]["id"]}
+                                  for q in qs if q["options"]]})
+    cp = c.post(f"{BASE}/tests/complete", headers=hp)
+    check(op.status_code == 200 and ap.status_code == 200 and cp.status_code == 200,
+          "the pass row gets its own reader, shown nothing yet",
+          f"onboarding {op.status_code}, answers {ap.status_code}, test {cp.status_code}")
+
+    swiped = c.post(f"{BASE}/users/{uid_b}/pass", headers=hp)
+    check(swiped.status_code == 200 and swiped.json()["passed"] is True,
+          "the reader passes the card", str(swiped.status_code))
+
+    hidden = deck(hp)
+    check(all(it["user_id"] != uid_b for it in hidden),
+          "the dismissed person is out of the deck", f"{len(hidden)} cards")
+    # Absence proves nothing coming from an empty answer, so the same read names the crowd it serves.
+    check(len(hidden) > 0,
+          "the deck serves the rest of the crowd while it hides the dismissed one",
+          f"{len(hidden)} cards")
+
+    page = c.get(f"{BASE}/discover/passed", headers=hp)
+    check(page.status_code == 200, "the reader can name whom she dismissed", str(page.status_code))
+    rows = page.json()["passed"]
+    row = next((it for it in rows if it["user_id"] == uid_b), None)
+    check(row is not None, "the pass is on the page", f"{len(rows)} rows")
+    check(row is not None and row["passed_at"] != "",
+          "the row says when the card was swiped past", str(row and row["passed_at"]))
+    # A pass carries no score: the gesture refused the person, and inventing a percent about them would
+    # be a number about nothing.
+    check(row is not None and "compatibility" not in row,
+          "a pass row carries no percent", str(row and sorted(row)))
+
+    # The list belongs to an account, and nobody reads it without one: the rows carry names and
+    # photographs, so an anonymous answer here would hand somebody's dismissals to the street.
+    anon = c.get(f"{BASE}/discover/passed")
+    check(anon.status_code == 401, "the list of passes has no reader without an account",
+          str(anon.status_code))
+
+    released = c.delete(f"{BASE}/users/{uid_b}/pass", headers=hp)
+    check(released.status_code == 200 and all(it["user_id"] != uid_b for it in released.json()["passed"]),
+          "taking the answer back answers with the list that survives", str(released.status_code))
+    # The same door that hid the person now serves her again: taking the answer back re-queues her past
+    # the shown-once rule, so this read is the release's own footprint on the deck.
+    check(uid_b in [it["user_id"] for it in deck(hp)],
+          "the released person stands in the deck again", "read through the door that hid them")
+
+    # The second release meets the same 404 a stranger's id does, so the route cannot be used to ask
+    # whether some other pair holds an answer.
+    twice = c.delete(f"{BASE}/users/{uid_b}/pass", headers=hp)
+    check(twice.status_code == 404, "the second release is a refusal, not a second removal",
+          str(twice.status_code))
+
     # 6. open public profile
     pub = c.get(f"{BASE}/users/{uid_b}", headers=ha)
     check(pub.status_code == 200 and pub.json().get("name") == "Борис", "public profile B", str(pub.status_code))
