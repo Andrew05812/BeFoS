@@ -297,6 +297,37 @@ data class PassedPage(
     val truncated: Boolean,
 )
 
+/**
+ * One person the account tapped, as the server's own read of those rows names them.
+ *
+ * The mirror of [IncomingLike]: the same table, the opposite direction. A tap used to leave the
+ * account with nothing to read back — the card went out of the deck, the row went into the database,
+ * and no door showed either — so reviewing one's own hearts was a matter of memory. `compatibility`
+ * is the percent the tap was made carrying, read out of the row rather than recomputed here; null
+ * means the row carries no percent, and the row says that instead of borrowing a zero.
+ */
+data class OutgoingLike(
+    val userId: String,
+    val name: String,
+    val age: Int,
+    val city: String,
+    val photoUrl: String?,
+    val compatibility: Int?,
+    val likedAt: String,
+)
+
+/**
+ * What the account's own read of its taps answered: the rows it named, and whether it stopped.
+ *
+ * No cursor, for the same reason the inbox and the pass list have none — a tap row stays in this list
+ * while it is read and leaves when its author takes it back or the pair is dissolved. So the newest
+ * fifty are enough to say whether older taps wait behind them, which is all [truncated] claims.
+ */
+data class OutgoingLikesPage(
+    val likes: List<OutgoingLike>,
+    val truncated: Boolean,
+)
+
 data class PublicProfile(
     val userId: String,
     val name: String,

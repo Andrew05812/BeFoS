@@ -81,6 +81,28 @@ class SocialRepository:
         )
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
+    async def delete_like(self, from_id: uuid.UUID, to_id: uuid.UUID) -> bool:
+        """Take one's own tap back, and say whether this request is the one that took it.
+
+        The inverse of ``add_like``, and it removes one direction only: ``from_user_id == from_id``.
+        ``delete_likes_between`` clears both halves and belongs to unmatch and block, where the pair
+        ends and neither direction should survive; a person withdrawing the tap they made has no say
+        over the tap the other person made, so only their own row goes.
+
+        The answer matters the way ``delete_pass``'s does: under the pair lock two DELETE requests can
+        both reach this statement, and only the one that actually removed a row is allowed to report
+        the tap taken back. The other answers the same 404 a stranger's pair would, so the route cannot
+        be used to ask whether some other two have a like between them.
+        """
+        removed = (
+            await self.session.execute(
+                delete(Like)
+                .where(Like.from_user_id == from_id, Like.to_user_id == to_id)
+                .returning(Like.id)
+            )
+        ).scalar()
+        return removed is not None
+
     async def get_pass(self, from_id: uuid.UUID, to_id: uuid.UUID) -> Pass | None:
         stmt = select(Pass).where(Pass.from_user_id == from_id, Pass.to_user_id == to_id)
         return (await self.session.execute(stmt)).scalar_one_or_none()
@@ -716,6 +738,45 @@ class DiscoveryRepository:
             # `created_at` alone is not a total order — two taps can land on the same microsecond —
             # and a tie the database resolves freely makes the page's order a coin flip. The id
             # breaks it once, the same way the history cursor's tie-break was fixed (stage 54).
+            .order_by(Like.created_at.desc(), Like.id.desc())
+            .limit(limit)
+        )
+        return [(row[0], row[1], row[2]) for row in (await self.session.execute(stmt)).all()]
+
+    # --- the account's own taps ------------------------------------------------
+    async def liked(
+        self, viewer_id: uuid.UUID, limit: int
+    ) -> list[tuple[uuid.UUID, float | None, datetime]]:
+        """The taps this account made, newest first, at most ``limit`` of them.
+
+        The mirror of ``liked_me``, and it differs from that read in exactly one clause: the direction
+        the row is addressed by. The inbox is ``to_user_id == viewer`` — the half of the table that
+        pointed at the reader; this is ``from_user_id == viewer`` — the half the reader's own card
+        wrote toward other people. Stage 112 opened the first door; the second had never existed, so a
+        person could ask who tapped them but not whom they had tapped.
+
+        The same two rules decide who appears, copied whole from the inbox rather than reinvented: the
+        person must still be showable (``_candidate_conditions``) and the two must not already be a pair
+        or hold a block (``_relationship_conditions``). The pair rule matters here for a reason it does
+        not carry in the inbox. Once a tap is answered back, the relationship lives in the match list,
+        and naming the same stranger a second time as "a tap you made" beside the door that already
+        says "you are a pair" is the noise stage 112 excluded from the other side.
+
+        The viewer's own pass is not a filter again, and for the opposite reason from the inbox: there
+        is nothing here about a pass to drop, because ``like`` deletes the pass row when it writes
+        (stage 26), so a tap and a pass for the same pair do not both stand.
+        """
+        stmt = (
+            select(Like.to_user_id, Like.compatibility_score, Like.created_at)
+            .join(Profile, Profile.user_id == Like.to_user_id)
+            .join(User, User.id == Profile.user_id)
+            .where(
+                Like.from_user_id == viewer_id,
+                *self._candidate_conditions(viewer_id, Profile.user_id),
+                *self._relationship_conditions(viewer_id, Profile.user_id),
+            )
+            # The inbox's tie-break, and for the same reason: two taps a microsecond apart are a coin
+            # flip without the id deciding once (stage 54).
             .order_by(Like.created_at.desc(), Like.id.desc())
             .limit(limit)
         )

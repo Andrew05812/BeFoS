@@ -83,6 +83,12 @@ object Routes {
     // cards the deck holds in memory.
     const val PASSED = "passed"
 
+    // Who the account liked and never heard back from. One route, no identifier, like the two lists
+    // above it: whose taps these are comes from the session, and `GET /discover/liked` reads the token
+    // on every request. The row lives in the `likes` table under this account's own id, so a restored
+    // back stack cannot hand the page somebody else's hearts.
+    const val MY_LIKES = "myLikes"
+
     // The moderation queue. One route, no identifier: whose complaints these are comes from the
     // session. The route is a place to stand, not a door — `GET /reports` reads the role off the
     // account row on every request, so reaching this screen by any other way than the entry on

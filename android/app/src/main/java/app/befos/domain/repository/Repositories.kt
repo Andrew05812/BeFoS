@@ -11,6 +11,7 @@ import app.befos.domain.model.LikedMePage
 import app.befos.domain.model.MatchSummary
 import app.befos.domain.model.Message
 import app.befos.domain.model.OnboardingData
+import app.befos.domain.model.OutgoingLikesPage
 import app.befos.domain.model.PassedPage
 import app.befos.domain.model.Plan
 import app.befos.domain.model.Profile
@@ -139,6 +140,19 @@ interface DiscoveryRepository {
      * not by the tap's hope — and the deck picks that person up again on its own next refill.
      */
     suspend fun unpass(userId: String): ApiResult<PassedPage>
+
+    /**
+     * The account's own list of the taps it left standing, read the same way the inbox and the pass
+     * list are: no cursor, and the newest fifty rows are the whole answer the screen gets.
+     */
+    suspend fun liked(): ApiResult<OutgoingLikesPage>
+
+    /**
+     * Takes one of this account's own taps back, and only ever its own half of the pair. A formed
+     * match is not touched here — un-pairing has its own door. The answer is the list that stands
+     * after the write, so the row leaves the screen by the server's word rather than by the tap's.
+     */
+    suspend fun unlike(userId: String): ApiResult<OutgoingLikesPage>
 }
 
 interface MatchRepository {

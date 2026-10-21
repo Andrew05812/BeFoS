@@ -1216,6 +1216,7 @@ def main() -> int:
     rp = c.post(f"{BASE}/auth/register", json={"email": f"e2e.pass.{stamp}@befosmail.com",
                                                "password": pw, "password_confirm": pw})
     tok_p = rp.json()["tokens"]["access_token"]
+    uid_p = rp.json()["user"]["id"]
     hp = {"Authorization": f"Bearer {tok_p}"}
     op = c.post(f"{BASE}/users/me/onboarding", headers=hp,
                 json=onboard_payload("Галина", "other", ["female", "male"], shared))
@@ -1270,6 +1271,69 @@ def main() -> int:
     twice = c.delete(f"{BASE}/users/{uid_b}/pass", headers=hp)
     check(twice.status_code == 404, "the second release is a refusal, not a second removal",
           str(twice.status_code))
+
+    # 5d. the other half of the same gesture. A pass row says whom the reader refused, and until this
+    # stage nothing in the product said whom she chose: the like wrote its row through the deck's button
+    # and had no door at all — no list named those rows back to their author, and no route took one
+    # away, so the only way to undo a tap was to leave it lying there.
+    #
+    # The reader is the same fresh account the pass window needed, and here she stands on both ends of
+    # one line: she has just taken back her refusal of Борис, so the walk writes the opposite answer on
+    # the same pair and reads it from the author's side and from the addressed side before erasing it.
+    # Ending with an erase matters — a tap this walk leaves behind would be standing in Борис's inbox
+    # for every check after it.
+    tap = c.post(f"{BASE}/users/{uid_b}/like", headers=hp)
+    tap_body = tap.json()
+    check(tap.status_code == 200 and tap_body.get("liked") is True and tap_body.get("match") is False,
+          "the reader taps the card whose refusal she took back",
+          f"{tap.status_code} {tap_body.get('liked')}/{tap_body.get('match')}")
+
+    own_taps = c.get(f"{BASE}/discover/liked", headers=hp)
+    check(own_taps.status_code == 200, "the account can name whom it tapped", str(own_taps.status_code))
+    tap_rows = own_taps.json()["likes"]
+    tap_row = next((it for it in tap_rows if it["user_id"] == uid_b), None)
+    check(tap_row is not None, "the tap is on its author's page", f"{len(tap_rows)} rows")
+    # The mirror of the pass row two reads above, and the difference between them is the point: a
+    # refusal carries no percent, because the gesture closed the person off; a choice carries the number
+    # the tap was made with, taken out of the row rather than scored again on the way out.
+    check(tap_row is not None and tap_row.get("compatibility") == tap_body.get("compatibility"),
+          "a tap row carries the percent the tap was made carrying",
+          f"row={tap_row and tap_row.get('compatibility')} tap={tap_body.get('compatibility')}")
+    check(tap_row is not None and tap_row["liked_at"] != "",
+          "the row says when the tap was written", str(tap_row and tap_row["liked_at"]))
+
+    # The line has two ends, and the walk reads the far one before it erases either: a tap only its
+    # author could see would be a secret, and one only the addressed account could see would be a rumour.
+    addressed = c.get(f"{BASE}/discover/liked-me", headers=hb)
+    check(addressed.status_code == 200 and uid_p in [it["user_id"] for it in addressed.json()["likes"]],
+          "the same tap reaches the account it pointed at", str(addressed.status_code))
+
+    # An account, and only its own: the rows carry names and photographs of the people this reader chose,
+    # so an anonymous answer here would hand somebody's shortlist to the street.
+    anon_taps = c.get(f"{BASE}/discover/liked")
+    check(anon_taps.status_code == 401, "the list of one's own taps has no reader without an account",
+          str(anon_taps.status_code))
+
+    took_back = c.delete(f"{BASE}/users/{uid_b}/like", headers=hp)
+    check(took_back.status_code == 200
+          and all(it["user_id"] != uid_b for it in took_back.json()["likes"]),
+          "taking the tap back answers with the list that survives", str(took_back.status_code))
+
+    # The write's own answer is not trusted as the state of the table: both ends are read again through
+    # their doors, because a withdrawal that cleared only the author's list would leave Борис answering
+    # a tap that no longer exists.
+    after_taps = c.get(f"{BASE}/discover/liked", headers=hp)
+    check(all(it["user_id"] != uid_b for it in after_taps.json()["likes"]),
+          "the tapper no longer names the person", f"{len(after_taps.json()['likes'])} rows")
+    after_inbox = c.get(f"{BASE}/discover/liked-me", headers=hb)
+    check(uid_p not in [it["user_id"] for it in after_inbox.json()["likes"]],
+          "the person tapped no longer names the tapper", f"{len(after_inbox.json()['likes'])} rows")
+
+    # And the same refusal the second release of a pass met: one answer for a tap that is not there and
+    # for an id this account never touched, so the route is not a place to ask about other pairs.
+    twice_tap = c.delete(f"{BASE}/users/{uid_b}/like", headers=hp)
+    check(twice_tap.status_code == 404, "the second withdrawal is a refusal, not a second removal",
+          str(twice_tap.status_code))
 
     # 6. open public profile
     pub = c.get(f"{BASE}/users/{uid_b}", headers=ha)

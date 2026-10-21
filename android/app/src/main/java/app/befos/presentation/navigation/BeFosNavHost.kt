@@ -16,6 +16,7 @@ import app.befos.presentation.auth.AuthScreen
 import app.befos.presentation.chat.ChatScreen
 import app.befos.presentation.compatibility.CompatibilityScreen
 import app.befos.presentation.discovery.LikedMeScreen
+import app.befos.presentation.discovery.MyLikesScreen
 import app.befos.presentation.discovery.PassedScreen
 import app.befos.presentation.universe.UniverseScreen
 import app.befos.presentation.editprofile.EditProfileScreen
@@ -145,6 +146,7 @@ fun BeFosNavHost(navController: NavHostController) {
                 onOpenMyProfile = { navController.navigate(Routes.MY_PROFILE) { launchSingleTop = true } },
                 onOpenLikedMe = { navController.navigate(Routes.LIKED_ME) { launchSingleTop = true } },
                 onOpenPassed = { navController.navigate(Routes.PASSED) { launchSingleTop = true } },
+                onOpenMyLikes = { navController.navigate(Routes.MY_LIKES) { launchSingleTop = true } },
                 onLoggedOut = {
                     navController.navigate(Routes.AUTH) {
                         popUpTo(Routes.MAIN) { inclusive = true }
@@ -190,6 +192,16 @@ fun BeFosNavHost(navController: NavHostController) {
                 // The row names a person, and the only card this screen can honestly lead to is that
                 // person's own: a released pass answers «Профиль недоступен» nowhere, because the
                 // server filter it would hit («Скрыть из подбора») belongs to the profile tab, not here.
+                onOpenProfile = { userId -> navController.navigate(Routes.publicProfile(userId)) { launchSingleTop = true } },
+            )
+        }
+
+        composable(Routes.MY_LIKES) {
+            MyLikesScreen(
+                onBack = { navController.popBackStack() },
+                // The row names a person the account reached for, and that person's own card is the
+                // deck's route: the server filter there («Скрыть из подбора») is the reader's own
+                // choice about being seen, not a consequence of this tap, so the card opens honestly.
                 onOpenProfile = { userId -> navController.navigate(Routes.publicProfile(userId)) { launchSingleTop = true } },
             )
         }

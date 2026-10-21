@@ -42,6 +42,14 @@ fun likedMeEntryWord(): String = "Кто вас лайкнул"
 fun passedEntryWord(): String = "Кого вы пропускали"
 
 /**
+ * The door to the account's own list of taps. Two places open it, the same two that open the inbox and
+ * the pass list, and both say it with this word. The wording is deliberately the mirror of the inbox:
+ * «Кто вас лайкнул» names the people who came, this one names the people the account reached for, and
+ * a reader who mixed the two would offer somebody an answer they had already taken back.
+ */
+fun myLikesEntryWord(): String = "Кого вы лайкнули"
+
+/**
  * The identity line under a name — "Москва · Отношения". A separator only joins two
  * things that were both answered: a profile that has no city says its goal alone instead
  * of opening with a dangling " · ", and one with neither says nothing at all.

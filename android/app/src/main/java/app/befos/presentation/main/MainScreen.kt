@@ -62,6 +62,7 @@ fun MainScreen(
     onOpenMyProfile: () -> Unit,
     onOpenLikedMe: () -> Unit,
     onOpenPassed: () -> Unit,
+    onOpenMyLikes: () -> Unit,
     onLoggedOut: () -> Unit,
 ) {
     // Saveable, not plain remember: NavHost disposes MAIN when the user opens a chat,
@@ -102,6 +103,7 @@ fun MainScreen(
                     onOpenProfile = onOpenProfile,
                     onOpenLikedMe = onOpenLikedMe,
                     onOpenPassed = onOpenPassed,
+                    onOpenMyLikes = onOpenMyLikes,
                 )
             }
             1 -> androidx.compose.foundation.layout.Box(contentModifier) {
@@ -115,6 +117,7 @@ fun MainScreen(
                     onOpenMyProfile = onOpenMyProfile,
                     onOpenLikedMe = onOpenLikedMe,
                     onOpenPassed = onOpenPassed,
+                    onOpenMyLikes = onOpenMyLikes,
                     onLoggedOut = onLoggedOut,
                 )
             }

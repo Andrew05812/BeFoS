@@ -21,6 +21,7 @@ import app.befos.data.model.MeetingTimeRequest
 import app.befos.data.model.MessageDto
 import app.befos.data.model.MessagePageDto
 import app.befos.data.model.MessageRequest
+import app.befos.data.model.MyLikesDto
 import app.befos.data.model.OnboardingRequest
 import app.befos.data.model.PassResponseDto
 import app.befos.data.model.PassedUsersDto
@@ -330,6 +331,34 @@ class ApiService(private val client: HttpClient) {
         client.apiCall {
             method = HttpMethod.Delete
             url(endpoint("users/$userId/pass"))
+        }
+
+    /**
+     * Whom this account tapped, newest tap first, at most fifty of them.
+     *
+     * The mirror of `likedMe()`: the same row shape, the other direction. Until now the account could
+     * read who had come to it and who it had pushed away, but never what it had left standing as a
+     * heart — an outward tap was a write with no read, so the only way to review one was memory. The
+     * percent each row carries is the one the tap was made carrying, not a fresh score. No identifier
+     * travels with this call: the token says whose taps these are.
+     */
+    suspend fun likedUsers(): ApiResult<MyLikesDto> =
+        client.apiCall {
+            method = HttpMethod.Get
+            url(endpoint("discover/liked"))
+        }
+
+    /**
+     * Takes one tap back, and only ever the account's own half of it.
+     *
+     * The answer is the list that stands after the write, the way the unpass answers. A formed pair is
+     * deliberately left standing: un-pairing is the dissolve door's work, not this one, and the row
+     * that stayed does not disappear from the list because its author pulled a heart back.
+     */
+    suspend fun unlike(userId: String): ApiResult<MyLikesDto> =
+        client.apiCall {
+            method = HttpMethod.Delete
+            url(endpoint("users/$userId/like"))
         }
 
     // ---------- Matches ----------

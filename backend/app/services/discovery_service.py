@@ -35,6 +35,10 @@ LIKED_ME_SHOWN = 50
 # inbox and for the same reason: the read is newest-first, so the cap cuts the oldest answers, and
 # the flag beside it admits the rest exist.
 PASSED_SHOWN = 50
+# How many of the account's own taps one page carries. The same bargain as the inbox and the pass
+# list, for the same reason: read newest-first, so the cap cuts the oldest taps, and the flag beside
+# it admits the rest exist.
+LIKED_SHOWN = 50
 
 CURSOR_PREFIX = "rank"
 BAD_CURSOR = "The link to the next page is broken."
@@ -349,6 +353,76 @@ class DiscoveryService:
                 }
             )
         return {"likes": likes, "has_more": len(rows) > LIKED_ME_SHOWN}
+
+    async def liked(self, viewer_id: uuid.UUID) -> dict:
+        """Whom this account tapped, newest tap first, at most ``LIKED_SHOWN`` of them.
+
+        The read is the mirror of the inbox and shares its projection, not its address. A card here
+        is built from the same batch reads — the person's profile and leading photo — and carries the
+        same number, but it is the number *this* account was shown when it made the gesture, read off
+        its own ``likes`` row rather than recomputed. The pair and block exclusions come from the same
+        repository rule, so a tap that a stranger answered back has already left for the match list and
+        is not held up here a second time.
+        """
+        cards, rows = await self._liked_page(viewer_id)
+        return {"likes": cards, "has_more": len(rows) > LIKED_SHOWN}
+
+    async def _liked_page(self, viewer_id: uuid.UUID) -> tuple[list[dict], list]:
+        rows = await self.discovery.liked(viewer_id, LIKED_SHOWN + 1)
+        shown = rows[:LIKED_SHOWN]
+        ids = [row[0] for row in shown]
+        profiles = {p.user_id: p for p in await self.users.get_profile_cards(ids)}
+        photos = await self.users.get_primary_photos(ids)
+        today = utc_today()
+        cards: list[dict] = []
+        for tapped_id, score, tapped_at in shown:
+            profile = profiles.get(tapped_id)
+            if profile is None:
+                continue
+            cards.append(
+                {
+                    "user_id": str(tapped_id),
+                    "name": profile.name,
+                    "age": age_years(profile.birth_date, today),
+                    "city": profile.city,
+                    "photo_url": photos.get(tapped_id),
+                    "compatibility": None if score is None else int(round(score * 100)),
+                    "liked_at": tapped_at,
+                }
+            )
+        return cards, rows
+
+    async def undo_like(self, viewer_id: uuid.UUID, target_id: uuid.UUID) -> dict:
+        """Take one's own tap back, and answer with the list that is left.
+
+        This sits in the discovery service beside the list it returns, but the row it clears is the
+        account's own outgoing ``likes`` row, so unlike ``unpass`` it touches no queue: a like never
+        wrote a deck-memory row (stage 26 wrote only the ``likes`` row and deleted a pass), so the
+        anti-join that hid the person lifts on its own the moment the row goes, and they can come back
+        through the same door that hid them.
+
+        Only the requester's own direction is removed — ``delete_like`` — because a tap says nothing
+        about the tap the other person may have made. And the pair is left standing: two people who
+        matched built a relationship that lives in the match list, and un-pairing is stage 105's door,
+        with its own cascade over the chat and the plans. Silently dissolving a conversation from a
+        "take my tap back" button would be a heavier action than the button promises.
+
+        The pair lock is the same one a like, a pass and a block take, so a retry racing the first
+        DELETE cannot report two withdrawals: whichever request holds the row removes it, and the other
+        answers the 404 a stranger's pair gets. Self answers 422 instead, the way blocking and passing
+        yourself do — a row that could never exist is not a missing one, and 404 would send the caller
+        looking for an answer they never gave. What comes back is the page, not a boolean: the screen
+        that asked paints the list the server actually holds, the bargain ``unpass`` and ``unblock``
+        struck.
+        """
+        if viewer_id == target_id:
+            raise ValidationError("You cannot act on your own profile.")
+        await self.social.lock_pair(viewer_id, target_id)
+        if not await self.social.delete_like(viewer_id, target_id):
+            raise NotFoundError("You have not liked this user.")
+        await self.session.commit()
+        cards, rows = await self._liked_page(viewer_id)
+        return {"likes": cards, "has_more": len(rows) > LIKED_SHOWN}
 
     async def passed(self, viewer_id: uuid.UUID) -> dict:
         """Whom this account dismissed, newest answer first, at most ``PASSED_SHOWN`` of them.

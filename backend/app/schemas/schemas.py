@@ -401,11 +401,17 @@ class PassResponse(BaseModel):
 
 
 class IncomingLikeCard(BaseModel):
-    """One tap that pointed at the reader.
+    """One tap, described by the person it points at rather than by the one who made it.
 
     The percent is the number the tapper's own card carried when they tapped, read out of the like
     row — not a fresh calculation about whether the two still fit. It can be null, and null is not
     zero: a score nobody measured has no business arriving as the bottom of a scale (defect 72-1).
+
+    The same row shape answers both directions of the gesture: ``/discover/liked-me`` lists it for
+    the account a tap pointed at, ``/discover/liked`` lists it for the account that made the tap.
+    Which of the two a reader holds is named by the envelope, not by a field — the server would have
+    to invent an answer to say "incoming" here — so the class keeps its original name and this note
+    says what it covers.
     """
 
     user_id: str
@@ -419,6 +425,18 @@ class IncomingLikeCard(BaseModel):
 
 class LikedMeResponse(BaseModel):
     """The newest ``LIKED_ME_SHOWN`` taps, and whether the account holds more than those."""
+
+    likes: list[IncomingLikeCard]
+    has_more: bool
+
+
+class LikedUsersResponse(BaseModel):
+    """The newest ``LIKED_SHOWN`` taps the account made, and whether more stand behind them.
+
+    The card shape is the inbox's, and so is its honesty: the percent is the number the reader was
+    shown when they tapped, read off the like row, and null stays null. The undo route answers with
+    this same shape, so the screen that withdrew a tap paints the list the server actually holds.
+    """
 
     likes: list[IncomingLikeCard]
     has_more: bool
