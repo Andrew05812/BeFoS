@@ -11,6 +11,7 @@ import app.befos.data.model.IncomingLikeDto
 import app.befos.data.model.InterestDto
 import app.befos.data.model.MatchSummaryDto
 import app.befos.data.model.MessageDto
+import app.befos.data.model.MyLikeDto
 import app.befos.data.model.OnboardingRequest
 import app.befos.data.model.OptionDto
 import app.befos.data.model.PassedUserDto
@@ -52,6 +53,7 @@ import app.befos.domain.model.Message
 import app.befos.domain.model.MessagePlan
 import app.befos.domain.model.OnboardingData
 import app.befos.domain.model.Option
+import app.befos.domain.model.OutgoingLike
 import app.befos.domain.model.PassedUser
 import app.befos.domain.model.Profile
 import app.befos.domain.model.ProfilePhoto
@@ -214,6 +216,21 @@ fun PassedUserDto.toDomain() = PassedUser(
     city = city,
     photoUrl = ApiConfig.absolute(photoUrl),
     passedAt = passedAt,
+)
+
+/**
+ * One of the account's own taps, read the same way the inbox row is: nothing is looked up, and the
+ * percent is the one the tap carried. A null percent stays null rather than becoming a zero that the
+ * account never saw when it made the tap.
+ */
+fun MyLikeDto.toDomain() = OutgoingLike(
+    userId = userId,
+    name = name,
+    age = age,
+    city = city,
+    photoUrl = ApiConfig.absolute(photoUrl),
+    compatibility = compatibility,
+    likedAt = likedAt,
 )
 
 fun PublicProfileDto.toDomain() = PublicProfile(

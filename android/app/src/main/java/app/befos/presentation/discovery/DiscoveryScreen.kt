@@ -88,6 +88,7 @@ import app.befos.domain.model.LikeOutcome
 import app.befos.presentation.common.ReportDialog
 import app.befos.presentation.common.identityLine
 import app.befos.presentation.common.likedMeEntryWord
+import app.befos.presentation.common.myLikesEntryWord
 import app.befos.presentation.common.passedEntryWord
 import kotlinx.coroutines.launch
 
@@ -106,6 +107,7 @@ fun DiscoveryScreen(
     onOpenProfile: (String) -> Unit,
     onOpenLikedMe: () -> Unit,
     onOpenPassed: () -> Unit,
+    onOpenMyLikes: () -> Unit,
 ) {
     val vm: DiscoveryViewModel = beFosViewModel {
         DiscoveryViewModel(it.discoveryRepository, it.safetyRepository, it.answeredUsers)
@@ -161,7 +163,7 @@ fun DiscoveryScreen(
                 onAction = if (stalled) vm::fetchMore else vm::load,
             )
         }
-        else -> DiscoveryContent(state, vm, onOpenProfile, onOpenLikedMe, onOpenPassed)
+        else -> DiscoveryContent(state, vm, onOpenProfile, onOpenLikedMe, onOpenPassed, onOpenMyLikes)
     }
 }
 
@@ -173,6 +175,7 @@ private fun DiscoveryContent(
     onOpenProfile: (String) -> Unit,
     onOpenLikedMe: () -> Unit,
     onOpenPassed: () -> Unit,
+    onOpenMyLikes: () -> Unit,
 ) {
     val card = state.current ?: return
     val scope = rememberCoroutineScope()
@@ -235,13 +238,14 @@ private fun DiscoveryContent(
             // The doors are drawn while the deck still runs, not after it ends: a count of incoming
             // taps would cost the root screen an extra read (the rule stage 40 set), and a door that
             // only appears once the cards are gone is the hidden-button trap the client must not lean
-            // on. Two words on one line is a wrap risk on a narrow screen, so the row is a FlowRow and
-            // the profile tab carries the same two doors stacked.
+            // on. Three of these words on one line is a wrap risk on a narrow screen, so the row is a
+            // FlowRow and the profile tab carries the same three doors stacked.
             FlowRow(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(Spacing.xs, Alignment.End),
             ) {
                 DeckDoor(likedMeEntryWord(), onOpenLikedMe)
+                DeckDoor(myLikesEntryWord(), onOpenMyLikes)
                 DeckDoor(passedEntryWord(), onOpenPassed)
             }
         }

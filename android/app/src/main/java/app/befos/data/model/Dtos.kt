@@ -399,6 +399,31 @@ data class PassedUsersDto(
     @SerialName("has_more") val hasMore: Boolean = false,
 )
 
+/**
+ * One person this account tapped, newest tap first.
+ *
+ * The wire shape is identical to [IncomingLikeDto] — the server writes both kinds of tap into the same
+ * table — but the direction is opposite, and a reader who takes this row for an inbound heart would
+ * offer a person an answer they already gave. `compatibility` is the percent the tap was made
+ * carrying; it is never recomputed here, and a null on the row is not the zero the account never saw.
+ */
+@Serializable
+data class MyLikeDto(
+    @SerialName("user_id") val userId: String,
+    val name: String,
+    val age: Int,
+    val city: String,
+    @SerialName("photo_url") val photoUrl: String? = null,
+    val compatibility: Int? = null,
+    @SerialName("liked_at") val likedAt: String = "",
+)
+
+@Serializable
+data class MyLikesDto(
+    val likes: List<MyLikeDto> = emptyList(),
+    @SerialName("has_more") val hasMore: Boolean = false,
+)
+
 @Serializable
 data class LikeResponseDto(
     val liked: Boolean = false,

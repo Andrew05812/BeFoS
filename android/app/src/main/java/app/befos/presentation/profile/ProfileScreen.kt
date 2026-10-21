@@ -72,6 +72,7 @@ import app.befos.core.di.beFosViewModel
 import app.befos.domain.model.ProfilePhoto
 import app.befos.presentation.common.goalLabel
 import app.befos.presentation.common.likedMeEntryWord
+import app.befos.presentation.common.myLikesEntryWord
 import app.befos.presentation.common.myProfileEntryWord
 import app.befos.presentation.common.passedEntryWord
 import java.io.FileNotFoundException
@@ -85,6 +86,7 @@ fun ProfileScreen(
     onOpenMyProfile: () -> Unit,
     onOpenLikedMe: () -> Unit,
     onOpenPassed: () -> Unit,
+    onOpenMyLikes: () -> Unit,
     onLoggedOut: () -> Unit,
 ) {
     val vm: ProfileViewModel = beFosViewModel {
@@ -216,6 +218,17 @@ fun ProfileScreen(
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Text(likedMeEntryWord())
+                    }
+                    // The third door of the same set, and the one the app never had: the account's own
+                    // taps were written but never read back, so a heart given from the deck could only
+                    // be reviewed from memory. Same bargain as the two around it — a word, a route, no
+                    // count, because reading how many would cost a request this tab has no business
+                    // paying for.
+                    TextButton(
+                        onClick = onOpenMyLikes,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(myLikesEntryWord())
                     }
                     // The same bargain for the other half of the account's answers: who it dismissed
                     // lives in rows, not in the deck, and the deck header that shows the cards also

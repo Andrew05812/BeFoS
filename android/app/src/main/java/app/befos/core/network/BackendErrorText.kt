@@ -112,6 +112,11 @@ private val translated: Map<String, String> = mapOf(
     // the row is gone. The same 404 answers a stranger's id, so the copy cannot promise the person
     // was ever passed — it sends the reader back to the list, the way the unblock refusal does.
     "you have not passed this user." to "Вы этого человека не пропускали. Обновите список.",
+    // The same bargain on the account's own tap. A withdrawal reaches a row that is already gone — the
+    // list went stale, the person deleted the account, or the tap was taken back from another device —
+    // and the identical 404 answers a stranger's id, so the words send the reader to re-read the list
+    // instead of claiming the tap was ever there.
+    "you have not liked this user." to "Вы этого человека не лайкали. Обновите список.",
 
     // recommendations + meeting time. The pair's plan is arranged in minutes and hours, so an
     // refusal about a moment is answered with the moment's own words, not with «проверьте данные».
