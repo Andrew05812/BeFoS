@@ -11,6 +11,7 @@ from app.models import User
 from app.schemas.schemas import (
     DiscoveryResponse,
     LikedMeResponse,
+    LikedUsersResponse,
     LikeResponse,
     PassedUsersResponse,
     PassResponse,
@@ -54,6 +55,22 @@ async def liked_me(
     return LikedMeResponse(**data)
 
 
+@router.get("/discover/liked", response_model=LikedUsersResponse)
+async def liked_users(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Whom the account tapped, newest tap first, at most fifty of them.
+
+    The mirror of the inbox: stage 112 opened the door that reads the taps pointing at the account,
+    and this one reads the taps the account's own card wrote outward. Each card carries the number
+    that card was shown when it tapped, not a fresh guess about whether the two still fit.
+    """
+    service = DiscoveryService(session)
+    data = await service.liked(current_user.id)
+    return LikedUsersResponse(**data)
+
+
 @router.get("/discover/passed", response_model=PassedUsersResponse)
 async def passed_users(
     current_user: User = Depends(get_current_user),
@@ -79,6 +96,23 @@ async def like_user(
     service = MatchService(session)
     result = await service.like(current_user.id, user_id)
     return LikeResponse(**result)
+
+
+@router.delete("/users/{user_id}/like", response_model=LikedUsersResponse)
+async def undo_like(
+    user_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Take one's own tap back, and answer with the list that is left.
+
+    Only the requester's half of the pair is cleared: a tap says nothing about the tap the other
+    person may have made, and it leaves a formed pair standing — un-pairing is the match list's own
+    door, not something a "withdraw my tap" button should silently do to a conversation.
+    """
+    service = DiscoveryService(session)
+    data = await service.undo_like(current_user.id, user_id)
+    return LikedUsersResponse(**data)
 
 
 @router.post("/users/{user_id}/pass", response_model=PassResponse)
