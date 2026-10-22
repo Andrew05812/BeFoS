@@ -75,6 +75,13 @@ LOGOUT_SESSIONS = 16
 # because `PlanService.list_for_viewer` walks them and no route of the family puts a ceiling on the
 # walk — the same shape stage 49 measured for `GET /matches`.
 PLANS_PER_PAIR = 1
+# Arrangements the two writing doors of the plan family are given to work on, each. The hour door
+# moves an evening the pair stands on; the answer door closes the evening the other half named. One
+# scale calls this seed twice — once behind each row — and a queue drained by the first door's repeats
+# would leave the second with a plan it had already moved, so the pool is split in half: the front
+# half is what the move door taps, the back half is what the partner is asked about. Four per door is
+# room for `--runs` up to four; the smallest scale the stand shoots holds 20 pairs of the viewer.
+HOUR_ARRANGEMENTS = 4
 
 CITIES = ["Almaty", "Astana", "Shymkent", "Karaganda", "Aktau"]
 GOALS = ["relationship", "marriage", "casual", "friendship", "networking"]
@@ -703,6 +710,41 @@ def _build_paths():
 
         return await list_plans_route(current_user=ctx["viewer_user"], session=session)
 
+    async def plan_hour_move(session, ctx):
+        from app.api.v1.plans import offer_hour as offer_hour_route
+        from app.schemas.schemas import MeetingTimeIn
+
+        if not ctx.get("hour_moves"):
+            raise RuntimeError(
+                "the hour queue is empty: the move path needs one arrangement per repeat "
+                f"(`--runs` above {HOUR_ARRANGEMENTS})"
+            )
+        # The pair's evening is named by whoever taps the door, and the instant comes from the queue
+        # the seed filled — a tap that names the hour the plan already holds is the 18-statement,
+        # writes-nothing case `s120_gap.json` measured, and it is not the door this row prices.
+        plan_id, when = ctx["hour_moves"].pop(0)
+        return await offer_hour_route(
+            plan_id, payload=MeetingTimeIn(when=when), current_user=ctx["viewer_user"], session=session
+        )
+
+    async def plan_hour_answer(session, ctx):
+        from app.api.v1.plans import confirm_hour as confirm_hour_route
+        from app.schemas.schemas import MeetingTimeIn
+
+        if not ctx.get("hour_questions"):
+            raise RuntimeError(
+                "the question queue is empty: the answer path needs one asked arrangement per repeat "
+                f"(`--runs` above {HOUR_ARRANGEMENTS})"
+            )
+        # The instant the door is handed is the one the partner is asking about: this route refuses a
+        # value that moved («That time is no longer the one being offered»), and the probe priced a
+        # refusal at 11 statements and no writes — an answer invented here would publish that number
+        # as the price of agreeing.
+        plan_id, when = ctx["hour_questions"].pop(0)
+        return await confirm_hour_route(
+            plan_id, payload=MeetingTimeIn(when=when), current_user=ctx["viewer_user"], session=session
+        )
+
     async def plan_card(session, ctx):
         from app.api.v1.plans import get_plan as get_plan_route
 
@@ -772,6 +814,14 @@ def _build_paths():
         # length nobody shot. Running after every older path keeps those rows the same calls they were
         # measured as, and the only thing the seed can still reach is the row of its own card.
         "plans": plans_screen,
+        # The two taps of one agreement, and they sit between the screen and its card on purpose. The
+        # screen row of stage 119 is the steady open of a list nobody has moved, so it keeps its place
+        # ahead of them; the card row was taken over a journal with nothing in it (12 statements, its
+        # plan showing `Limit` over 0 rows), and these two doors are the first thing in the harness
+        # that writes a line about a plan. Behind them the card is finally the read the pair makes:
+        # `s120_shape2.json` counts it at 13 statements over a journal its own plan filled.
+        "plan_hour": plan_hour_move,
+        "plan_hour_confirm": plan_hour_answer,
         "plan_detail": plan_card,
     }
 
@@ -799,6 +849,12 @@ def _build_setups():
         # two rows price one page length (`_seed_own_taps` learned that rule in stage 118).
         "plans": _seed_arrangements,
         "plan_detail": _seed_arrangements,
+        # Both writing doors stand on one seed and one pool of arrangements: the tap and the answer
+        # are priced over the same page of the screen, which is the rule stage 118 put on the taps and
+        # stage 119 on the arrangements. The seed asks the partner through their own verb, because a
+        # question is a projection of two rows plus `_record_ask` and nothing else writes both.
+        "plan_hour": _seed_hour_moves,
+        "plan_hour_confirm": _seed_hour_moves,
     }
 
 
@@ -1108,6 +1164,93 @@ async def _seed_arrangements(session, ctx) -> None:
         raise RuntimeError(
             "the plan seed named no arrangement: the viewer of this stand holds no pair, so both "
             "rows of the plan family would price an empty list rather than the screen"
+        )
+    await session.commit()
+
+
+async def _seed_hour_moves(session, ctx) -> None:
+    """Hand the two writing doors of the plan family the arrangements they can each write on.
+
+    Stage 119 priced the family's two reads and named the taps as the open end. The probe of this
+    stage counted them (`s120_gap.json`, db `befos_s120gap`): a tap that names a different evening is
+    25 statements and writes two lines into the pair's chat, a tap that answers the evening the other
+    half named is 22 statements and writes one, a tap that names the hour the plan already holds is
+    18 and writes nothing, and a refusal costs 11. None of those numbers belongs to a door pointed at
+    a state the harness never built, so the seed builds the two states the doors meet: half of the
+    pool is an evening the pair stands on with nobody asking, and the other half is a question the
+    partner is asking.
+
+    The question is asked through the partner's own verb — `PlanService.offer_hour`, which is what
+    `POST /api/v1/plans/{id}/hour` dispatches to for them. The first take of `s120_shape.py` wrote the
+    partner's preference row with an UPDATE instead, and the answer then landed on a pair of rows the
+    product does not hold: the projection still read the old evening as agreed, so the answer wrote a
+    `plan_voided` line and no `plan_agreed` one. A question is not a value in a column; `_record_ask`
+    is what puts it on the plan, and only the verb calls it.
+
+    The pool is ordered with the card's own plan first, so the arrangement the move door taps in its
+    first repeat is the one the card row reads afterwards — that is why the two doors sit ahead of
+    `plan_detail` and behind `plans`: `s120_shape2.json` counts the card at 13 statements over a
+    journal its own plan filled against the 12 stage 119 took over an empty one.
+
+    The second call of one scale — the one behind the row for the answer — reads back the question it
+    already asked from `pending_hour` and writes nothing, which is the rule stage 118 put on the tap
+    seed: the two doors have to price one page of the screen, not two.
+    """
+    from datetime import timedelta
+
+    from sqlalchemy import text
+
+    from app.services.plan_service import PlanService
+
+    await _seed_arrangements(session, ctx)
+    rows = (await session.execute(
+        text(
+            """
+            SELECT p.id, p.match_id, p.activity_id,
+                   CASE WHEN m.user_a_id = :viewer THEN m.user_b_id ELSE m.user_a_id END AS peer,
+                   coalesce(p.starts_at, p.pending_hour) AS anchor,
+                   p.pending_by, p.pending_hour
+            FROM shared_plans p
+            JOIN matches m ON m.id = p.match_id
+            WHERE (m.user_a_id = :viewer OR m.user_b_id = :viewer)
+              AND p.status IN ('planned', 'rescheduled')
+              AND coalesce(p.starts_at, p.pending_hour) IS NOT NULL
+            ORDER BY (p.id = :addressed) DESC, p.created_at, p.id
+            LIMIT :cap
+            """
+        ),
+        {
+            "viewer": ctx["viewer_id"],
+            "addressed": ctx["plan_id"],
+            "cap": 2 * HOUR_ARRANGEMENTS,
+        },
+    )).all()
+    if not rows:
+        raise RuntimeError(
+            "the hour seed found no arrangement to write on: the plan family would price a door "
+            "whose list is empty, which is the mistake stage 119 closed for its screen"
+        )
+    half = len(rows) // 2
+    moves, questions = [], []
+    service = PlanService(session)
+    for index, row in enumerate(rows):
+        anchor = row.anchor
+        if index < half:
+            moves.append((row.id, anchor + timedelta(hours=index + 1)))
+            continue
+        if row.pending_by is not None and str(row.pending_by) != str(ctx["viewer_id"]):
+            questions.append((row.id, row.pending_hour))
+            continue
+        asked = anchor + timedelta(days=1, hours=index + 1)
+        await service.offer_hour(row.match_id, row.peer, row.activity_id, asked)
+        questions.append((row.id, asked))
+    ctx["hour_moves"] = moves[:HOUR_ARRANGEMENTS]
+    ctx["hour_questions"] = questions[:HOUR_ARRANGEMENTS]
+    if not ctx["hour_moves"] or not ctx["hour_questions"]:
+        raise RuntimeError(
+            f"the hour seed split {len(rows)} arrangements into {len(ctx['hour_moves'])} evenings to "
+            f"move and {len(ctx['hour_questions'])} questions to answer: one of the two doors would "
+            "price a queue it never got"
         )
     await session.commit()
 
