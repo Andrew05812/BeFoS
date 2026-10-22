@@ -1,8 +1,8 @@
 """The two doors stage 116 opened left the stand without a price, and its own open end said so.
 
 `CHANGELOG.md` and `docs/API.md` recorded the gap at the closing of stage 116: the latency table of
-`docs/SCALE_PLAN.md` names nineteen paths, and neither `GET /api/v1/discover/liked` nor
-`DELETE /api/v1/users/{id}/like` is among them — the tap that sits on the deck has carried a row
+`docs/SCALE_PLAN.md` then named nineteen paths, and neither `GET /api/v1/discover/liked` nor
+`DELETE /api/v1/users/{id}/like` was among them — the tap that sits on the deck has carried a row
 since stage 26, its read carries one since stage 28, yet the account's own list of taps and the
 withdrawal of one of them are priced by nobody.
 
@@ -14,7 +14,7 @@ consumes what it prices: the second undo of one tap answers 404 and writes nothi
 must rotate over a pool of the viewer's own taps addressed outside every measured window, the way
 `unpass` rotates over the viewer's own passes.
 
-Eleven checks, in the order the risk sits:
+Ten checks, in the order the risk sits:
 
 * the harness has a path for the list of one's own taps and for its withdrawal, and both doors own
   a setup besides their row;
