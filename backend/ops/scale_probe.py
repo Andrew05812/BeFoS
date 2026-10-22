@@ -48,6 +48,12 @@ DECK_SIZE = 20
 # and the `like` path all start from the viewer — so without this knob the inbox row would price
 # an empty list.
 LIKED_ME_TAPS_DIVISOR = 10
+# Own taps the tap-list and withdrawal setups write: one per this many accounts on the stand, with a
+# floor of `LIKED_SHOWN + 1` so the measured page always has a queue behind its fifty cards. The
+# mirror knob of the inbox divisor: before stage 117 the stand pointed its viewer's `likes` rows
+# only outward through the timed `like` path, so both doors of the own-taps row would price an
+# empty list without their own seed.
+LIKED_TAPS_DIVISOR = 10
 # The string the stand writes into `refresh_tokens.user_agent`. Named because the session paths
 # mint rows the crowd never had, and a reader of the table has to be able to tell a session this
 # harness made from a session somebody else's run left behind.
@@ -649,6 +655,29 @@ def _build_paths():
             target, current_user=ctx["viewer_user"], session=session
         )
 
+    async def liked_list(session, ctx):
+        # The list of the viewer's own taps stage 116 opened, priced by the handler the route
+        # dispatches. Unlike its mirror on the deck side this door needs a setup: every social row
+        # the stand writes about the viewer points outward, so without `_seed_own_taps` the row
+        # would price an empty page — stage 113 learned the same lesson on the inbox.
+        from app.api.v1.discover import liked_users as liked_users_route
+
+        return await liked_users_route(current_user=ctx["viewer_user"], session=session)
+
+    async def undo_tap(session, ctx):
+        from app.api.v1.discover import undo_like as undo_like_route
+
+        peers = ctx["unlike_peers"]
+        # A fresh target per run, the bargain `unpass` struck: the second withdrawal of one tap
+        # answers 404 and writes nothing, so a static target would time a refusal after the first
+        # call and publish it as the price of the gesture. The pool is filled by the setup behind
+        # this row — the viewer's own `likes` rows the seed just wrote — outside every window.
+        target = peers[ctx["unlike_turn"] % len(peers)]
+        ctx["unlike_turn"] += 1
+        return await undo_like_route(
+            target, current_user=ctx["viewer_user"], session=session
+        )
+
     async def session_refresh(session, ctx):
         # The call a client makes when its access token died: redeem the stored refresh token and
         # mint the pair that replaces it. The redeemed string is replaced in the context by the one
@@ -693,6 +722,8 @@ def _build_paths():
         "deck_exhausted": deck_exhausted,
         "universe_map": universe_map,
         "liked_me": liked_me,
+        "liked": liked_list,
+        "unlike": undo_tap,
         "passed": passed_list,
         "unpass": undo_pass,
         "session_refresh": session_refresh,
@@ -715,6 +746,8 @@ def _build_setups():
         "session_refresh": _prime_session,
         "session_logout": _prime_sessions,
         "liked_me": _seed_incoming_taps,
+        "liked": _seed_own_taps,
+        "unlike": _seed_taps_for_return,
     }
 
 
@@ -775,6 +808,105 @@ async def _seed_incoming_taps(session, ctx) -> None:
         },
     )
     await session.commit()
+
+
+async def _seed_own_taps(session, ctx) -> None:
+    """Point taps from the viewer at the crowd, before the own-taps list is timed and outside it.
+
+    The mirror of `_seed_incoming_taps`, and it is needed for the same reason stated from the other
+    end: the stand's viewer has written `likes` rows only through the timed `like` path, so the page
+    behind `GET /discover/liked` would be priced empty. The candidates are the accounts the door can
+    actually name at that moment — active, not deleted, onboarded, not hidden, not the viewer, not
+    already a pair — and the last two clauses are new here on purpose: an account that already liked
+    the viewer would turn a seeded mutual tap into a pair that never went through the match door, a
+    state the product cannot reach, and the viewer's own earlier tap would make the seed a no-op
+    whose page differs from the one being priced.
+
+    The seed also clears the pass rows the tapped accounts hold behind the viewer's taps, because a
+    real tap does exactly that (stage 26): leaving them would price a page whose pairs stand in a
+    state no screen can hold.
+    """
+    from sqlalchemy import text
+
+    from app.services.discovery_service import LIKED_SHOWN
+
+    await session.execute(
+        text(
+            """
+            WITH pool AS (
+                SELECT u.id, row_number() OVER (ORDER BY md5(u.email::text)) AS n,
+                       count(*) OVER () AS total
+                FROM users u JOIN profiles p ON p.user_id = u.id
+                WHERE u.is_active AND NOT u.is_deleted
+                  AND p.is_hidden IS FALSE AND p.onboarding_completed_at IS NOT NULL
+                  AND u.id <> :viewer
+                  AND NOT EXISTS (
+                      SELECT 1 FROM matches m
+                      WHERE (m.user_a_id = :viewer AND m.user_b_id = u.id)
+                         OR (m.user_b_id = :viewer AND m.user_a_id = u.id)
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1 FROM likes back
+                      WHERE back.from_user_id = u.id AND back.to_user_id = :viewer
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1 FROM likes mine
+                      WHERE mine.from_user_id = :viewer AND mine.to_user_id = u.id
+                  )
+            )
+            INSERT INTO likes (id, from_user_id, to_user_id, compatibility_score,
+                               created_at, updated_at)
+            SELECT gen_random_uuid(), :viewer, pool.id, 0.72,
+                   now() - make_interval(mins => pool.n::int), now()
+            FROM pool
+            WHERE pool.n <= GREATEST(pool.total / :divisor, :floor)
+            ON CONFLICT DO NOTHING
+            """
+        ),
+        {
+            "viewer": ctx["viewer_id"],
+            "divisor": LIKED_TAPS_DIVISOR,
+            "floor": LIKED_SHOWN + 1,
+        },
+    )
+    await session.execute(
+        text(
+            "DELETE FROM passes ps "
+            "WHERE ps.from_user_id = :viewer AND ps.to_user_id IN ("
+            "SELECT l.to_user_id FROM likes l WHERE l.from_user_id = :viewer)"
+        ),
+        {"viewer": ctx["viewer_id"]},
+    )
+    await session.commit()
+
+
+async def _seed_taps_for_return(session, ctx) -> None:
+    """Seed the viewer's own taps and hand the withdrawal its rotation pool, outside the window.
+
+    The withdrawal consumes what it prices — the second undo of one tap answers 404 and writes
+    nothing — so the target arrives from `unlike_peers`, the viewer's own tap rows this setup has
+    just written, the way `unpass` rotates over the passes `_seed_activity` left behind. The pool is
+    read by the harness's own account (the `scale_` crowd), never by another viewer's page.
+    """
+    from sqlalchemy import text
+
+    await _seed_own_taps(session, ctx)
+    rows = (
+        await session.execute(
+            text(
+                "SELECT l.to_user_id FROM likes l "
+                "WHERE l.from_user_id = :viewer LIMIT 64"
+            ),
+            {"viewer": ctx["viewer_id"]},
+        )
+    ).scalars().all()
+    if not rows:
+        raise RuntimeError(
+            "the own-taps seed wrote nothing: the withdrawal path would rotate over an empty pool "
+            "and time a refusal instead of the gesture"
+        )
+    ctx["unlike_peers"] = list(rows)
+    ctx["unlike_turn"] = 0
 
 
 async def _empty_deck(session, ctx) -> None:
