@@ -3,10 +3,12 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.deps import get_current_user
+from app.auth.deps import get_current_session_id, get_current_user
 from app.core.config import settings
 from app.core.database import get_session
 from app.models import PHOTO_DISPLAY_ORDER, Photo, User
@@ -18,6 +20,7 @@ from app.schemas.schemas import (
     ProfileUpdate,
 )
 from app.services import photo_service
+from app.services.export_service import ExportService
 from app.services.profile_service import ProfileService
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -87,6 +90,33 @@ async def get_me(
         .all()
     )
     return _profile_to_out(profile, photos, current_user.is_moderator)
+
+
+@router.get("/me/export")
+async def export_account(
+    current_user: User = Depends(get_current_user),
+    current_session_id: uuid.UUID | None = Depends(get_current_session_id),
+    session: AsyncSession = Depends(get_session),
+):
+    """Everything this account wrote, in one file it can keep.
+
+    The door exists because of the one beside it: `DELETE /users/me` anonymises the profile, deletes
+    the photographs and the files behind them, drops the questionnaire, the scored profile, the deck
+    and the whole social graph, and nothing brings them back. Before that tap there was no verb in
+    this API by which a person could read their own life out of the app they are leaving, so the
+    choice on the settings screen was between staying and losing.
+
+    `Content-Disposition` names a file rather than a page: this answer is not something to render, it
+    is something to keep. Nothing in the body names a caller — the bearer token already said whose —
+    and `counts` answers with the rows that stand even when `limits.truncated` names a section the
+    ceiling cut, so the file cannot describe itself as complete while it is holding part of a list.
+    """
+    document = await ExportService(session).build(current_user, current_session_id)
+    filename = f"befos-account-{current_user.id}.json"
+    return JSONResponse(
+        content=jsonable_encoder(document),
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.post("/me/onboarding", response_model=ProfileOut)
