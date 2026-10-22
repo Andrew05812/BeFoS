@@ -1,5 +1,7 @@
 package app.befos.presentation.settings
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -18,6 +20,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Logout
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.PhoneAndroid
 import androidx.compose.material.icons.outlined.VisibilityOff
@@ -31,10 +34,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -47,12 +53,15 @@ import app.befos.core.designsystem.AppTextField
 import app.befos.core.designsystem.AppTopBar
 import app.befos.core.designsystem.Avatar
 import app.befos.core.designsystem.Elev
-import app.befos.core.designsystem.InlineNotice
 import app.befos.core.designsystem.ErrorRed
-import app.befos.core.designsystem.SectionHeader
+import app.befos.core.designsystem.InlineNotice
 import app.befos.core.designsystem.Motion
+import app.befos.core.designsystem.SectionHeader
 import app.befos.core.designsystem.SkeletonBlock
 import app.befos.core.designsystem.Spacing
+import app.befos.core.designsystem.rememberHaptics
+import app.befos.core.designsystem.tabularDigits
+import app.befos.domain.model.AccountExport
 import app.befos.domain.model.BlockedUser
 import app.befos.domain.model.DeviceSession
 import app.befos.core.di.beFosViewModel
@@ -60,11 +69,44 @@ import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 fun SettingsScreen(onBack: () -> Unit, onLoggedOut: () -> Unit, onOpenModeration: () -> Unit) {
     val vm: SettingsViewModel = beFosViewModel { SettingsViewModel(it.safetyRepository, it.authRepository, it.profileRepository) }
     val state by vm.uiState.collectAsState()
+    val context = LocalContext.current
+    val haptics = rememberHaptics()
+    val writeScope = rememberCoroutineScope()
+    // The callback below outlives the frame that registered it, so it reads the file the screen is
+    // holding at the moment the system hands the uri back rather than the one it was built with.
+    val heldExport by rememberUpdatedState(state.exported)
+
+    // The system's own document provider: it asks for no storage permission, the person names the place,
+    // and the app is handed one writable uri instead of a directory it could walk. Nothing is written
+    // when the dialog comes back empty — that is a change of mind, and the file stays where it is.
+    val saveExport = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        val file = heldExport
+        if (uri != null && file != null) {
+            writeScope.launch {
+                // Megabytes of somebody's life leave through a stream the system may refuse; the write
+                // belongs off the frame, and its failure belongs to the card that promised the file.
+                val written = withContext(Dispatchers.IO) {
+                    runCatching {
+                        context.contentResolver.openOutputStream(uri)?.use { stream -> stream.write(file.bytes) } != null
+                    }.getOrDefault(false)
+                }
+                if (written) {
+                    haptics.success()
+                    vm.markExportSaved()
+                } else {
+                    vm.markExportSaveFailed()
+                }
+            }
+        }
+    }
 
     LaunchedEffect(state.loggedOut, state.deleted) {
         if (state.loggedOut || state.deleted) onLoggedOut()
@@ -393,6 +435,116 @@ fun SettingsScreen(onBack: () -> Unit, onLoggedOut: () -> Unit, onOpenModeration
                 )
             }
 
+            Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
+                SectionHeader("Свои данные")
+                // The door in front of the one below it. Everything the erasure takes is read back here
+                // as one file, so «Удалить аккаунт» stops being the only way out and becomes a choice a
+                // person can make after they have taken their own rows with them.
+                AppCard(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(Spacing.xl),
+                        verticalArrangement = Arrangement.spacedBy(Spacing.md),
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(Spacing.md),
+                        ) {
+                            SectionIcon(Icons.Outlined.Download, MaterialTheme.colorScheme.onSurfaceVariant)
+                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text("Выгрузить мои данные", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    "Один файл со всем, что аккаунт написал сам: анкета, снимки, касания, " +
+                                        "пары, переписка, планы, жалобы и устройства, которые входят в аккаунт.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                        AppButton(
+                            text = if (state.exportBusy) "Собираем ваши строки…" else "Выгрузить",
+                            onClick = vm::exportAccount,
+                            variant = AppButtonVariant.Tonal,
+                            enabled = !state.exportBusy,
+                            loading = state.exportBusy,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+                // A download is the one read on this screen that is not started by opening it, so the
+                // empty placeholder is drawn only while the person is waiting on their own tap.
+                if (state.exportBusy) {
+                    SkeletonBlock(modifier = Modifier.fillMaxWidth().height(96.dp))
+                }
+                if (state.exportUnknown) {
+                    InlineNotice(
+                        "Не удалось выгрузить ваши данные.",
+                        actionLabel = "Повторить",
+                        onAction = vm::exportAccount,
+                    )
+                }
+                state.exported?.let { file ->
+                    AppCard(modifier = Modifier.fillMaxWidth()) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(Spacing.xl),
+                            verticalArrangement = Arrangement.spacedBy(Spacing.md),
+                        ) {
+                            Text(
+                                if (file.isFreshAccount) "Файл готов: в нём пока только анкета" else "Файл готов",
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            // Label before number, everywhere: the counts have no plural table here, and
+                            // an invented one would be a second copy of the grammar the file is written in.
+                            ExportLine("Записей в файле", file.totalRows.toString())
+                            ExportLine("Размер", exportSizeWord(file.sizeBytes))
+                            exportDayWord(file.generatedAt)?.let { day -> ExportLine("Создан", day) }
+                            // Only the sections that hold something: a card that lists thirteen zeros says
+                            // the account was read, and hides which parts of it are actually there.
+                            val filled = file.sections.filter { it.rows > 0 }
+                            if (filled.isNotEmpty()) {
+                                Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                                    filled.forEach { section ->
+                                        ExportLine(exportSectionWord(section.name), section.rows.toString())
+                                    }
+                                }
+                            }
+                            exportCutsWord(file)?.let { cuts ->
+                                // The ceiling is the server's, and the card repeats it: a file that holds
+                                // part of a list must not be drawn as the whole of one.
+                                InlineNotice("Не всё поместилось в файл: $cuts.", isError = false)
+                            }
+                            if (state.exportSaved) {
+                                InlineNotice(
+                                    "Сохранено на устройстве: ${file.fileName}",
+                                    isError = false,
+                                    modifier = Modifier.semantics { contentDescription = "Файл сохранён: ${file.fileName}" },
+                                )
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(Spacing.md),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                AppButton(
+                                    text = "Сохранить файл",
+                                    onClick = { saveExport.launch(file.fileName) },
+                                    // The door stays open after one write: nothing about saving the same
+                                    // rows to a second place is unsafe, and closing it would be the screen
+                                    // claiming it knows where the person wanted the file.
+                                    modifier = Modifier.weight(1f),
+                                )
+                                TextButton(
+                                    onClick = vm::discardExport,
+                                    modifier = Modifier.semantics { contentDescription = "Убрать выгрузку" },
+                                ) {
+                                    Text("Убрать")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // Dangerous actions live in their own visually separated zone.
             Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
                 SectionHeader("Опасная зона")
@@ -418,6 +570,14 @@ fun SettingsScreen(onBack: () -> Unit, onLoggedOut: () -> Unit, onOpenModeration
                             }
                             Text(
                                 "Профиль, пары и переписка будут удалены безвозвратно.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            // The pointer is the part this screen could not make until the door above it
+                            // existed. The erasure stays exactly as harsh as it was; what changed is that
+                            // a person standing in front of it now has a way to take their own rows first.
+                            Text(
+                                "Свои строки можно вынести заранее — в разделе «Свои данные» выше.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -513,6 +673,87 @@ private fun PasswordEditor(
         }
     }
 }
+
+/**
+ * One line of the finished file's card: what the document calls the section, and how many rows of it
+ * the file carries.
+ *
+ * The label sits on the weight and the number on the end, so a name that grows with the text scale
+ * takes room from the label rather than pushing the digits off the row.
+ */
+@Composable
+private fun ExportLine(label: String, value: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(Spacing.md),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
+        )
+        Text(value, style = MaterialTheme.typography.labelLarge.tabularDigits())
+    }
+}
+
+/**
+ * How big the file is, in whole units rounded down.
+ *
+ * Three words rather than a byte count: a person comparing the card with the file they saved has to be
+ * able to say which is which, and a card that rounded 2,5 КБ up to 3 would be describing bytes that did
+ * not arrive.
+ */
+internal fun exportSizeWord(bytes: Int): String {
+    val kib = 1024L
+    val mib = kib * kib
+    val value = bytes.toLong()
+    return when {
+        value < kib -> "$bytes Б"
+        value < mib -> "${value / kib} КБ"
+        else -> {
+            val tenths = value * 10 / mib
+            "${tenths / 10},${tenths % 10} МБ"
+        }
+    }
+}
+
+/**
+ * The section's name in the screen's own words, and the document's key when the screen has no word.
+ *
+ * The fallback is deliberate: a key this build never saw is the server's own name for a section, and a
+ * person can find it in the file by that spelling. An invented translation would be a label pointing at
+ * nothing.
+ */
+internal fun exportSectionWord(name: String): String = when (name) {
+    "photos" -> "снимки"
+    "questionnaire_answers" -> "ответы анкеты"
+    "questionnaire_categories" -> "разделы анкеты"
+    "taps_given" -> "ваши касания"
+    "taps_received" -> "касания вам"
+    "taps_passed" -> "пропуски"
+    "deck" -> "колода"
+    "pairs" -> "пары"
+    "chats" -> "переписка"
+    "plans" -> "планы"
+    "blocks" -> "заблокированные"
+    "complaints" -> "жалобы"
+    "sessions" -> "устройства"
+    else -> name
+}
+
+/**
+ * Which parts of the file the server cut short, in one sentence — or nothing, when the ceiling was
+ * never reached. The card cannot present a part of a list as the whole of one, and it cannot say so
+ * from arithmetic either: the document names its own cuts.
+ */
+internal fun exportCutsWord(export: AccountExport): String? =
+    export.truncated.joinToString(", ") { exportSectionWord(it) }.ifEmpty { null }
+
+/** The day the file was written, in the reader's own zone, or nothing the client has to invent. */
+internal fun exportDayWord(generatedAt: String, zone: ZoneId = ZoneId.systemDefault()): String? =
+    dayWord(generatedAt, zone)
 
 @Composable
 private fun SectionIcon(icon: ImageVector, tint: androidx.compose.ui.graphics.Color) {

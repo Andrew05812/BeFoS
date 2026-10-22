@@ -188,6 +188,33 @@ class ClientTimeoutBoundsTest {
         assertBound("the photo whole-call ceiling", 600_000L, photo?.requestTimeoutMillis)
     }
 
+    /**
+     * The two calls whose length belongs to the wire rather than to a JSON answer raise the same bounds:
+     * a photograph leaving the device and a whole account coming back to it are both sized by the link.
+     *
+     * The upload's numbers were measured (2.4 MB in 37 s ended at 10 123 ms on the inherited default, and
+     * at 35 098 ms under the declared ceiling); the download inherits them rather than declaring its own,
+     * because no export of a real account has been timed over a slow link yet.
+     */
+    @Test
+    fun the_account_file_is_given_the_room_the_photo_upload_was_measured_needing() = runBlocking {
+        val seen = mutableMapOf<String, HttpTimeoutConfig?>()
+        val client = createHttpClient(FakeSession(), MockEngine { request ->
+            seen[request.url.segments.last()] = request.getCapabilityOrNull(HttpTimeoutCapability)
+            json("{}", HttpStatusCode.NotFound)
+        })
+
+        val api = ApiService(client)
+        api.getTests()
+        api.exportAccount()
+        client.close()
+
+        val export = seen["export"]
+        assertNotNull("the account file reaches the engine on the ordinary JSON bounds", export)
+        assertBound("the download bound", 60_000L, export?.socketTimeoutMillis)
+        assertBound("the download whole-call ceiling", 600_000L, export?.requestTimeoutMillis)
+    }
+
     /** Ktor wraps a ceiling cut in its own exception type; find it whatever the engine wrapped. */
     private fun unwrap(error: Throwable?): Throwable? =
         generateSequence(error) { it.cause }

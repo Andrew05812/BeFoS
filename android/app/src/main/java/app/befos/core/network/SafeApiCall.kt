@@ -5,6 +5,7 @@ import io.ktor.client.call.body
 import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.request
 import io.ktor.client.statement.HttpResponse
+import io.ktor.client.statement.bodyAsBytes
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.isSuccess
 import kotlinx.serialization.Serializable
@@ -116,6 +117,33 @@ suspend inline fun HttpClient.apiCallUnit(
     }
     return if (response.status.isSuccess()) {
         ApiResult.Success(Unit)
+    } else {
+        ApiResult.Error(response.status.value, parseErrorMessage(response))
+    }
+}
+
+/**
+ * Variant for a response the client is meant to keep as bytes rather than to fold into a DTO.
+ *
+ * The account's own file is the case this exists for: it is one document written once, and a screen
+ * that showed it as a typed answer would be promising a shape the server never declared. The bytes
+ * travel unchanged, and a failure still reads as a failure — an error answer carries bytes of its
+ * own, and handing those to a "save" button would be offering somebody their refusal as a file.
+ */
+suspend inline fun HttpClient.apiCallBytes(
+    crossinline block: HttpRequestBuilder.() -> Unit,
+): ApiResult<ByteArray> {
+    val response: HttpResponse = try {
+        request(block)
+    } catch (e: Exception) {
+        return ApiResult.Error(-1, friendlyNetworkMessage(e))
+    }
+    return if (response.status.isSuccess()) {
+        try {
+            ApiResult.Success(response.bodyAsBytes())
+        } catch (e: Exception) {
+            ApiResult.Error(-2, "Не удалось получить данные. Попробуйте ещё раз.")
+        }
     } else {
         ApiResult.Error(response.status.value, parseErrorMessage(response))
     }

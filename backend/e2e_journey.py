@@ -1709,6 +1709,35 @@ def main() -> int:
     check(fresh_list.status_code == 200 and len(fresh_list.json()["sessions"]) == 1,
           "one new sign-in leaves one live row", str(len(fresh_list.json().get("sessions", []))))
 
+    # 15d. The account takes its own rows out. Everything the walk wrote is in this file — the answers
+    # it gave, the card it tapped, the device it is reading from — and it is the only thing a person is
+    # left holding once the erasure below has run. The shape of the answer is part of the contract: a
+    # document a browser or another app can open has to arrive as a file, name its own format, and carry
+    # no key of the account it describes.
+    pace()
+    taken = c.get(f"{BASE}/users/me/export", headers=ha2)
+    check(taken.status_code == 200, "the account reads its own rows back before the erasure", str(taken.status_code))
+    handed = taken.headers.get("content-disposition", "")
+    check(handed.startswith('attachment; filename="befos-account-') and handed.endswith('.json"'),
+          "the answer arrives as a file to keep, not a page to render", handed[:90])
+    document = taken.json()
+    check(document.get("format") == "befos.account-export/1" and bool(document.get("generated_at")),
+          "the file says which app wrote it and at what moment",
+          f"{document.get('format')} {document.get('generated_at')}")
+    counts = document.get("counts", {})
+    check(counts.get("questionnaire_answers", 0) > 0 and counts.get("taps_given", 0) > 0,
+          "the rows this walk wrote stand in the file",
+          f"answers={counts.get('questionnaire_answers')} taps={counts.get('taps_given')}")
+    raw = taken.text
+    check("password_hash" not in raw and "token_hash" not in raw and "access_token" not in raw
+          and document.get("account", {}).get("email") == email_a,
+          "the file names the account and carries neither of its keys",
+          str(document.get("account", {}).get("email")))
+    rows_out = document.get("sessions", [])
+    check(len(rows_out) == 1 and rows_out[0]["device"] == ua_phone["User-Agent"] and rows_out[0]["current"] is True,
+          "the file knows which device it was gathered from",
+          str([(r["device"], r.get("current")) for r in rows_out])[:160])
+
     # 16. unauthorized access rejected
     noauth = c.get(f"{BASE}/users/me")
     check(noauth.status_code in (401, 403), "unauthorized /users/me rejected", str(noauth.status_code))
@@ -1716,6 +1745,11 @@ def main() -> int:
     # 17. delete account
     dele = c.delete(f"{BASE}/users/me", headers={"Authorization": f"Bearer {tok_a2}"})
     check(dele.status_code == 200, "delete account A", str(dele.status_code))
+    # The door closes with the account it belonged to: the same token that just read the file back is
+    # refused by the same route, so an erased account cannot be mined through its own export.
+    after_erasure = c.get(f"{BASE}/users/me/export", headers=ha2)
+    check(after_erasure.status_code == 401, "an erased account gets no second look at its rows",
+          str(after_erasure.status_code))
 
     # 18. an access token does not outlive the account behind it
     refused = socket_refused(f"{WS_BASE}/ws/chat/{match_id}?token={tok_a2}")

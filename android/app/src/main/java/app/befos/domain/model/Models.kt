@@ -666,3 +666,67 @@ data class ReportDetail(
 
 /** The status the row holds now, as the write route answered it after its own commit. */
 data class ReviewOutcome(val id: String, val status: String, val updatedAt: String)
+
+/**
+ * How many rows of one kind the account's own file carries.
+ *
+ * The number comes from the document the server wrote, not from a count the client keeps: the file
+ * and the screen have to be able to say the same thing about the same life, and the file is the one
+ * that can be checked after the account is gone.
+ */
+data class ExportSection(val name: String, val rows: Int)
+
+/**
+ * One account's own rows, handed over as a file the person can keep.
+ *
+ * The app can erase all of them in one tap — «Аккаунт удалится сразу. Восстановить его не получится»
+ * on the settings screen says so — and a door that closes a life with nothing taken out of it is a
+ * door worth standing in front of twice. So the bytes arrive here unchanged from the server: this
+ * class adds the two things a person needs to decide what to do with them, where the rows stand and
+ * whether any section was cut.
+ *
+ * [truncated] is the honest half. A section the server capped is named, and the file is not allowed
+ * to be presented as complete while it holds a part of a list.
+ */
+class AccountExport(
+    val bytes: ByteArray,
+    val fileName: String,
+    val generatedAt: String,
+    val sections: List<ExportSection>,
+    val truncated: List<String>,
+) {
+    val sizeBytes: Int get() = bytes.size
+
+    /** Rows the file carries across every section — the number the screen prints next to the name. */
+    val totalRows: Int get() = sections.sumOf { it.rows }
+
+    /**
+     * Whether the file holds nothing anybody did — only the rows that name the account and the device
+     * it is read from.
+     *
+     * A fresh account is a real state and is drawn as one: the file still comes back, because an empty
+     * document is the answer «здесь пока только то, что вы ввели сами», and not a failure. The sections
+     * left out of the question are the ones an account cannot hold empty — the questionnaire row the
+     * onboarding writes, the session row this very request stands on — so a person who signed up an
+     * hour ago is not told their file is full.
+     */
+    val isFreshAccount: Boolean
+        get() = sections.filter { it.name in ACTIVITY_SECTIONS }.all { it.rows == 0 }
+
+    companion object {
+        /** The counts that say a life happened here, as the document names them. */
+        private val ACTIVITY_SECTIONS = setOf(
+            "photos",
+            "questionnaire_answers",
+            "taps_given",
+            "taps_received",
+            "taps_passed",
+            "deck",
+            "pairs",
+            "chats",
+            "plans",
+            "blocks",
+            "complaints",
+        )
+    }
+}

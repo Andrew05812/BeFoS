@@ -293,6 +293,7 @@ access живёт до своего `ACCESS_TOKEN_EXPIRE_MINUTES` (30), и мг�
 | Метод | Путь | Тело | Ответ |
 |-------|------|------|-------|
 | GET | `/users/me` | — | `ProfileOut` |
+| GET | `/users/me/export` | — | файл `application/json` с `Content-Disposition: attachment` |
 | POST | `/users/me/onboarding` | `OnboardingProfile` | `ProfileOut` |
 | PATCH | `/users/me` | `ProfileUpdate` (частичное) | `ProfileOut` |
 | POST | `/users/me/photo` | `multipart` поле `file` | `ProfileOut` |
@@ -327,6 +328,27 @@ access живёт до своего `ACCESS_TOKEN_EXPIRE_MINUTES` (30), и мг�
 120 символов, больше — `422 validation_error`. Отвечают его только хозяйские маршруты
 `/users/me…`: чужой профиль не знает, где его хозяйка ищет, и `GET /users/{user_id}` поля
 не несёт.
+
+`GET /users/me/export` отвечает не страницей, а документом: `Content-Disposition: attachment` с
+именем `befos-account-<id>.json`, внутри — `format` (`befos.account-export/1`), `generated_at` и
+разделы `account`, `profile`, `photos`, `questionnaire`, `taps`, `deck`, `pairs`, `chats`, `plans`,
+`blocks`, `complaints`, `sessions`, счётчик `counts` и потолок `limits`. Разделы читаются теми же
+сервисами, что отвечают экранам (`MatchesService.list_matches`, `SafetyService.list_blocked`,
+`AuthService.own_sessions`, `PlanService.list_for_viewer` и `detail`, `TestService.stored_profile`),
+и второй раз ничего не пересчитывается: процент экрана совместимости остаётся округлением на экране,
+а в файле лежит число, из которого его округлили, и версия модели, которая его посчитала. Дверь
+только читает: строки переписки выбираются прямыми операторами, а не через `ChatService.history`,
+который по пути отмечает нить прочитанной, — и это снято проверкой, сверяющей число операторов и
+счётчики непрочитанного до вызова и после него. Потолок — 500 строк на раздел; порезанный раздел
+назван в `limits.truncated`, а `counts` продолжает отвечать числом строк, которые стоят в базе, —
+вырезка не выдаётся за полный список. Секретов документ не несёт: ни хеша слова, ни материала
+токенов, ни частной заметки партнёра по плану, ни руки модератора и его слова за решением жалобы, —
+при этом переписка обеих половин в нём лежит, потому что её писали и читали вдвоём, и отозванная
+строка остаётся в файле с отметкой `recalled`. Имя аккаунта в пути не нужно: токен доступа уже
+сказал, чьи строки собирать, и `DELETE /users/me` закрывает эту дверь вместе с аккаунтом — тот же
+токен после стирания получает `401`, и это снято живым шагом пути. Дверь стоит перед опасной зоной
+экрана «Настройки» (38-й сценарий `docs/USER_FLOWS.md`), а её цена на стенде не снималась: у неё нет
+пути в `ops/scale_probe.py`, и это названо открытым концом в `docs/RELEASE.md` §8.
 
 `OnboardingProfile` (POST `/users/me/onboarding`):
 

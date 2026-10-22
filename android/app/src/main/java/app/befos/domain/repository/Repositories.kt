@@ -2,6 +2,7 @@ package app.befos.domain.repository
 
 import app.befos.core.network.ApiResult
 import app.befos.core.network.StoredAuth
+import app.befos.domain.model.AccountExport
 import app.befos.domain.model.BlockedUser
 import app.befos.domain.model.Compatibility
 import app.befos.domain.model.DiscoveryPage
@@ -104,6 +105,14 @@ interface ProfileRepository {
     suspend fun reorderPhotos(photoIds: List<String>): ApiResult<Profile>
     suspend fun interests(): ApiResult<List<Interest>>
     suspend fun publicProfile(userId: String): ApiResult<PublicProfile>
+
+    /**
+     * The account's own rows as one file, handed over before the door that erases them is opened.
+     *
+     * Nothing is recomputed on the way: the counts a screen prints are the counts the document wrote,
+     * and a section the server capped is named rather than quietly left out.
+     */
+    suspend fun exportAccount(): ApiResult<AccountExport>
 }
 
 interface TestRepository {
