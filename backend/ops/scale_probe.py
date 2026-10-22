@@ -82,6 +82,16 @@ PLANS_PER_PAIR = 1
 # half is what the move door taps, the back half is what the partner is asked about. Four per door is
 # room for `--runs` up to four; the smallest scale the stand shoots holds 20 pairs of the viewer.
 HOUR_ARRANGEMENTS = 4
+# Rows the file of one account is priced on. The stand writes no photograph, no complaint and no
+# block for the viewer — `_seed_activity` gives them passes, pairs and a chat, the tap seeds give
+# likes — so the three sections of the document that read those tables would price an empty box,
+# which is the mistake stage 113 met on the inbox and stage 119 met on the plans screen. The
+# numbers are a rule of the harness, not of the scale: the file is measured as the account a person
+# actually leaves with, and a heavy account has a handful of photographs and a complaint or two,
+# while the columns that do grow with the crowd — passes, taps, pairs, the queue — grow on their own.
+EXPORT_PHOTOS = 6
+EXPORT_COMPLAINTS = 3
+EXPORT_BLOCKS = 4
 
 CITIES = ["Almaty", "Astana", "Shymkent", "Karaganda", "Aktau"]
 GOALS = ["relationship", "marriage", "casual", "friendship", "networking"]
@@ -758,6 +768,24 @@ def _build_paths():
             ctx["plan_id"], current_user=ctx["viewer_user"], session=session
         )
 
+    async def account_export(session, ctx):
+        from app.api.v1.users import export_account as export_account_route
+
+        # The file a person takes out before they erase themselves, priced by the handler the route
+        # dispatches: twelve sections assembled out of six services, and a re-assembled copy of those
+        # steps is how stage 76 and stage 77 each published yesterday's call as today's number. The
+        # reader comes from the context because `get_current_user` resolves it before the handler
+        # runs, and so does the row of the session the token stands on — the document names the
+        # device it was gathered from, and looking that up inside the window would price a read of
+        # `refresh_tokens` as part of the file. The key is read, not fetched: a file always stands on
+        # one live session, and a call that names none means the seed did not run rather than that
+        # the account has no device, which are two different answers for the same published number.
+        return await export_account_route(
+            current_user=ctx["viewer_user"],
+            current_session_id=ctx["export_session_id"],
+            session=session,
+        )
+
     async def session_refresh(session, ctx):
         # The call a client makes when its access token died: redeem the stored refresh token and
         # mint the pair that replaces it. The redeemed string is replaced in the context by the one
@@ -823,6 +851,14 @@ def _build_paths():
         "plan_hour": plan_hour_move,
         "plan_hour_confirm": plan_hour_answer,
         "plan_detail": plan_card,
+        # Last on purpose, and the reason is the same one stage 119 wrote above the plans seed: this
+        # row's preparation is the first thing on the stand that puts photographs, complaints and
+        # blocks under the viewer, and every older row that reads those tables would otherwise
+        # publish a page length nobody shot. Being last, the seed can only reach its own row — and
+        # the page it prices is the account the whole harness has been building: the taps the tap
+        # seeds wrote, the pairs `_seed_activity` paired, the arrangements the plan family agreed
+        # on, the chat those arrangements filled.
+        "account_export": account_export,
     }
 
 
@@ -855,7 +891,136 @@ def _build_setups():
         # question is a projection of two rows plus `_record_ask` and nothing else writes both.
         "plan_hour": _seed_hour_moves,
         "plan_hour_confirm": _seed_hour_moves,
+        # The file's own sections: photographs, complaints with a history row, blocks, and the
+        # session row the token of this run stands on. Placed with the row that reads them, which is
+        # the last row of the registry.
+        "account_export": _seed_own_rows,
     }
+
+
+async def _seed_own_rows(session, ctx) -> None:
+    """Put the rows the account's own file reads under the viewer, outside the measured window.
+
+    A photograph is one row and no projection, so it goes in as plain SQL. A block and a complaint
+    do not: a block dissolves the pair it stands on, a complaint arrives with a status and grows a
+    history row when the queue moves it, so both are written through the verbs that write them — the
+    rule stage 120 stated for a plan's question, which a raw `UPDATE` of the same columns broke.
+
+    Both stop at what the viewer already holds, the way stage 118 made the tap seed stop at its
+    target, so the second call of one scale writes nothing and the row prices one page length
+    whatever the harness asked it for. The targets exclude the viewer's pairs on purpose: a block
+    on a paired account would take the pair out from under the sections the rows above published.
+    """
+    from sqlalchemy import text
+
+    from app.core.exceptions import ConflictError
+    from app.services.auth_service import AuthService
+    from app.services.moderation_service import ModerationService
+    from app.services.safety_service import SafetyService
+
+    viewer = ctx["viewer_id"]
+    await session.execute(
+        text(
+            """
+            INSERT INTO photos (id, user_id, url, is_primary, position, created_at, updated_at)
+            SELECT gen_random_uuid(), :v, 'https://scale.invalid/photo/' || g || '.jpg',
+                   g = 1, g - 1, now(), now()
+            FROM generate_series(1, :want) g
+            WHERE (SELECT count(*) FROM photos WHERE user_id = :v) < :want
+            """
+        ),
+        {"v": viewer, "want": EXPORT_PHOTOS},
+    )
+    await session.commit()
+
+    targets = list(
+        (
+            await session.execute(
+                text(
+                    """
+                    SELECT u.id FROM users u JOIN profiles p ON p.user_id = u.id
+                    WHERE u.is_active AND NOT u.is_deleted
+                      AND u.id <> :v AND p.id IS NOT NULL
+                      AND p.onboarding_completed_at IS NOT NULL AND p.is_hidden IS FALSE
+                      AND NOT EXISTS (SELECT 1 FROM matches m
+                                      WHERE (m.user_a_id = :v AND m.user_b_id = u.id)
+                                         OR (m.user_b_id = :v AND m.user_a_id = u.id))
+                    ORDER BY md5(u.email::text) LIMIT :n
+                    """
+                ),
+                {"v": viewer, "n": EXPORT_BLOCKS + EXPORT_COMPLAINTS + 1},
+            )
+        ).scalars()
+    )
+    safety = SafetyService(session)
+    blocked = set(
+        (
+            await session.execute(
+                text("SELECT blocked_id FROM blocks WHERE blocker_id = :v"), {"v": viewer}
+            )
+        ).scalars()
+    )
+    for target in targets[:EXPORT_BLOCKS]:
+        if target not in blocked:
+            await safety.block(viewer, target)
+
+    filed = set(
+        (
+            await session.execute(
+                text("SELECT reported_id FROM reports WHERE reporter_id = :v"), {"v": viewer}
+            )
+        ).scalars()
+    )
+    reasons = ("spam", "harassment", "inappropriate")
+    for target, reason in zip(targets[EXPORT_BLOCKS:EXPORT_BLOCKS + EXPORT_COMPLAINTS], reasons):
+        if target in filed:
+            continue
+        try:
+            await safety.report(viewer, target, reason, "Строка жалобы для файла своих строк.")
+        except ConflictError:
+            continue
+
+    # One complaint of the page has been looked at, so the history the file carries is a row and not
+    # a column of empty lists. The stand has no moderator until a history row needs one, and the role
+    # is named here rather than left implied: stage 113 learned what an unnamed `is_moderator` does
+    # to a reader of this table.
+    if targets:
+        moderator = targets[-1]
+        # `open` is the only status a second decision can be asked for: a complaint the queue already
+        # moved is a dead end on purpose, and the second call of one scale would otherwise answer the
+        # row it just answered. The moderator is not the person the complaint is about, because the
+        # role says who may decide and never whom they may decide about.
+        decided = await session.scalar(
+            text("SELECT id FROM reports WHERE reporter_id = :v AND status = 'open' "
+                 "AND reported_id <> :m ORDER BY created_at LIMIT 1"),
+            {"v": viewer, "m": moderator},
+        )
+        if decided is not None:
+            await session.execute(
+                text("UPDATE users SET is_moderator = true WHERE id = :m"), {"m": moderator}
+            )
+            await session.commit()
+            await ModerationService(session).review(moderator, decided, "reviewed", None)
+
+    live = await session.scalar(
+        text("SELECT id FROM refresh_tokens WHERE user_id = :v AND revoked IS FALSE "
+             "ORDER BY created_at DESC LIMIT 1"),
+        {"v": viewer},
+    )
+    if live is None:
+        # A file is always gathered from a device that is signed in, and the sweep the logout row
+        # prices ends every session the viewer held — so the state is put back through the verb that
+        # mints it, outside the window.
+        await AuthService(session).issue_tokens(ctx["viewer_user"], USER_AGENT)
+        live = await session.scalar(
+            text("SELECT id FROM refresh_tokens WHERE user_id = :v AND revoked IS FALSE "
+                 "ORDER BY created_at DESC LIMIT 1"),
+            {"v": viewer},
+        )
+    if live is None:
+        raise RuntimeError("no live session for the file: `AuthService.issue_tokens` gave none")
+    ctx["export_session_id"] = live
+    await session.commit()
 
 
 async def _seed_incoming_taps(session, ctx) -> None:

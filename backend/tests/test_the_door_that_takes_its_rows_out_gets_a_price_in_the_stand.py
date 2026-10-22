@@ -11,7 +11,7 @@ callable the stand times — so that the state it proves (nothing written, nothi
 secret travelling, one page length priced twice) is the state of the measured call rather than of a
 copy someone made for the test.
 
-Nine checks, in the order the risk sits:
+Fourteen checks, in the order the risk sits:
 
 * the registry has the path, and its wrapper calls the handler the route dispatches with the reader
   and the session id the context carries — stage 76 and stage 77 each published a price that
@@ -26,7 +26,10 @@ Nine checks, in the order the risk sits:
 * the answer the priced window returns is a file, and it carries neither the password hash nor the
   material of a token nor the hand of the moderator who closed a complaint;
 * a section longer than the ceiling is named as cut while `counts` keeps the number of rows that
-  stand, and the repeat of the same export costs the same as the first call did.
+  stand, and the repeat of the same export costs the same as the first call did;
+* the two page-sized reads that replaced the per-pair and per-plan loops answer the same rows the
+  loops answered — the transcript line by line, the plan's journal against the card that owns it,
+  and a journal longer than the card's page ending where the card ends.
 """
 
 from __future__ import annotations
@@ -39,11 +42,14 @@ import re
 import uuid
 
 from httpx import AsyncClient
-from sqlalchemy import event, text
+from sqlalchemy import event, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal
-from app.models import User
+from app.models import Message, User
+from app.repositories.plan_repo import PlanRepository
+from app.services.export_service import JOURNAL_LINES
+from app.services.plan_service import PlanService
 
 from .test_a_pair_can_agree_on_when_to_meet import _pair, _ready
 
@@ -69,14 +75,18 @@ async def _viewer_row(user_id: str) -> User:
         return await session.get(User, uuid.UUID(user_id))
 
 
-async def _account(client: AsyncClient, tag: str, pairs: int = 2) -> tuple[dict, dict]:
+async def _account(client: AsyncClient, tag: str, pairs: int = 2, alone: int = 7) -> tuple[dict, dict]:
     """An account with the state the stand's viewer holds: pairs, arrangements, taps, a session.
 
     The pairs are formed by the two taps that form a pair in the app, the arrangements are written by
     the harness's own seed, and the reader object is lifted the way `_context` lifts it — outside
-    every measured window, as `get_current_user` hands it over.
+    every measured window, as `get_current_user` hands it over. The `alone` accounts are people this
+    one never paired with, which is exactly the pool the export seed blocks and complains about: a
+    block on a paired account would take a pair out of the page the rows above published.
     """
     a = await _ready(client, f"s122_{tag}_a@befos.app", "Аня")
+    for index in range(alone):
+        await _ready(client, f"s122_{tag}_alone_{index}@befos.app", f"Знакомый {index + 1}")
     for index in range(pairs):
         peer = await _ready(client, f"s122_{tag}_peer_{index}@befos.app", f"Собеседник {index + 1}")
         await _pair(client, a, peer)
@@ -125,11 +135,37 @@ async def _unread(session: AsyncSession, match_id: uuid.UUID, reader_id: uuid.UU
             text(
                 "SELECT count(*) FROM messages m WHERE m.match_id = :m AND m.sender_id <> :r "
                 "AND NOT EXISTS (SELECT 1 FROM message_reads r WHERE r.message_id = m.id "
-                "AND r.user_id = :r)"
+                "AND r.reader_id = :r)"
             ),
             {"m": match_id, "r": reader_id},
         )
     )
+
+
+async def _lengthen_journal(
+    session: AsyncSession, plan_id: uuid.UUID, lines: int
+) -> None:
+    """Give one arrangement a history longer than the card's page, each line a minute later.
+
+    Lines are written as the plan writes them — one row of `messages` carrying `plan_id` — because
+    the two reads under test are a read of that table and nothing else.
+    """
+    await session.execute(
+        text(
+            """
+            INSERT INTO messages (id, match_id, sender_id, body, is_deleted, kind,
+                                  plan_activity_id, plan_id, created_at, updated_at)
+            SELECT gen_random_uuid(), p.match_id, p.created_by,
+                   'Строка ' || g || ' о том же вечере.', false, 'plan_changed',
+                   p.activity_id, p.id,
+                   now() + make_interval(mins => g), now() + make_interval(mins => g)
+            FROM shared_plans p, generate_series(1, :n) g
+            WHERE p.id = :plan
+            """
+        ),
+        {"plan": plan_id, "n": lines},
+    )
+    await session.commit()
 
 
 def test_the_harness_has_a_path_for_the_export_door() -> None:
@@ -184,8 +220,9 @@ def test_the_export_setup_gives_the_sections_rows_to_read() -> None:
         "the seed does not name how many rows it puts behind each section: a page length that is not "
         f"a rule of the scale is a page length nobody can reproduce — {source[:600]}"
     )
-    assert "password_hash" not in source and "refresh" not in source.lower(), (
-        f"the preparation reaches for a secret or for token material: {source[:600]}"
+    assert "password_hash" not in source and "create_token" not in source, (
+        "the preparation reaches for a password or mints token material: the file it prices must "
+        f"carry neither, and a seed that writes them invites a section that reads them — {source[:600]}"
     )
 
 
@@ -343,6 +380,124 @@ async def test_the_second_export_costs_what_the_first_cost(
     )
     assert len([s for s in second if s.lstrip().startswith("select")]) == len(second), (
         "the window paid for something besides reading twice in a row"
+    )
+
+
+async def test_the_batched_chats_hold_every_line_the_loop_wrote(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """The page-sized read answers the same pairs, in the same order, with the same cut.
+
+    Written as a loop beside the batched section rather than as a snapshot of it: what has to stay
+    true after a refactor is the answer, and the answer is stated here in the shape the door had
+    before stage 122 priced it — one capped read per pair, oldest line first.
+    """
+    a, ctx = await _account(client, "chatloop")
+    async with AsyncSessionLocal() as fresh:
+        ctx["viewer_user"] = await _viewer_row(a["user_id"])
+        await _probe()._build_setups()[EXPORT](fresh, ctx)
+
+    document = _body((await _window(session, ctx))[1])
+    pairs = document["pairs"]
+    assert pairs, "the account this check runs on has no pair to read a transcript of"
+
+    for entry in document["chats"]:
+        match_id = uuid.UUID(entry["match_id"])
+        rows = list(
+            (
+                await session.execute(
+                    select(Message)
+                    .where(Message.match_id == match_id)
+                    .order_by(Message.created_at, Message.id)
+                    .limit(CEILING + 1)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        expected = [str(row.id) for row in rows[:CEILING]]
+        assert [line["id"] for line in entry["lines"]] == expected, (
+            f"the batched transcript of pair {match_id} is not the loop's: {expected} against "
+            f"{[line['id'] for line in entry['lines']]}"
+        )
+
+
+async def test_the_file_holds_the_journal_the_plan_card_answers(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """Every plan in the file carries the card's own answer for the same arrangement.
+
+    The file used to ask the card once per plan; now it asks two questions for the page. This check
+    is the reason the two cannot drift: for each arrangement in the document the card is opened
+    again, and its remark and its lines have to be the ones the file printed.
+    """
+    a, ctx = await _account(client, "card")
+    viewer_id = ctx["viewer_id"]
+    async with AsyncSessionLocal() as fresh:
+        ctx["viewer_user"] = await _viewer_row(a["user_id"])
+        await _probe()._build_setups()[EXPORT](fresh, ctx)
+
+    document = _body((await _window(session, ctx))[1])
+    plans = document["plans"]
+    assert plans, "the account this check runs on holds no arrangement to compare"
+    service = PlanService(session)
+    for row in plans:
+        detail = await service.detail(uuid.UUID(row["id"]), viewer_id)
+        assert row["my_note"] == detail["my_note"], (
+            f"the file prints another remark than the card answers for plan {row['id']}"
+        )
+        assert row["journal"] == [
+            {
+                "id": str(event["id"]),
+                "sender_id": str(event["sender_id"]),
+                "kind": event["kind"],
+                "body": event["body"],
+                "created_at": event["created_at"],
+            }
+            for event in detail["events"]
+        ], f"the file's journal of plan {row['id']} is not the card's history"
+
+
+async def test_a_journal_longer_than_the_cards_page_ends_where_the_card_ends(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """Thirty-five lines of one plan answer the card's thirty, and not the window's thirty-one.
+
+    The batched read asks for one line more than it keeps, because that line is what names a cut
+    where a transcript is concerned. A plan's history has never been named as cut — the card simply
+    shows its page — so the wider window is the one place where the two reads could part without
+    anybody saying so, and the file would carry a line the screen does not.
+    """
+    a, ctx = await _account(client, "longjournal")
+    viewer_id = ctx["viewer_id"]
+    async with AsyncSessionLocal() as fresh:
+        ctx["viewer_user"] = await _viewer_row(a["user_id"])
+        await _probe()._build_setups()[EXPORT](fresh, ctx)
+
+    before = _body((await _window(session, ctx))[1])
+    assert before["plans"], "the account this check runs on holds no arrangement"
+    plan_id = uuid.UUID(before["plans"][0]["id"])
+    await _lengthen_journal(session, plan_id, JOURNAL_LINES + 5)
+
+    document = _body((await _window(session, ctx))[1])
+    row = next(plan for plan in document["plans"] if plan["id"] == str(plan_id))
+    detail = await PlanService(session).detail(plan_id, viewer_id)
+    assert len(row["journal"]) == JOURNAL_LINES, (
+        f"the file carries {len(row['journal'])} lines of a plan whose history outgrew the card's "
+        f"page of {JOURNAL_LINES}: the extra row the window found is its way of noticing a cut, not "
+        "a line to print"
+    )
+    assert [line["id"] for line in row["journal"]] == [
+        str(event["id"]) for event in detail["events"]
+    ], "the newest lines the file keeps are not the newest lines the card keeps"
+
+
+def test_the_journal_of_the_file_is_the_page_the_card_reads() -> None:
+    """The two ceilings of one history are one number, and nothing else gets to move it alone."""
+    default = inspect.signature(PlanRepository.events).parameters["limit"].default
+    assert default == JOURNAL_LINES, (
+        f"the card reads {default} lines of a plan's history while the file keeps {JOURNAL_LINES}: "
+        "two ceilings of the same journal are two stories about one arrangement"
     )
 
 
