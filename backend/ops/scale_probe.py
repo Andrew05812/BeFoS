@@ -66,6 +66,15 @@ USER_AGENT = "scale-probe"
 # up to this: the queue is filled once, outside the window, and running dry would price a request
 # the route answers without touching the table.
 LOGOUT_SESSIONS = 16
+# Ideas each pair of the viewer is given an arrangement for. The screen of «Наши планы» is the one
+# read of the plan family the app opens by name, and until stage 119 the stand wrote no row of it at
+# all: `s119_gap.json` counts 0 rows in `shared_plans`, `shared_plan_members` and
+# `activity_preferences` on a scale of 1 000 that already holds 20 pairs of the viewer, and prices
+# that empty box at 150.4 мс over 41 statements. One arrangement per pair is the state a pair that
+# arranged something keeps after its two taps; the axis this row moves on is the number of pairs,
+# because `PlanService.list_for_viewer` walks them and no route of the family puts a ceiling on the
+# walk — the same shape stage 49 measured for `GET /matches`.
+PLANS_PER_PAIR = 1
 
 CITIES = ["Almaty", "Astana", "Shymkent", "Karaganda", "Aktau"]
 GOALS = ["relationship", "marriage", "casual", "friendship", "networking"]
@@ -682,6 +691,31 @@ def _build_paths():
             target, current_user=ctx["viewer_user"], session=session
         )
 
+    async def plans_screen(session, ctx):
+        # The screen of «Наши планы», priced by the handler the route dispatches. The service behind
+        # it walks every pair the reader is in and runs the projection once per pair, so this row is
+        # a price in pairs rather than in cards shown — the shape stage 49 measured for the list of
+        # pairs and for the same reason: no route of the family caps the walk. The reader arrives from
+        # the context, the way `get_current_user` hands it over, and the arrangements the page shows
+        # are written by `_seed_arrangements` outside the window: without that seed the row prices the
+        # empty box (`s119_gap.json`: 150.4 мс, 41 statements, no plan on the stand at all).
+        from app.api.v1.plans import list_plans as list_plans_route
+
+        return await list_plans_route(current_user=ctx["viewer_user"], session=session)
+
+    async def plan_card(session, ctx):
+        from app.api.v1.plans import get_plan as get_plan_route
+
+        if ctx.get("plan_id") is None:
+            raise RuntimeError("no plan to open: `_seed_arrangements` did not name one")
+        # The card is a door of its own rather than a second reading of the list: it answers the
+        # history the pair's chat holds about this one arrangement, which the list never reads. Its
+        # address is taken outside every window by the setup, and it is a plan of the reader's own
+        # pairs, because a card the door refuses to open is a 404 and not a screen.
+        return await get_plan_route(
+            ctx["plan_id"], current_user=ctx["viewer_user"], session=session
+        )
+
     async def session_refresh(session, ctx):
         # The call a client makes when its access token died: redeem the stored refresh token and
         # mint the pair that replaces it. The redeemed string is replaced in the context by the one
@@ -732,6 +766,13 @@ def _build_paths():
         "unpass": undo_pass,
         "session_refresh": session_refresh,
         "session_logout": session_logout,
+        # Last on purpose. The seed of this family writes the first rows the stand has ever put into
+        # `activity_preferences`, and the pair's card page and the pair's map read that table — so a
+        # plan seed placed before them would move their medians, and the table would publish a page
+        # length nobody shot. Running after every older path keeps those rows the same calls they were
+        # measured as, and the only thing the seed can still reach is the row of its own card.
+        "plans": plans_screen,
+        "plan_detail": plan_card,
     }
 
 
@@ -752,6 +793,12 @@ def _build_setups():
         "liked_me": _seed_incoming_taps,
         "liked": _seed_own_taps,
         "unlike": _seed_taps_for_return,
+        # Both doors of the plan family stand on the same seed: the screen needs the arrangements to
+        # be on the page, and the card needs one of them to be addressable. `_seed_arrangements`
+        # stops at what the pairs already hold, so the second call of a scale writes nothing and the
+        # two rows price one page length (`_seed_own_taps` learned that rule in stage 118).
+        "plans": _seed_arrangements,
+        "plan_detail": _seed_arrangements,
     }
 
 
@@ -933,6 +980,136 @@ async def _seed_taps_for_return(session, ctx) -> None:
         )
     ctx["unlike_peers"] = list(rows)
     ctx["unlike_turn"] = 0
+
+
+_PLAN_CHOSEN = """
+    WITH pairs AS (
+        SELECT m.id AS match_id, m.user_a_id, m.user_b_id,
+               row_number() OVER (ORDER BY m.created_at, m.id) AS n
+        FROM matches m
+        WHERE m.user_a_id = :viewer OR m.user_b_id = :viewer
+    ),
+    catalogue AS (SELECT array_agg(id ORDER BY id) AS ids FROM activities),
+    chosen AS (
+        SELECT p.match_id, p.user_a_id, p.user_b_id, p.n,
+               c.ids[((p.n - 1) * CAST(:per_pair AS integer) + s.off - 1)
+                     % cardinality(c.ids) + 1] AS activity_id,
+               date_trunc('hour', now()) + make_interval(days => (p.n % 21 + 1)::int, hours => 19)
+                   AS agreed
+        FROM pairs p
+        CROSS JOIN catalogue c
+        CROSS JOIN generate_series(1, CAST(:per_pair AS integer)) AS s(off)
+    )
+"""
+
+
+async def _seed_arrangements(session, ctx) -> None:
+    """Give every pair of the viewer the arrangement its two taps left behind.
+
+    The plan family is the one part of the app the stand never wrote a row for: `_seed_activity`
+    fills passes, the viewer's pairs and the volume of two conversations, and the crowd's pairs carry
+    their own messages, but nothing in the harness has ever touched `shared_plans`,
+    `shared_plan_members` or `activity_preferences`. The probe that opened stage 119 counted the
+    result — 0 / 0 / 0 rows on a scale of 1 000 that holds 20 pairs of the viewer — and measured what
+    a door pointed at that state would publish: 150.4 мс and 41 statements for a screen with nothing
+    on it. Stage 42 and stage 113 each learned the same lesson from the other side: a read priced
+    over an empty box is not the price of the screen.
+
+    The rows are written as a pair actually leaves them. One half names an hour and the other accepts
+    exactly that instant — `agreed_instant` answers a moment only to that shape, and two rows that
+    each only named one would leave the plan with a question instead of an evening. The plan then
+    carries the title the catalogue holds, `starts_at` the instant both rows agree on, `was_planned`
+    and the status the projection itself would compute (`planned`), and each half gets its own answer
+    row saying `joined`. Written any other way, the read under measurement would arrive at a state
+    the product cannot hold, or would spend its window correcting the seed.
+
+    Which is the point of the second half of this docstring: the row the table publishes is the
+    screen as the app shows it on an ordinary open, and the probe measured the other one too. Put the
+    preference rows of 20 pairs in front of a plan table that holds nothing, and the first GET sends
+    146 statements — `insert into shared_plans`, `insert into shared_plan_members`, `update
+    shared_plans` — and costs 632.1 мс. The read is not read-only when the pair's rows have outrun
+    its records, and that is the price of a first open, not the price of the screen; the seed writes
+    what the first open would have written so the window measures the open that follows.
+
+    The seed stops where the pairs already stand. Each statement is guarded by `NOT EXISTS` over the
+    rows of the same pair and idea, so the second call of one scale — the one behind the row for the
+    card — writes nothing, which is the rule stage 118 put on the tap seed for exactly the reason it
+    carries here: two rows of one family priced over pages of different length.
+    """
+    from sqlalchemy import text
+
+    params = {"viewer": ctx["viewer_id"], "per_pair": PLANS_PER_PAIR}
+    await session.execute(
+        text(
+            _PLAN_CHOSEN
+            + """
+            INSERT INTO activity_preferences (id, user_id, activity_id, match_id, score, proposed,
+                                              declined, meeting_time, accepted_time, created_at,
+                                              updated_at)
+            SELECT gen_random_uuid(), u.uid, k.activity_id, k.match_id, 0.72, true, false,
+                   CASE WHEN u.uid = k.user_a_id THEN k.agreed ELSE NULL END,
+                   CASE WHEN u.uid = k.user_a_id THEN NULL ELSE k.agreed END,
+                   k.agreed - make_interval(days => (k.n * 3)::int, hours => 3), now()
+            FROM chosen k
+            CROSS JOIN LATERAL (SELECT k.user_a_id AS uid UNION ALL SELECT k.user_b_id) u
+            WHERE k.activity_id IS NOT NULL
+            ON CONFLICT DO NOTHING
+            """
+        ),
+        params,
+    )
+    await session.execute(
+        text(
+            _PLAN_CHOSEN
+            + """
+            INSERT INTO shared_plans (id, match_id, activity_id, created_by, title, note, place,
+                                      starts_at, pending_hour, pending_by, status, was_planned,
+                                      cancelled_at, cancelled_by, created_at, updated_at)
+            SELECT gen_random_uuid(), k.match_id, k.activity_id, k.user_a_id, a.title, NULL, NULL,
+                   k.agreed, NULL, NULL, 'planned', true, NULL, NULL,
+                   k.agreed - make_interval(days => (k.n * 3)::int), now()
+            FROM chosen k JOIN activities a ON a.id = k.activity_id
+            WHERE NOT EXISTS (SELECT 1 FROM shared_plans sp
+                              WHERE sp.match_id = k.match_id AND sp.activity_id = k.activity_id)
+            ON CONFLICT DO NOTHING
+            """
+        ),
+        params,
+    )
+    await session.execute(
+        text(
+            """
+            INSERT INTO shared_plan_members (id, plan_id, user_id, decision, attended_at,
+                                             personal_note, created_at, updated_at)
+            SELECT gen_random_uuid(), p.id, u.uid, 'joined', NULL, NULL, p.created_at, now()
+            FROM shared_plans p
+            JOIN matches m ON m.id = p.match_id
+            CROSS JOIN LATERAL (SELECT m.user_a_id AS uid UNION ALL SELECT m.user_b_id) u
+            WHERE (m.user_a_id = :viewer OR m.user_b_id = :viewer)
+              AND NOT EXISTS (SELECT 1 FROM shared_plan_members sm
+                              WHERE sm.plan_id = p.id AND sm.user_id = u.uid)
+            ON CONFLICT DO NOTHING
+            """,
+        ),
+        {"viewer": ctx["viewer_id"]},
+    )
+    # The card's address, taken outside every window the way `unlike_peers` is taken: the door opens
+    # one plan, and the plan it opens has to be one the reader is in — a screen that named somebody
+    # else's arrangement would be priced answering 404.
+    ctx["plan_id"] = await session.scalar(
+        text(
+            "SELECT p.id FROM shared_plans p JOIN matches m ON m.id = p.match_id "
+            "WHERE m.user_a_id = :viewer OR m.user_b_id = :viewer "
+            "ORDER BY p.created_at DESC LIMIT 1"
+        ),
+        {"viewer": ctx["viewer_id"]},
+    )
+    if ctx["plan_id"] is None:
+        raise RuntimeError(
+            "the plan seed named no arrangement: the viewer of this stand holds no pair, so both "
+            "rows of the plan family would price an empty list rather than the screen"
+        )
+    await session.commit()
 
 
 async def _empty_deck(session, ctx) -> None:
@@ -1318,9 +1495,10 @@ def _stand_engine(database: str):
     neither the app of the day nor the app after the fix.
 
     The switch is reachable here precisely because the harness borrows one connection at a time:
-    the pool's ceiling of five is never filled — one backend pid serves a whole run of thirteen
-    paths — so the deck's rule, which `discovery_rebuild` and `discovery_page` call before the
-    exhausted page is timed, passes its fifth execution inside the same run. Measured on the 50 000
+    the pool's ceiling of five is never filled — one backend pid serves a whole run of the paths,
+    thirteen of them at the evening that measured this — so the deck's rule, which
+    `discovery_rebuild` and `discovery_page` call before the exhausted page is timed, passes its
+    fifth execution inside the same run. Measured on the 50 000
     stand, holding the harness's own path order and reading `pg_prepared_statements` after every
     path: the rule stands at 1 generic plan against 5 custom already when `discovery_page` ends, and
     at 4 against 8 by the time `deck_exhausted` is timed, while the same sequence on this engine
