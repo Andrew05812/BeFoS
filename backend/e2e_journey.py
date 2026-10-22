@@ -1709,7 +1709,7 @@ def main() -> int:
     check(fresh_list.status_code == 200 and len(fresh_list.json()["sessions"]) == 1,
           "one new sign-in leaves one live row", str(len(fresh_list.json().get("sessions", []))))
 
-    # 15b. The account takes its own rows out. Everything the walk wrote is in this file — the answers
+    # 15d. The account takes its own rows out. Everything the walk wrote is in this file — the answers
     # it gave, the card it tapped, the device it is reading from — and it is the only thing a person is
     # left holding once the erasure below has run. The shape of the answer is part of the contract: a
     # document a browser or another app can open has to arrive as a file, name its own format, and carry
