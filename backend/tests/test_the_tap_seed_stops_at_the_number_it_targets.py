@@ -348,9 +348,10 @@ def test_the_scale_document_carries_the_pair_of_runs_the_open_end_asked_for() ->
     )
     live = doc.split("## Задержки горячих путей", 1)[1].split("\n### ", 1)[0]
     rows = re.findall(r"^\|\s*`([a-z_]+)`\s*\|(.+)$", live, re.MULTILINE)
-    assert len(rows) == 21, (
-        f"the live table carries {len(rows)} rows; the harness prices 21 paths, and a table "
-        "re-shot for an idempotent seed owes every one of them a fresh number"
+    assert len(rows) == 23, (
+        f"the live table carries {len(rows)} rows; the harness prices 23 paths since stage 119 put "
+        "the plans screen and its card into the registry, and a table re-shot for a new pair of rows "
+        "owes a fresh number to every one of them"
     )
     for name, cells in rows:
         if name in ("liked", "unlike"):
