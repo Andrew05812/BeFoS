@@ -164,7 +164,7 @@ JSON-отчёт с этой же правкой кладётся весь обр
 `discovery_rebuild`, `discovery_page`, `matches_list`, `compatibility`, `chat_history`,
 `recommendations`, `answers_submit`, `test_complete`, `like`, `deck_exhausted` и `match_detail`,
 к которым стадия 76 добавила `universe_map`, стадия 77 — `session_refresh` и `session_logout`,
-стадия 113 — `liked_me`, а стадия 115 — `passed` и `unpass`.
+стадия 113 — `liked_me`, стадия 115 — `passed` и `unpass`, а стадия 117 — `liked` и `unlike`.
 `recommendations`
 добавлен стадией 20 и вызывает пересборку страницы (`force=True`), то есть мерит цену генерации, а
 не цену кэша; с стадии 24 у этого пути есть каталог, о котором ниже, и строка таблицы снята на нём.
