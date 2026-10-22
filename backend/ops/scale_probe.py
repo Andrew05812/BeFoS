@@ -52,7 +52,11 @@ LIKED_ME_TAPS_DIVISOR = 10
 # floor of `LIKED_SHOWN + 1` so the measured page always has a queue behind its fifty cards. The
 # mirror knob of the inbox divisor: before stage 117 the stand pointed its viewer's `likes` rows
 # only outward through the timed `like` path, so both doors of the own-taps row would price an
-# empty list without their own seed.
+# empty list without their own seed. A target and not a batch: the seed counts the tenth over the
+# crowd before the viewer's own taps leave it and subtracts the taps the viewer already holds,
+# because one scale calls this seed twice — behind the row for the list and behind the row for the
+# withdrawal — and the batch rule put a fresh tenth on top each time (stage 117 measured 90 taps and
+# then 169 under its two rows, `s117_tap_counts.json`).
 LIKED_TAPS_DIVISOR = 10
 # The string the stand writes into `refresh_tokens.user_agent`. Named because the session paths
 # mint rows the crowd never had, and a reader of the table has to be able to tell a session this
@@ -811,7 +815,7 @@ async def _seed_incoming_taps(session, ctx) -> None:
 
 
 async def _seed_own_taps(session, ctx) -> None:
-    """Point taps from the viewer at the crowd, before the own-taps list is timed and outside it.
+    """Bring the viewer's taps up to their target, before the own-taps list is timed and outside it.
 
     The mirror of `_seed_incoming_taps`, and it is needed for the same reason stated from the other
     end: the stand's viewer has written `likes` rows only through the timed `like` path, so the page
@@ -822,9 +826,20 @@ async def _seed_own_taps(session, ctx) -> None:
     state the product cannot reach, and the viewer's own earlier tap would make the seed a no-op
     whose page differs from the one being priced.
 
+    The target is a rule of the scale, not of the call. A tenth of the candidates is counted over the
+    crowd *before* the viewer's own taps are taken out of it, and the taps the viewer already holds
+    are subtracted from that tenth — so the second call of one scale, the one behind `unlike`, writes
+    nothing. Sizing the batch against what the first call left (`GREATEST(pool.total / :divisor,
+    :floor)` with `total` over the filtered candidates) put a fresh tenth on top every time the scale
+    asked twice, and stage 117 measured what that did to its own table: 90 taps under the row for the
+    list against 169 under the row for the withdrawal at 1 000, 897 against 1 701 at 10 000, 4 497
+    against 8 541 at 50 000 (`s117_tap_counts.json`). Two rows of one door pair priced pages of
+    different length, and the document said so as an open end.
+
     The seed also clears the pass rows the tapped accounts hold behind the viewer's taps, because a
     real tap does exactly that (stage 26): leaving them would price a page whose pairs stand in a
-    state no screen can hold.
+    state no screen can hold. With the target rule that DELETE clears nothing on a second call, which
+    is the other half of why the neighbours of this scale stop moving between its two rows.
     """
     from sqlalchemy import text
 
@@ -833,9 +848,8 @@ async def _seed_own_taps(session, ctx) -> None:
     await session.execute(
         text(
             """
-            WITH pool AS (
-                SELECT u.id, row_number() OVER (ORDER BY md5(u.email::text)) AS n,
-                       count(*) OVER () AS total
+            WITH crowd AS (
+                SELECT u.id
                 FROM users u JOIN profiles p ON p.user_id = u.id
                 WHERE u.is_active AND NOT u.is_deleted
                   AND p.is_hidden IS FALSE AND p.onboarding_completed_at IS NOT NULL
@@ -849,17 +863,23 @@ async def _seed_own_taps(session, ctx) -> None:
                       SELECT 1 FROM likes back
                       WHERE back.from_user_id = u.id AND back.to_user_id = :viewer
                   )
-                  AND NOT EXISTS (
-                      SELECT 1 FROM likes mine
-                      WHERE mine.from_user_id = :viewer AND mine.to_user_id = u.id
-                  )
+            ),
+            already AS (SELECT count(*)::int AS n FROM likes WHERE from_user_id = :viewer),
+            pool AS (
+                SELECT c.id, row_number() OVER (ORDER BY md5(u.email::text)) AS n,
+                       (SELECT count(*) FROM crowd) AS total
+                FROM crowd c JOIN users u ON u.id = c.id
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM likes mine
+                    WHERE mine.from_user_id = :viewer AND mine.to_user_id = c.id
+                )
             )
             INSERT INTO likes (id, from_user_id, to_user_id, compatibility_score,
                                created_at, updated_at)
             SELECT gen_random_uuid(), :viewer, pool.id, 0.72,
                    now() - make_interval(mins => pool.n::int), now()
-            FROM pool
-            WHERE pool.n <= GREATEST(pool.total / :divisor, :floor)
+            FROM pool, already
+            WHERE pool.n <= GREATEST(pool.total / :divisor, :floor) - already.n
             ON CONFLICT DO NOTHING
             """
         ),
@@ -881,12 +901,18 @@ async def _seed_own_taps(session, ctx) -> None:
 
 
 async def _seed_taps_for_return(session, ctx) -> None:
-    """Seed the viewer's own taps and hand the withdrawal its rotation pool, outside the window.
+    """Hand the withdrawal its rotation pool, seeding the viewer's taps only if the scale has none.
 
     The withdrawal consumes what it prices — the second undo of one tap answers 404 and writes
-    nothing — so the target arrives from `unlike_peers`, the viewer's own tap rows this setup has
-    just written, the way `unpass` rotates over the passes `_seed_activity` left behind. The pool is
-    read by the harness's own account (the `scale_` crowd), never by another viewer's page.
+    nothing — so the target arrives from `unlike_peers`, the viewer's own tap rows, the way `unpass`
+    rotates over the passes `_seed_activity` left behind. The pool is read by the harness's own
+    account (the `scale_` crowd), never by another viewer's page.
+
+    The seed call behind this setup is the second one of the scale whenever the registry ran `liked`
+    first, and `_seed_own_taps` fills to a target rather than adding a batch, so nothing new is
+    written here and both rows of the door pair price the same page. Called alone — a stand shot with
+    `--paths unlike` — it still brings the taps up, because a withdrawal from an empty list is the 404
+    the door answers, not the gesture.
     """
     from sqlalchemy import text
 
