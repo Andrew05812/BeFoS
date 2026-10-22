@@ -3,6 +3,7 @@ package app.befos.presentation.settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.befos.core.network.ApiResult
+import app.befos.domain.model.AccountExport
 import app.befos.domain.model.BlockedUser
 import app.befos.domain.model.DeviceSession
 import app.befos.domain.repository.AuthRepository
@@ -77,6 +78,25 @@ data class SettingsUiState(
     /** The row whose cut is being confirmed — a write that takes a device out of the account's session. */
     val confirmEndSession: DeviceSession? = null,
     val confirmEndEvery: Boolean = false,
+    /**
+     * The account's own file, being gathered.
+     *
+     * Nothing asks for it when the screen opens: the read pulls every row a person has ever written
+     * through one document, and a settings page that did that on the way past would be costing the
+     * account a privacy read it was never asked for. Only the tap on the row starts it.
+     */
+    val exportBusy: Boolean = false,
+    /**
+     * The file that came back, held until the person names a place for it or says they do not want it.
+     *
+     * Null is not one answer but three, and the two flags below say which: never asked, refused by the
+     * server, or thrown away on purpose.
+     */
+    val exported: AccountExport? = null,
+    /** The read never answered, so the screen cannot say either way what the account holds. */
+    val exportUnknown: Boolean = false,
+    /** The person named a place for the file and the write to it went through. */
+    val exportSaved: Boolean = false,
 )
 
 class SettingsViewModel(
@@ -395,6 +415,94 @@ class SettingsViewModel(
     }
 
     fun clearMessage() = _uiState.update { it.copy(message = null) }
+
+    /**
+     * Gathers the account's own rows into one file.
+     *
+     * This is the door that stands in front of the other one. «Аккаунт удалится сразу. Восстановить его
+     * не получится» is what the erasure says, and until this read existed the choice the settings
+     * screen offered was between staying and losing: a person who wanted to leave with what they wrote
+     * had no way to ask for it. The file is the server's own document, and the screen adds nothing to
+     * it — the counts on the card are the counts the file wrote.
+     *
+     * A read that never came back is drawn as a read that never came back. It must not fall through to
+     * the empty-account copy, because the next tap a person weighing that answer makes is the one that
+     * erases the rows this request failed to name.
+     */
+    fun exportAccount() {
+        if (_uiState.value.exportBusy) return
+        _uiState.update {
+            it.copy(
+                exportBusy = true,
+                exported = null,
+                exportUnknown = false,
+                exportSaved = false,
+                message = null,
+            )
+        }
+        viewModelScope.launch {
+            when (val result = profileRepository.exportAccount()) {
+                is ApiResult.Success -> _uiState.update {
+                    it.copy(
+                        exportBusy = false,
+                        exported = result.data,
+                        messageIsError = false,
+                        message = if (result.data.isFreshAccount) {
+                            "Файл готов: в нём пока только то, что вы ввели сами."
+                        } else {
+                            "Файл готов. Сохраните его до удаления аккаунта."
+                        },
+                    )
+                }
+                is ApiResult.Error -> _uiState.update {
+                    it.copy(exportBusy = false, exportUnknown = true, messageIsError = true, message = result.message)
+                }
+            }
+        }
+    }
+
+    /**
+     * Reports that the person named a place for the file and the write to it went through.
+     *
+     * The card stays standing: the bytes the screen is holding are the bytes that were written, and a
+     * section that vanishes the moment it succeeds cannot be checked against the file that just landed
+     * on the device.
+     */
+    fun markExportSaved() {
+        val file = _uiState.value.exported ?: return
+        _uiState.update {
+            it.copy(exportSaved = true, messageIsError = false, message = "Сохранено на устройстве: ${file.fileName}.")
+        }
+    }
+
+    /**
+     * Reports a write the device refused — the provider closed under the tap, the storage ran out, the
+     * uri went stale between the dialog and the byte that was to be written into it.
+     *
+     * The file stays in memory. The person already chose a place for it, and dropping the bytes here
+     * would send them to gather the whole account a second time over a failure that belongs to the
+     * write and not to the read.
+     */
+    fun markExportSaveFailed() {
+        _uiState.update {
+            it.copy(
+                exportSaved = false,
+                messageIsError = true,
+                message = "Не удалось сохранить файл. Попробуйте выбрать место ещё раз.",
+            )
+        }
+    }
+
+    /**
+     * Drops the file the person decided not to keep.
+     *
+     * A whole account sat in memory for the length of one decision, and the decision was to leave it
+     * where it is; the bytes go with the card. No read follows, and no server call is made to undo a
+     * download — the erasure that this row stands in front of is the only write the section knows.
+     */
+    fun discardExport() {
+        _uiState.update { it.copy(exported = null, exportUnknown = false, exportSaved = false) }
+    }
 }
 
 /**

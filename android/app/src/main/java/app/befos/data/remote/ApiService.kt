@@ -3,6 +3,7 @@ package app.befos.data.remote
 import app.befos.core.network.ApiConfig
 import app.befos.core.network.ApiResult
 import app.befos.core.network.apiCall
+import app.befos.core.network.apiCallBytes
 import app.befos.core.network.apiCallUnit
 import app.befos.data.model.AnswersRequest
 import app.befos.data.model.AuthResponseDto
@@ -186,6 +187,30 @@ class ApiService(private val client: HttpClient) {
         client.apiCall {
             method = HttpMethod.Get
             url(endpoint("users/$userId"))
+        }
+
+    /**
+     * The account's own rows, handed back as one file rather than as a page of them.
+     *
+     * No identifier travels with this call: the bearer token already said whose rows to gather, and a
+     * path that took a user id would be a door into somebody else's life. The answer is bytes rather
+     * than a DTO on purpose — the document is the thing a person keeps after the app is gone, and a
+     * client that folded it into fields of its own would be deciding what part of a life is worth
+     * naming.
+     *
+     * The wait is the one the photograph upload was given, for the same reason pointed the other way:
+     * the length of this call belongs to the size of an account and the link, not to a JSON answer.
+     * No measurement of a real export over a slow link has been taken, so the bound is inherited from
+     * the closest call the client has measured (stage 47) rather than sized by this one.
+     */
+    suspend fun exportAccount(): ApiResult<ByteArray> =
+        client.apiCallBytes {
+            method = HttpMethod.Get
+            url(endpoint("users/me/export"))
+            timeout {
+                socketTimeoutMillis = 60_000
+                requestTimeoutMillis = 600_000
+            }
         }
 
     suspend fun uploadPhoto(input: InputStream, contentType: String): ApiResult<ProfileDto> {
