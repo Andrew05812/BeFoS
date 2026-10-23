@@ -787,36 +787,58 @@ async def test_a_name_the_registry_does_not_know_is_refused_before_the_stand_is_
         f"стендовая база {database} уже есть: проверка оставленного состояния ничего не доказывает"
     )
 
-    completed = await asyncio.to_thread(
-        subprocess.run,
-        [
-            sys.executable,
-            str(_PROBE_PATH),
-            "--database", database,
-            "--sizes", "1000",
-            "--runs", "2",
-            "--paths", "liked, deck_exhausted_typo",
-            "--quiet",
-        ],
-        cwd=str(_PROBE_PATH.parents[1]),
-        env={**os.environ},
-        capture_output=True,
-        text=True,
-    )
-    assert completed.returncode != 0, (
-        f"прибор вышел с {completed.returncode} на имени, которого нет в реестре: "
-        f"{completed.stdout[-300:]}"
-    )
-    assert "deck_exhausted_typo" in completed.stderr + completed.stdout, (
-        "отказ не назвал имя, которого нет, — человек получит обрыв вместо ответа"
-    )
+    try:
+        completed = await asyncio.to_thread(
+            subprocess.run,
+            [
+                sys.executable,
+                str(_PROBE_PATH),
+                "--database", database,
+                "--sizes", "1000",
+                "--runs", "2",
+                "--paths", "liked, deck_exhausted_typo",
+                "--quiet",
+            ],
+            cwd=str(_PROBE_PATH.parents[1]),
+            env={**os.environ},
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        assert completed.returncode != 0, (
+            f"прибор вышел с {completed.returncode} на имени, которого нет в реестре: "
+            f"{completed.stdout[-300:]}"
+        )
+        assert "deck_exhausted_typo" in completed.stderr + completed.stdout, (
+            "отказ не назвал имя, которого нет, — человек получит обрыв вместо ответа"
+        )
 
-    after = await session.execute(
-        text("SELECT 1 FROM pg_database WHERE datname = :n"), {"n": database}
-    )
-    assert after.first() is None, (
-        f"отказ по имени успел создать базу {database}: проверка отбора идёт после пересоздания стенда"
-    )
+        after = await session.execute(
+            text("SELECT 1 FROM pg_database WHERE datname = :n"), {"n": database}
+        )
+        assert after.first() is None, (
+            f"отказ по имени успел создать базу {database}: проверка отбора идёт после пересоздания стенда"
+        )
+    finally:
+        # The claim of this test is that the child never reached the stand's `CREATE DATABASE`. If that
+        # ordering ever regresses, the child leaves a seeded thousand-account database behind, and every
+        # later run of this file would fail on the opening assert rather than on the ordering — the test
+        # would then be poisoned by its own subject. The drop goes to the maintenance database over
+        # asyncpg, because that is the one connection here that is not sitting inside a transaction
+        # block, which is what `DROP DATABASE` refuses to run inside.
+        import asyncpg
+
+        connection = await asyncpg.connect(
+            host=os.environ.get("BEFOS_TEST_PG_HOST", "127.0.0.1"),
+            port=int(os.environ.get("BEFOS_TEST_PG_PORT", "5432")),
+            user=os.environ.get("BEFOS_TEST_PG_USER", "befos"),
+            password=os.environ.get("BEFOS_TEST_PG_PASSWORD", "befos_password"),
+            database="postgres",
+        )
+        try:
+            await connection.execute(f'DROP DATABASE IF EXISTS "{database}" WITH (FORCE)')
+        finally:
+            await connection.close()
 
 
 async def _stand(session: AsyncSession, uids: list[uuid.UUID]) -> None:
@@ -914,17 +936,30 @@ async def test_the_pass_pool_is_addressed_from_the_rows_the_return_can_actually_
     assert ctx["unpass_turn"] == 0, (
         "отсчёт вращения не сброшен — первый замеряемый вызов возьмёт цель из середины старого пула"
     )
+    # The order is part of what a row of the table means: the rotation takes `turn % len(peers)`, so a
+    # pool that came back in a different order each time would price a different target on each repeat
+    # of one scale. `_context` and this address share one query text precisely so the two cannot
+    # disagree about that order.
+    again = dict(ctx)
+    await probe._address_pass_pool(session, again)
+    assert again["unpass_peers"] == ctx["unpass_peers"], (
+        "адресация пула отдаёт ту же цель в другом порядке — повторы одного масштаба меряют разные строки"
+    )
     assert await _row_counts(session) == counts_before, (
         "адресация пула записала что-то в стенд: подготовка пути чтения обязана остаться чтением"
     )
 
 
 def test_the_return_of_a_pass_is_wired_to_that_address() -> None:
-    """The registry binds the address to the path, or the pool stays frozen and only the test is green.
+    """The registry binds the address to the path, and the harness runs it before it starts the timer.
 
     Setups are looked up by path name in `_measure_size`, so a function nobody keys is a function that
     never runs: the `unpass` row would go on being priced over whatever `_context` happened to see, and
-    the check above would pass in a stand that ignores it.
+    the check above would pass in a stand that ignores it. Keys alone are not the whole bargain either —
+    the address has to be taken before the first timed call, because a pool refreshed after the timer
+    has begun would price the withdrawal against the rows the earlier seeds left, which is the defect
+    this stage fixed. So the order inside `_measure_size` is read here as text: the setup is awaited in
+    the block that opens before the repeat loop.
     """
     probe = _probe()
     setups = probe._build_setups()
@@ -935,4 +970,13 @@ def test_the_return_of_a_pass_is_wired_to_that_address() -> None:
     )
     assert setups["unpass"] is probe._address_pass_pool, (
         "подготовка `unpass` — не адресация пула, значит строка меряется по старому списку целей"
+    )
+
+    source = inspect.getsource(probe._measure_size)
+    setup_call = source.index("await setup(session, ctx)")
+    timer_start = source.index("started = time.perf_counter()")
+    repeat_loop = source.index("for _ in range(runs):")
+    assert setup_call < repeat_loop < timer_start, (
+        "подготовка пути зовётся не до цикла повторов: ряд меряется по пулу, адресованному после "
+        "того, как таймер уже пошёл"
     )

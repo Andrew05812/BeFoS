@@ -148,6 +148,10 @@ fun MyLikesScreen(onBack: () -> Unit, onOpenProfile: (String) -> Unit) {
             // which — the same reason the row's own button is described by the person it belongs to.
             state.withdrawFailed?.let { id ->
                 val failed = state.likes.firstOrNull { it.userId == id }
+                // «Повторить» на этой отметке — тот же глагол, что и в строке, и он подчиняется тому же
+                // правилу: пока что-то на проводе, второго запроса не начинается. Отметка остаётся на
+                // экране со своим текстом; слово на ней появляется, когда повторить можно.
+                val canRepeat = !state.busy && !state.loading && !state.loadingMore
                 item(key = "write-error") {
                     InlineNotice(
                         text = if (failed == null) {
@@ -155,8 +159,12 @@ fun MyLikesScreen(onBack: () -> Unit, onOpenProfile: (String) -> Unit) {
                         } else {
                             "${failed.name}: ${state.writeError.orEmpty()}"
                         },
-                        actionLabel = "Повторить",
-                        onAction = { vm.withdraw(id) },
+                        actionLabel = if (canRepeat) "Повторить" else null,
+                        onAction = if (canRepeat) {
+                            { myLikesWriteRetryTarget(state)?.let(vm::withdraw) }
+                        } else {
+                            null
+                        },
                     )
                 }
             }
@@ -330,6 +338,17 @@ internal fun myLikesBody(state: MyLikesUiState): MyLikesBody = when {
     state.error != null -> MyLikesBody.ReadFailure
     else -> MyLikesBody.Empty
 }
+
+/**
+ * Whose tap the notice's «Повторить» sends again, or nothing when there is no refused gesture to repeat.
+ *
+ * The notice and its verb live in a composable, and a composable cannot be asserted on from a JVM test;
+ * the choice of target can, and it is the part that was wrong before. A notice that re-reads the list
+ * answers a refused write with a page; a notice that repeats the first row's owner withdraws a tap the
+ * reader never refused. Both are one line of wiring, and this is where that line lives.
+ */
+internal fun myLikesWriteRetryTarget(state: MyLikesUiState): String? =
+    if (state.writeError == null) null else state.withdrawFailed
 
 /**
  * How far the walk has come, in the reader's own words: the rows on the screen, and whether the list

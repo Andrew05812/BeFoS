@@ -198,6 +198,14 @@ class MyLikesViewModelTest {
         assertEquals("c1", vm.uiState.value.nextCursor)
         assertEquals(1, vm.uiState.value.pages)
         assertEquals(MyLikesBody.Rows, myLikesBody(vm.uiState.value))
+        // The one read this screen made is the one it made on opening. A refusal that asked the door
+        // again would be the old behaviour wearing a new field, and the count is the only place where
+        // «the notice does not reload the list» is visible from outside.
+        coVerify(exactly = 1) { repo.liked(null) }
+        // The notice's verb has one target, and it is the row the refusal named — not the first row of
+        // the list, not the reader's place, not nothing.
+        assertEquals("b", myLikesWriteRetryTarget(vm.uiState.value))
+        assertNull(myLikesWriteRetryTarget(vm.uiState.value.copy(withdrawFailed = null, writeError = null)))
     }
 
     @Test
@@ -326,15 +334,47 @@ class MyLikesViewModelTest {
         // A reload asks the server what the list holds now. When that answer does not come, the link the
         // earlier walk left behind describes a page the reload was going to replace: keeping it would let
         // «Показать ещё» hand a stale cursor to a door whose newest page this screen no longer knows.
-        assertEquals(0, vm.uiState.value.pages)
         assertNull(vm.uiState.value.nextCursor)
         assertEquals(false, vm.uiState.value.canLoadMore)
         assertEquals(false, vm.uiState.value.truncated)
+        // The count of pages is not part of what is dropped: the rows on the screen still came from two
+        // reads, and a withdrawal decides by that number whether the write's answer is the whole list or
+        // only the row that left it. Zeroing it here would make the next withdrawal replace a walked list
+        // with the server's first page — the rows below it disappearing under a reader who never asked.
+        assertEquals(2, vm.uiState.value.pages)
         // The rows stay: they are the account's own taps, read once already, and a failed refresh does
         // not unmake them.
         assertEquals(listOf("a", "b"), vm.uiState.value.likes.map { it.userId })
         assertEquals("Сервер недоступен.", vm.uiState.value.error)
         assertEquals(MyLikesBody.Rows, myLikesBody(vm.uiState.value))
+    }
+
+    @Test
+    fun `a withdrawal after a failed reload keeps the pages the reader walked through`() = runTest {
+        val vm = open(row("a"), truncated = true, nextCursor = "c1")
+        coEvery { repo.liked("c1") } returns ApiResult.Success(
+            OutgoingLikesPage(listOf(row("b")), truncated = true, nextCursor = "c2"),
+        )
+        vm.loadMore()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        coEvery { repo.liked() } returns ApiResult.Error(-1, "Сервер недоступен.")
+        vm.load()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        coEvery { repo.unlike("b") } returns ApiResult.Success(
+            OutgoingLikesPage(listOf(row("z"), row("y")), truncated = true, nextCursor = "c9"),
+        )
+        vm.withdraw("b")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        // The walk this screen made is still the walk it holds: the write answers a page from the top of
+        // the list, and adopting that page would trade two rows the reader reached for two they never saw.
+        assertEquals(listOf("a"), vm.uiState.value.likes.map { it.userId })
+        assertEquals(2, vm.uiState.value.pages)
+        assertNull(vm.uiState.value.nextCursor)
+        assertEquals("b", vm.uiState.value.withdrawn)
+        coVerify(exactly = 1) { repo.unlike("b") }
     }
 
     @Test

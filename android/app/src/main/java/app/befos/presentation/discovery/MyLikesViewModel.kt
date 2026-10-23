@@ -120,14 +120,15 @@ class MyLikesViewModel(
                 // The rows stay where they are — one failed refresh does not unmake the taps the account
                 // made — but the frontier goes with the page this read was replacing. A cursor left from
                 // an earlier walk would be a link into a list this screen has just failed to re-read, and
-                // «Показать ещё» would hand a door a key it no longer matches.
+                // «Показать ещё» would hand a door a key it no longer matches. The page count is kept:
+                // the rows on the screen still came from that many pages, and a withdrawal decides by it
+                // whether the write's answer is the list or just the row that left.
                 is ApiResult.Error -> _uiState.update {
                     it.copy(
                         loading = false,
                         loadingMore = false,
                         error = result.message,
                         nextCursor = null,
-                        pages = 0,
                         truncated = false,
                     )
                 }
@@ -183,7 +184,7 @@ class MyLikesViewModel(
      * is still written.
      */
     fun withdraw(userId: String) {
-        if (_uiState.value.busy || _uiState.value.loadingMore) return
+        if (_uiState.value.busy || _uiState.value.loading || _uiState.value.loadingMore) return
         val name = _uiState.value.likes.firstOrNull { it.userId == userId }?.name
         _uiState.update {
             it.copy(busy = true, withdrawing = userId, error = null, writeError = null, withdrawFailed = null)
