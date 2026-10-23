@@ -143,14 +143,18 @@ fun MyLikesScreen(onBack: () -> Unit, onOpenProfile: (String) -> Unit) {
 
             // A gesture the server refused, named by the row it belongs to. The list under it is the
             // account's own read and it did not go anywhere, so this notice carries no reload: its verb
-            // repeats the tap that failed, which is the one thing the reader is waiting for.
+            // repeats the tap that failed, which is the one thing the reader is waiting for. The name
+            // comes first because the sentence without it is about one of fifty rows and does not say
+            // which — the same reason the row's own button is described by the person it belongs to.
             state.withdrawFailed?.let { id ->
                 val failed = state.likes.firstOrNull { it.userId == id }
                 item(key = "write-error") {
                     InlineNotice(
-                        text = state.writeError.orEmpty() + (
-                            failed?.let { " — ${it.name} остаётся в списке." } ?: ""
-                            ),
+                        text = if (failed == null) {
+                            state.writeError.orEmpty()
+                        } else {
+                            "${failed.name}: ${state.writeError.orEmpty()}"
+                        },
                         actionLabel = "Повторить",
                         onAction = { vm.withdraw(id) },
                     )
