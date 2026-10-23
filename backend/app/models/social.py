@@ -12,6 +12,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -36,6 +37,21 @@ class Like(TimestampMixin, Base):
     __table_args__ = (
         UniqueConstraint("from_user_id", "to_user_id", name="uq_like_pair"),
         CheckConstraint("from_user_id <> to_user_id", name="ck_like_not_self"),
+        # The account's own list is walked newest-first and continues after a `(created_at, id)` pair,
+        # so the order belongs in the key. `uq_like_pair` starts with `from_user_id` and answers the
+        # predicate, then leaves the sort to the reader: measured over the walk this stage priced, a
+        # page cost 27.2 мс at 88 taps, 37.7 мс at 893 and 61.2 мс at 4 493 of the same reader's taps
+        # (`s123_pages.json`) — the shape of a read that walks the whole history before it takes its
+        # fifty rows. `created_at` and `id` are both NOT NULL, so the direction is the only thing the
+        # key is choosing, and the whole list belongs in it: the exclusions this read puts on a row
+        # (hidden, deleted, deactivated, a pair, a block) live in the tables it joins, and an index
+        # predicate cannot reach into another table.
+        Index(
+            "ix_likes_tapper_order",
+            "from_user_id",
+            text("created_at DESC"),
+            text("id DESC"),
+        ),
     )
 
 

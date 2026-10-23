@@ -66,9 +66,14 @@ data class MyLikesUiState(
      * whole five minutes of that walk and never showed the notice with «Повторить», while the reader
      * could neither learn that the page had failed nor ask for it themselves. An automatic walk stops at
      * the first refusal; repeating it is the verb on the notice, and that verb goes through [loadMore].
+     *
+     * A withdrawal on the wire closes the gate for the same reason the walk closes at a refusal: the
+     * write's answer describes the list after the row left it, and a page that started before that
+     * answer would be appended to a list the write had already replaced.
      */
     val canLoadMore: Boolean
-        get() = nextCursor != null && !loadingMore && !loading && error == null && moreError == null
+        get() = nextCursor != null &&
+            !loadingMore && !loading && !busy && error == null && moreError == null
 }
 
 // The row staying put is the honest part of a failed withdrawal: a transport line alone would describe
@@ -106,14 +111,36 @@ class MyLikesViewModel(
     private val _uiState = MutableStateFlow(MyLikesUiState())
     val uiState: StateFlow<MyLikesUiState> = _uiState.asStateFlow()
 
+    /**
+     * Есть ли на проводе чтение. Полю `loading` для этого доверия нет: начальное состояние стоит на
+     * `loading = true` ещё до первого обращения, и проверка по нему отменила бы то самое чтение,
+     * которое делает `init`. Оба ответа чтения — и успех, и отказ — снимают этот флаг, поэтому
+     * переживает он только отмену самой модели.
+     */
+    private var readOnTheWire = false
+
     init {
         load()
     }
 
+    /**
+     * Read the account's taps from the newest page.
+     *
+     * One read at a time, and none over a write that is still on the wire: an answer to a read started
+     * before a withdrawal would put back the row the notice above the list has just named as gone, and
+     * the person would watch a tap they took back come back on its own.
+     */
     fun load() {
+        if (readOnTheWire || _uiState.value.busy) return
+        readOnTheWire = true
         _uiState.update { it.copy(loading = true, error = null) }
         viewModelScope.launch {
-            when (val result = discoveryRepository.liked(null)) {
+            val result = discoveryRepository.liked(null)
+            // Снимается до, а не внутри `update`: блок обновления StateFlow перепускается, если с
+            // состоянием в этот момент работал кто-то ещё, и флаг снялся бы столько раз, сколько
+            // перепустился цикл.
+            readOnTheWire = false
+            when (result) {
                 is ApiResult.Success -> _uiState.update {
                     it.copy(
                         loading = false,
@@ -162,13 +189,17 @@ class MyLikesViewModel(
      * A person who taps the same row twice, or scrolls to the end twice before the first answer lands,
      * gets one request — [MyLikesUiState.canLoadMore] is false while a page is out, and the guard is
      * read once before the coroutine starts rather than after it resumes.
+     *
+     * A withdrawal on the wire stops a page too. The write's answer describes the list as it is after
+     * the row left it; a page that started before the write and lands after it would append rows onto
+     * a list the write had already replaced, and the person would see the tap they took back again.
      */
     fun loadMore() {
         val state = _uiState.value
         val cursor = state.nextCursor ?: return
         // Не `canLoadMore`: та же строка закрывает автоматический обход после отказа, а здесь стоит
         // человек с «Повторить» в руках — для него отказ не причина молчать.
-        if (state.loadingMore || state.loading || state.error != null) return
+        if (state.busy || state.loadingMore || state.loading || state.error != null) return
         _uiState.update { it.copy(loadingMore = true, moreError = null) }
         viewModelScope.launch {
             when (val result = discoveryRepository.liked(cursor)) {

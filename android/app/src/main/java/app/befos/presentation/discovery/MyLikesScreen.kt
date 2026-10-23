@@ -346,6 +346,11 @@ internal fun myLikesBody(state: MyLikesUiState): MyLikesBody = when {
     state.loading -> MyLikesBody.Skeleton
     state.likes.isNotEmpty() -> MyLikesBody.Rows
     state.error != null -> MyLikesBody.ReadFailure
+    // Страница без строк и со ссылкой вперёд — это не аккаунт, который никого не лайкал. Половину
+    // правила показа сервер решает по присоединённым таблицам, и строка может уйти из вида, оставив
+    // за экраном дверь: «Вы пока никого не лайкали» здесь было бы рассказом про человека, а ответ
+    // знает только про эту страницу.
+    state.truncated || state.nextCursor != null -> MyLikesBody.Rows
     else -> MyLikesBody.Empty
 }
 

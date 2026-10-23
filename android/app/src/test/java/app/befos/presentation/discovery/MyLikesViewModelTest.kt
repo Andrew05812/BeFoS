@@ -564,6 +564,105 @@ class MyLikesViewModelTest {
     }
 
     @Test
+    fun `a withdrawal on the wire stops a page from starting over it`() = runTest {
+        val vm = open(row("a"), row("b"), truncated = true, nextCursor = "c1")
+        val gate = CompletableDeferred<Unit>()
+        coEvery { repo.unlike("a") } coAnswers {
+            gate.await()
+            ApiResult.Success(OutgoingLikesPage(listOf(row("b")), truncated = false))
+        }
+        coEvery { repo.liked("c1") } returns
+            ApiResult.Success(OutgoingLikesPage(listOf(row("c")), truncated = false))
+
+        vm.withdraw("a")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(true, vm.uiState.value.busy)
+
+        // Пока запись на проводе, страница не стартует. Её ответ описывает список, которого этот отзыв
+        // уже мог не оставить: страница дописалась бы поверх перечитанного первого экрана, и строка,
+        // которую сервер убрал, вернулась бы на экран без единого касания человека.
+        vm.loadMore()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(false, vm.uiState.value.loadingMore)
+        coVerify(exactly = 0) { repo.liked("c1") }
+
+        gate.complete(Unit)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(false, vm.uiState.value.busy)
+        assertEquals(listOf("b"), vm.uiState.value.likes.map { it.userId })
+    }
+
+    @Test
+    fun `a reload asked twice while the first is still out asks the server once`() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        coEvery { repo.liked() } coAnswers {
+            gate.await()
+            ApiResult.Success(OutgoingLikesPage(listOf(row("a")), truncated = false))
+        }
+
+        // Первый кадр сам просит чтение — `init` отправляет его до того, как экран подписывается на
+        // состояние. Плашка с «Повторить» живёт над этим же состоянием и до его ответа.
+        val vm = MyLikesViewModel(repo)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        vm.load()
+        vm.load()
+
+        assertEquals(true, vm.uiState.value.loading)
+        coVerify(exactly = 1) { repo.liked() }
+
+        gate.complete(Unit)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 1) { repo.liked() }
+        assertEquals(listOf("a"), vm.uiState.value.likes.map { it.userId })
+    }
+
+    @Test
+    fun `a reload does not start over a withdrawal that is still on the wire`() = runTest {
+        val vm = open(row("a"), row("b"))
+        val gate = CompletableDeferred<Unit>()
+        coEvery { repo.unlike("a") } coAnswers {
+            gate.await()
+            ApiResult.Success(OutgoingLikesPage(listOf(row("b")), truncated = false))
+        }
+        coEvery { repo.liked() } returns
+            ApiResult.Success(OutgoingLikesPage(listOf(row("a"), row("b")), truncated = false))
+
+        vm.withdraw("a")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        // Перечитывание, отправленное поверх живого отзыва, отвечает списком, в котором отозванная
+        // строка ещё стоит: экран назвал её убранной, а ответ вернул бы её же на то же место.
+        vm.load()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 1) { repo.liked() }
+
+        gate.complete(Unit)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(listOf("b"), vm.uiState.value.likes.map { it.userId })
+        assertEquals("a", vm.uiState.value.withdrawn)
+    }
+
+    @Test
+    fun `a page with no rows and a link forward is not an account that never liked anybody`() {
+        // Страница могла прийти без строк: видимая половина правила отбора живёт в присоединённых
+        // таблицах, а ссылка — в окне, которое сервер прочитал до этого отбора. «Вы пока никого не
+        // лайкали» — это утверждение про аккаунт, а этот ответ говорит только про страницу.
+        val walked = MyLikesUiState(
+            loading = false, likes = emptyList(), truncated = true, nextCursor = "c2", pages = 2,
+        )
+        assertEquals(MyLikesBody.Rows, myLikesBody(walked))
+        assertEquals(MyLikesTail.MoreAvailable, myLikesTail(walked))
+        // Действительно пустой список — это пустой список: прочитана одна страница, и сервер сказал,
+        // что за ней ничего не стоит.
+        assertEquals(
+            MyLikesBody.Empty,
+            myLikesBody(walked.copy(truncated = false, nextCursor = null, pages = 1)),
+        )
+        // А отказ чтения остаётся отказом и при живом ключе: плашка называет чтение, которое не пришло.
+        assertEquals(MyLikesBody.ReadFailure, myLikesBody(walked.copy(error = "Сервер недоступен.")))
+    }
+
+    @Test
     fun `a page that did not arrive leaves the rows the screen holds and says which half is missing`() =
         runTest {
             val vm = open(row("a"), row("b"), truncated = true, nextCursor = "c1")

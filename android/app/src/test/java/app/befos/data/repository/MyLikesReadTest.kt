@@ -157,6 +157,33 @@ class MyLikesReadTest {
     }
 
     @Test
+    fun `the repository hands the key it was given to the wire and keeps the answer it read`() =
+        runBlocking {
+            // Тот же шаг, что и выше, но через слой, который экран держит в руках. Проверка только над
+            // `ApiService` пропускала место, где ключ теряется по дороге: у репозитория есть свой
+            // аргумент, и он мог перестать его передавать, оставив весь набор зелёным.
+            val session = FakeSession().apply { login("token-alice", "alice") }
+            val (client, seen) = clientAnswering(
+                session,
+                body = """
+                    {"likes":[{"user_id":"d","name":"Глеб","age":40,"city":"Уфа","photo_url":null,"compatibility":61,"liked_at":"2026-10-15T06:00:00+00:00"}],"has_more":true,"next_cursor":"dGFwOjE3OTI1NDQwMDAwMDAwMDA6ZGVm"}
+                """.trimIndent(),
+            )
+
+            val page = (DiscoveryRepositoryImpl(ApiService(client)).liked("dGFwOjE3OTI1NDQwMDAwMDAwMDA6YWJj")
+                as ApiResult.Success).data
+            client.close()
+
+            assertEquals("/api/v1/discover/liked", seen[0].path)
+            assertEquals("cursor=dGFwOjE3OTI1NDQwMDAwMDAwMDA6YWJj", seen[0].query)
+            assertEquals(listOf("d"), page.likes.map { it.userId })
+            // Ключ вперёд читается из ответа, а не из того, что экран послал: страница за этой стоит
+            // за ссылкой сервера, и подставить вместо неё собственный сдвиг — значит начать обход заново.
+            assertEquals("dGFwOjE3OTI1NDQwMDAwMDAwMDA6ZGVm", page.nextCursor)
+            assertTrue(page.truncated)
+        }
+
+    @Test
     fun `a tap row keeps the percent its card carried and says nothing when none was written`() =
         runBlocking {
             val session = FakeSession().apply { login("token-alice", "alice") }
