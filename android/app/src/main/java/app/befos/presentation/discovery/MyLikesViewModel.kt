@@ -134,13 +134,20 @@ class MyLikesViewModel(
                 // «Показать ещё» would hand a door a key it no longer matches. The page count is kept:
                 // the rows on the screen still came from that many pages, and a withdrawal decides by it
                 // whether the write's answer is the list or just the row that left.
+                //
+                // What the last answer that did come said about the rest of the list is kept too. A
+                // reload that failed does not unmake «ваших касаний больше» — and clearing it here made
+                // the tail below print «Дальше ваших касаний нет» and the counter «весь список» over a
+                // history this account had not finished reading. The refusal of a page goes with the key
+                // that page needed: without a cursor there is no page to repeat, and the sentence above
+                // the rows already names the read that did not come.
                 is ApiResult.Error -> _uiState.update {
                     it.copy(
                         loading = false,
                         loadingMore = false,
                         error = result.message,
                         nextCursor = null,
-                        truncated = false,
+                        moreError = null,
                     )
                 }
             }
@@ -207,13 +214,17 @@ class MyLikesViewModel(
             when (val result = discoveryRepository.unlike(userId)) {
                 is ApiResult.Success -> _uiState.update { current ->
                     if (current.pages <= 1) {
-                        // The screen is holding the page the write answered, so the answer is the list.
+                        // The screen is holding the page the write answered, so the answer is the list —
+                        // and with it the page refusal: this answer names where the list ends now, and a
+                        // notice about a page that did not come would be standing over a cursor it can no
+                        // longer use, offering «Повторить» to a walk that has nothing left to repeat.
                         current.copy(
                             busy = false,
                             withdrawing = null,
                             likes = result.data.likes,
                             truncated = result.data.truncated,
                             nextCursor = result.data.nextCursor,
+                            moreError = null,
                             error = null,
                             withdrawn = name,
                         )

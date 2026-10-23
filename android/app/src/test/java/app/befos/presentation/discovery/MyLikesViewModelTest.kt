@@ -318,7 +318,7 @@ class MyLikesViewModelTest {
     }
 
     @Test
-    fun `a reload that fails drops the frontier it can no longer answer`() = runTest {
+    fun `a reload that fails drops the frontier but keeps saying the list goes further`() = runTest {
         val vm = open(row("a"), truncated = true, nextCursor = "c1")
         coEvery { repo.liked("c1") } returns ApiResult.Success(
             OutgoingLikesPage(listOf(row("b")), truncated = true, nextCursor = "c2"),
@@ -326,6 +326,11 @@ class MyLikesViewModelTest {
         vm.loadMore()
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
         assertEquals("c2", vm.uiState.value.nextCursor)
+
+        coEvery { repo.liked("c2") } returns ApiResult.Error(-1, "Страница не дошла.")
+        vm.loadMore()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals("Страница не дошла.", vm.uiState.value.moreError)
 
         coEvery { repo.liked() } returns ApiResult.Error(-1, "Сервер недоступен.")
         vm.load()
@@ -336,7 +341,13 @@ class MyLikesViewModelTest {
         // «Показать ещё» hand a stale cursor to a door whose newest page this screen no longer knows.
         assertNull(vm.uiState.value.nextCursor)
         assertEquals(false, vm.uiState.value.canLoadMore)
-        assertEquals(false, vm.uiState.value.truncated)
+        // What the last answer that did come said about the rest of the list survives. A reload that
+        // failed does not unmake it, and erasing it here made the tail print «Дальше ваших касаний нет»
+        // and the counter «весь список» over a history this account had not finished reading.
+        assertEquals(true, vm.uiState.value.truncated)
+        // The refusal of a page goes with the key that page needed. The reload's own failure is named
+        // above the rows, and a notice left standing without its cursor is a word nobody can use.
+        assertNull(vm.uiState.value.moreError)
         // The count of pages is not part of what is dropped: the rows on the screen still came from two
         // reads, and a withdrawal decides by that number whether the write's answer is the whole list or
         // only the row that left it. Zeroing it here would make the next withdrawal replace a walked list
@@ -347,6 +358,60 @@ class MyLikesViewModelTest {
         assertEquals(listOf("a", "b"), vm.uiState.value.likes.map { it.userId })
         assertEquals("Сервер недоступен.", vm.uiState.value.error)
         assertEquals(MyLikesBody.Rows, myLikesBody(vm.uiState.value))
+        assertEquals(MyLikesTail.WaitingForReread, myLikesTail(vm.uiState.value))
+    }
+
+    @Test
+    fun `a write that answered the first page closes the page that never came`() = runTest {
+        val vm = open(row("a"), truncated = true, nextCursor = "c1")
+        coEvery { repo.liked("c1") } returns ApiResult.Error(-1, "Страница не дошла.")
+        vm.loadMore()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals("Страница не дошла.", vm.uiState.value.moreError)
+
+        coEvery { repo.unlike("a") } returns
+            ApiResult.Success(OutgoingLikesPage(emptyList(), truncated = false))
+        vm.withdraw("a")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        // The write answered this very page, so the screen knows again where its own list ends. The link
+        // the refusal was waiting for is gone with the rows it pointed at, and the notice about that
+        // refusal has nothing left to repeat: «Повторить» on it would ask for a page this list no longer
+        // has, and the walk's gate would answer by doing nothing at all.
+        assertEquals("a", vm.uiState.value.withdrawn)
+        assertNull(vm.uiState.value.nextCursor)
+        assertNull(vm.uiState.value.moreError)
+        assertEquals(MyLikesTail.Nothing, myLikesTail(vm.uiState.value))
+    }
+
+    @Test
+    fun `the tail offers no verb unless the key that verb needs is on the screen`() {
+        val held = listOf(row("a"), row("b"))
+        val walked = MyLikesUiState(
+            loading = false, likes = held, truncated = true, nextCursor = "c2", pages = 2,
+        )
+        assertEquals(MyLikesTail.MoreAvailable, myLikesTail(walked))
+        assertEquals(MyLikesTail.PageRefused, myLikesTail(walked.copy(moreError = "Страница не дошла.")))
+        assertEquals(MyLikesTail.Loading, myLikesTail(walked.copy(loadingMore = true, moreError = null)))
+        // The end of the walk is the server's sentence about what stands beyond these rows, not the
+        // absence of a key: it is drawn once the last answer said there is nothing further.
+        assertEquals(MyLikesTail.End, myLikesTail(walked.copy(truncated = false, nextCursor = null)))
+        // A reload that failed leaves the screen holding no key while the list still goes on. That is the
+        // state the tail used to answer with «Дальше ваших касаний нет» — and, with a page refusal still
+        // standing, with a «Повторить» pointed at a page whose link had just been thrown away.
+        assertEquals(
+            MyLikesTail.WaitingForReread,
+            myLikesTail(walked.copy(nextCursor = null, error = "Сервер недоступен.")),
+        )
+        assertEquals(
+            MyLikesTail.WaitingForReread,
+            myLikesTail(walked.copy(nextCursor = null, moreError = "Страница не дошла.")),
+        )
+        // The first page, read to its end: nothing has to be said under it.
+        assertEquals(
+            MyLikesTail.Nothing,
+            myLikesTail(MyLikesUiState(loading = false, likes = held, pages = 1)),
+        )
     }
 
     @Test

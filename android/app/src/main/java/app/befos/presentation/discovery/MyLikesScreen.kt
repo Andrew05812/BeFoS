@@ -212,8 +212,8 @@ fun MyLikesScreen(onBack: () -> Unit, onOpenProfile: (String) -> Unit) {
                     // it. Nothing here is a button the reader has to notice to keep reading — the list
                     // comes by itself — but a page that failed has to be repeatable by a tap.
                     item(key = "tail") {
-                        when {
-                            state.loadingMore -> Row(
+                        when (myLikesTail(state)) {
+                            MyLikesTail.Loading -> Row(
                                 modifier = Modifier.fillMaxWidth().padding(vertical = Spacing.sm),
                                 horizontalArrangement = Arrangement.spacedBy(Spacing.md, Alignment.CenterHorizontally),
                                 verticalAlignment = Alignment.CenterVertically,
@@ -226,13 +226,13 @@ fun MyLikesScreen(onBack: () -> Unit, onOpenProfile: (String) -> Unit) {
                                 )
                             }
 
-                            state.moreError != null -> InlineNotice(
+                            MyLikesTail.PageRefused -> InlineNotice(
                                 text = "Следующая страница не дошла. ${state.moreError}",
                                 actionLabel = "Повторить",
                                 onAction = vm::loadMore,
                             )
 
-                            state.truncated -> InlineNotice(
+                            MyLikesTail.MoreAvailable -> InlineNotice(
                                 text = "Ваших касаний больше, чем стоит на этом списке. " +
                                     "Догружается само, когда вы доходите до конца.",
                                 isError = false,
@@ -240,11 +240,21 @@ fun MyLikesScreen(onBack: () -> Unit, onOpenProfile: (String) -> Unit) {
                                 onAction = vm::loadMore,
                             )
 
-                            state.pages > 1 -> Text(
+                            MyLikesTail.WaitingForReread -> InlineNotice(
+                                text = "Ваших касаний больше, чем стоит на этом списке. Перечитайте его, " +
+                                    "и обход пойдёт дальше.",
+                                isError = false,
+                                actionLabel = "Повторить",
+                                onAction = vm::load,
+                            )
+
+                            MyLikesTail.End -> Text(
                                 "Дальше ваших касаний нет.",
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
+
+                            MyLikesTail.Nothing -> Unit
                         }
                     }
                 }
@@ -349,6 +359,37 @@ internal fun myLikesBody(state: MyLikesUiState): MyLikesBody = when {
  */
 internal fun myLikesWriteRetryTarget(state: MyLikesUiState): String? =
     if (state.writeError == null) null else state.withdrawFailed
+
+/** Which of the sentences below the list the tail of the walk draws. */
+internal enum class MyLikesTail {
+    Loading, PageRefused, MoreAvailable, WaitingForReread, End, Nothing,
+}
+
+/**
+ * The tail is this screen's claim about what stands beyond the rows it holds, so its branches resolve in
+ * one place and are tested there rather than in the order a `when` happens to be written in.
+ *
+ * Two rules hold it together. A verb appears only where the key it needs is on the screen: «Повторить»
+ * over a refused page and «Показать ещё» over a list that goes on both go through [loadMore], and
+ * [MyLikesUiState.nextCursor] is the only thing that verb can ask with. And the sentence that ends the
+ * walk belongs to the server, not to an absent key: it is drawn once the last answer said nothing stands
+ * beyond these rows.
+ *
+ * [WaitingForReread] is the branch this screen did not have. A reload that failed drops the key to the
+ * rest of the list — the rows above are the earlier read and they stay — while the last answer that did
+ * come said more taps stand behind them. Without the branch the tail fell through to [End] and promised
+ * a reader the end of a history they had not finished reading, and with a page refusal still in the state
+ * it offered «Повторить» pointed at a page whose link had just been thrown away. Its verb is the reload
+ * itself, which is the one thing that can hand the walk a key again.
+ */
+internal fun myLikesTail(state: MyLikesUiState): MyLikesTail = when {
+    state.loadingMore -> MyLikesTail.Loading
+    state.moreError != null && state.nextCursor != null -> MyLikesTail.PageRefused
+    state.truncated && state.nextCursor != null -> MyLikesTail.MoreAvailable
+    state.truncated -> MyLikesTail.WaitingForReread
+    state.pages > 1 -> MyLikesTail.End
+    else -> MyLikesTail.Nothing
+}
 
 /**
  * How far the walk has come, in the reader's own words: the rows on the screen, and whether the list
