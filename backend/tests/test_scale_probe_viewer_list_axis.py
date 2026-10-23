@@ -1,8 +1,10 @@
 """The stand the scale table is published from cannot express the axis the pair list grows along.
 
 `backend/ops/scale_probe.py` gives the viewer `min(60, max(5, size // 50))` pairs — 20 at 1 000
-анкет, 60 at 10 000 and at 50 000 — and it seeds no photo at all (`grep -c "INSERT INTO photos"
-ops/scale_probe.py` answers 0). `GET /api/v1/matches` puts no ceiling on its read
+анкет, 60 at 10 000 and at 50 000 — and it seeds no photo for the crowd: `grep -c "INSERT INTO
+photos" ops/scale_probe.py` answers 1, and that single insert belongs to `_seed_own_rows`, the
+preparation the export row bought at stage 122, which lays six pictures under the viewer alone.
+`GET /api/v1/matches` puts no ceiling on its read
 (`MatchesService.list_matches` has no `.limit()`, the route takes no query parameter), so every
 `matches_list` number the table published was a short list of accounts without pictures: 29.8 /
 37.2 / 34.3 мс (стадия 33), while the same code on a 1 000-pair list with two photos per partner
