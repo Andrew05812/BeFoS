@@ -39,6 +39,19 @@ data class MyLikesUiState(
     /** The row whose withdrawal is on the wire, so that one card can say so while the others stand. */
     val withdrawing: String? = null,
     val error: String? = null,
+    /**
+     * What the server said about a write this screen asked for and it refused.
+     *
+     * Kept apart from [error] because the two words answer different questions: [error] means the
+     * account's history could not be read, and this means one gesture did not land while the history
+     * above it was read perfectly well. Until stage 123 a refused withdrawal went into the read channel,
+     * and the screen answered a tap the server declined by replacing the rows the reader holds with
+     * «Не удалось прочитать ваши лайки» — a card whose only verb re-read a page that had never stopped
+     * answering.
+     */
+    val writeError: String? = null,
+    /** The row a refusal belongs to: the notice's «Повторить» repeats that gesture, not a fresh read. */
+    val withdrawFailed: String? = null,
     val withdrawn: String? = null,
 ) {
     val isEmpty: Boolean get() = !loading && error == null && likes.isEmpty()
@@ -100,10 +113,23 @@ class MyLikesViewModel(
                         loadingMore = false,
                         moreError = null,
                         error = null,
+                        writeError = null,
+                        withdrawFailed = null,
                     )
                 }
+                // The rows stay where they are — one failed refresh does not unmake the taps the account
+                // made — but the frontier goes with the page this read was replacing. A cursor left from
+                // an earlier walk would be a link into a list this screen has just failed to re-read, and
+                // «Показать ещё» would hand a door a key it no longer matches.
                 is ApiResult.Error -> _uiState.update {
-                    it.copy(loading = false, loadingMore = false, error = result.message)
+                    it.copy(
+                        loading = false,
+                        loadingMore = false,
+                        error = result.message,
+                        nextCursor = null,
+                        pages = 0,
+                        truncated = false,
+                    )
                 }
             }
         }
@@ -157,9 +183,11 @@ class MyLikesViewModel(
      * is still written.
      */
     fun withdraw(userId: String) {
-        if (_uiState.value.busy) return
+        if (_uiState.value.busy || _uiState.value.loadingMore) return
         val name = _uiState.value.likes.firstOrNull { it.userId == userId }?.name
-        _uiState.update { it.copy(busy = true, withdrawing = userId, error = null) }
+        _uiState.update {
+            it.copy(busy = true, withdrawing = userId, error = null, writeError = null, withdrawFailed = null)
+        }
         viewModelScope.launch {
             when (val result = discoveryRepository.unlike(userId)) {
                 is ApiResult.Success -> _uiState.update { current ->
@@ -188,11 +216,17 @@ class MyLikesViewModel(
                         )
                     }
                 }
+                // The write channel, not the read one: the rows this screen holds were read, and they stay
+                // drawn with the sentence about the one gesture that did not land above them. The row the
+                // refusal belongs to is kept with it, because the notice's «Повторить» has to repeat that
+                // tap — answering a refused write by re-reading the list would replace a page the server
+                // never stopped giving and leave the reader looking for the row again.
                 is ApiResult.Error -> _uiState.update {
                     it.copy(
                         busy = false,
                         withdrawing = null,
-                        error = "$WITHDRAW_NOT_RECORDED ${result.message}",
+                        writeError = "$WITHDRAW_NOT_RECORDED ${result.message}",
+                        withdrawFailed = userId,
                     )
                 }
             }

@@ -141,10 +141,26 @@ fun MyLikesScreen(onBack: () -> Unit, onOpenProfile: (String) -> Unit) {
                 }
             }
 
-            when {
-                state.loading -> item(key = "skeleton") { ListSkeleton() }
+            // A gesture the server refused, named by the row it belongs to. The list under it is the
+            // account's own read and it did not go anywhere, so this notice carries no reload: its verb
+            // repeats the tap that failed, which is the one thing the reader is waiting for.
+            state.withdrawFailed?.let { id ->
+                val failed = state.likes.firstOrNull { it.userId == id }
+                item(key = "write-error") {
+                    InlineNotice(
+                        text = state.writeError.orEmpty() + (
+                            failed?.let { " — ${it.name} остаётся в списке." } ?: ""
+                            ),
+                        actionLabel = "Повторить",
+                        onAction = { vm.withdraw(id) },
+                    )
+                }
+            }
 
-                state.error != null -> item(key = "read-failure") {
+            when (myLikesBody(state)) {
+                MyLikesBody.Skeleton -> item(key = "skeleton") { ListSkeleton() }
+
+                MyLikesBody.ReadFailure -> item(key = "read-failure") {
                     ErrorState(
                         title = "Не удалось прочитать ваши лайки",
                         message = state.error!!,
@@ -152,7 +168,7 @@ fun MyLikesScreen(onBack: () -> Unit, onOpenProfile: (String) -> Unit) {
                     )
                 }
 
-                state.likes.isEmpty() -> item(key = "empty") {
+                MyLikesBody.Empty -> item(key = "empty") {
                     EmptyState(
                         title = "Вы пока никого не лайкали",
                         message = "Здесь появятся те, кого вы выбрали сердцем. Отзыв лайка не распускает " +
@@ -162,15 +178,16 @@ fun MyLikesScreen(onBack: () -> Unit, onOpenProfile: (String) -> Unit) {
                     )
                 }
 
-                else -> {
+                MyLikesBody.Rows -> {
                     items(state.likes, key = { it.userId }) { like ->
                         MyLikeRow(
                             like = like,
                             // Only the row that is on the wire loses its verb: the others stay readable,
                             // and a list that went grey row by row would look like the whole history had
-                            // been refused.
+                            // been refused. While a page is out the verbs wait with it — a tap taken back
+                            // under a page still on the wire would be answered by two redraws of one list.
                             inFlight = state.withdrawing == like.userId,
-                            blocked = state.busy,
+                            blocked = state.busy || state.loadingMore,
                             onOpenProfile = { onOpenProfile(like.userId) },
                             onWithdraw = {
                                 haptics.medium()
@@ -284,6 +301,30 @@ private fun MyLikeRow(
             }
         }
     }
+}
+
+/** Which of the four bodies the area under the notices draws. */
+internal enum class MyLikesBody { Skeleton, ReadFailure, Empty, Rows }
+
+/**
+ * The rows the account holds outrank a failure to read more of them.
+ *
+ * Four states want the same space: the first page still on the wire, a read that did not come, a list
+ * the server says is empty, and the list itself. The order they are resolved in is the screen's whole
+ * claim about history, so it is written down once and tested rather than left to the branch order of a
+ * `when` inside a LazyColumn — which is how stage 123 found it: a refused withdrawal set the read error,
+ * and the card «Не удалось прочитать ваши лайки» replaced rows the server had just finished answering.
+ *
+ * Empty is a fact about the account, and it is only ever drawn when the read came back: a timeout with
+ * nothing on the screen is a failure, not a confession that nobody has been liked. A failure with rows
+ * on the screen is the other half of the same rule — the notice above them names which read did not
+ * arrive, and the history the device holds stays where the reader left it.
+ */
+internal fun myLikesBody(state: MyLikesUiState): MyLikesBody = when {
+    state.loading -> MyLikesBody.Skeleton
+    state.likes.isNotEmpty() -> MyLikesBody.Rows
+    state.error != null -> MyLikesBody.ReadFailure
+    else -> MyLikesBody.Empty
 }
 
 /**
