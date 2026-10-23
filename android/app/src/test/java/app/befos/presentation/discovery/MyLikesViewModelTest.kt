@@ -512,11 +512,46 @@ class MyLikesViewModelTest {
             // the link stays, and the failure is drawn where the missing rows would have been.
             assertEquals(listOf("a", "b"), vm.uiState.value.likes.map { it.userId })
             assertEquals("c1", vm.uiState.value.nextCursor)
-            assertEquals(true, vm.uiState.value.canLoadMore)
+            // Живой прогон показал, что этотexpectation был дефектом, а не поведением: дверь
+            // `/discover/liked` отвечала 503 через четыре секунды, триггер у края списка снова читал
+            // `canLoadMore` истинным — курсор-то остался — и просил страницу заново, и заново, и заново.
+            // Хвост пять минут держал «Догружаю ваши касания…» и ни разу не показал отметку с
+            // «Повторить», то есть читатель не мог ни узнать об отказе, ни сделать шаг сам. Автоматический
+            // обход и человеческий тап не могут стоять на одних воротах: скролл останавливается на
+            // первом отказе, а повторить имеет право только глагол на отметке.
+            assertEquals(false, vm.uiState.value.canLoadMore)
             assertTrue(vm.uiState.value.moreError.orEmpty().contains("Сервер недоступен"))
             assertNull(vm.uiState.value.error)
             assertEquals(false, vm.uiState.value.loadingMore)
         }
+
+    /**
+     * The gate the walk at the bottom of the list reads has to be closed by a refusal, while the verb on
+     * the notice still reaches the server — both halves are the same five lines of state, and only one of
+     * them was measured on a device.
+     */
+    @Test
+    fun `a refused page closes the automatic walk and leaves the notices verb working`() = runTest {
+        val vm = open(row("a"), truncated = true, nextCursor = "c1")
+        coEvery { repo.liked("c1") } returns ApiResult.Error(503, "Сервер недоступен.")
+
+        vm.loadMore()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(false, vm.uiState.value.canLoadMore)
+        assertEquals("c1", vm.uiState.value.nextCursor)
+        coVerify(exactly = 1) { repo.liked("c1") }
+
+        coEvery { repo.liked("c1") } returns
+            ApiResult.Success(OutgoingLikesPage(listOf(row("b")), truncated = false))
+        vm.loadMore()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(listOf("a", "b"), vm.uiState.value.likes.map { it.userId })
+        assertNull(vm.uiState.value.moreError)
+        // Два обращения за весь прогон: одно принес отказ, второе принёс человек, нажавший «Повторить».
+        coVerify(exactly = 2) { repo.liked("c1") }
+    }
 
     @Test
     fun `repeating the failed page asks the same link and appends once`() = runTest {

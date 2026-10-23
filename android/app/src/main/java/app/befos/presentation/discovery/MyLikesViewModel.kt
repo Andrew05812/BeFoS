@@ -56,8 +56,19 @@ data class MyLikesUiState(
 ) {
     val isEmpty: Boolean get() = !loading && error == null && likes.isEmpty()
 
-    /** More taps exist and nothing is already on the wire asking for them. */
-    val canLoadMore: Boolean get() = nextCursor != null && !loadingMore && !loading && error == null
+    /**
+     * More taps exist, nothing is already on the wire asking for them, and the walk was not stopped by
+     * a refusal.
+     *
+     * The last clause is the whole point. On a device, with the database down, the door answered this
+     * page 503 in four seconds; the gate still read `nextCursor != null`, so the trigger at the bottom
+     * of the list asked again, and again, and again — the tail held «Догружаю ваши касания…» for the
+     * whole five minutes of that walk and never showed the notice with «Повторить», while the reader
+     * could neither learn that the page had failed nor ask for it themselves. An automatic walk stops at
+     * the first refusal; repeating it is the verb on the notice, and that verb goes through [loadMore].
+     */
+    val canLoadMore: Boolean
+        get() = nextCursor != null && !loadingMore && !loading && error == null && moreError == null
 }
 
 // The row staying put is the honest part of a failed withdrawal: a transport line alone would describe
@@ -146,8 +157,11 @@ class MyLikesViewModel(
      * read once before the coroutine starts rather than after it resumes.
      */
     fun loadMore() {
-        val cursor = _uiState.value.nextCursor ?: return
-        if (!_uiState.value.canLoadMore) return
+        val state = _uiState.value
+        val cursor = state.nextCursor ?: return
+        // Не `canLoadMore`: та же строка закрывает автоматический обход после отказа, а здесь стоит
+        // человек с «Повторить» в руках — для него отказ не причина молчать.
+        if (state.loadingMore || state.loading || state.error != null) return
         _uiState.update { it.copy(loadingMore = true, moreError = null) }
         viewModelScope.launch {
             when (val result = discoveryRepository.liked(cursor)) {
