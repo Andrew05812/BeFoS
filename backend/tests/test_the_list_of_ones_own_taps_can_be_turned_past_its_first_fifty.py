@@ -34,6 +34,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Callable
 
+import pytest
 from httpx import AsyncClient
 from sqlalchemy import event, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -547,3 +548,40 @@ def test_the_priced_call_names_every_parameter_the_handler_declares() -> None:
     assert "limit=LIKED_SHOWN" in source, (
         "the priced page size is written as a number of its own instead of the constant the cap is"
     )
+
+
+def test_a_subset_of_paths_keeps_the_registry_order() -> None:
+    """`--paths` filters the registry; it does not re-order the stand's state machine.
+
+    The first two shoots of this stage asked for six rows in the order a person typed them and got an
+    error where a number should be: `{"path": "unpass", "error": "NotFoundError: You have not passed
+    this user."}` (`s123_scale_a.json`, `s123_scale_b.json`). The setups run in the order the filter
+    produced, the seed of the tap list picks its candidates by excluding people who already tapped the
+    viewer, and the inbox seed — which comes earlier in the registry — is what creates those people.
+    Run after `liked`, the tap seed chose them, its `DELETE FROM passes` took the rows the `unpass`
+    pool had been addressed from, and the withdrawal rotated over a table that no longer held them.
+
+    So the order the registry builds the stand in is part of the stand's state, not a detail of how the
+    table prints. A filter that returned names in the operator's order let one run measure six rows and
+    another measure the same six rows into a different database.
+    """
+    probe = _probe()
+    assert hasattr(probe, "_select_paths"), (
+        "отбора путей нет как функции: `main` собирает список тем порядком, в котором его набрал "
+        "человек, и посевы пробегут в нём же"
+    )
+    registry = list(probe._build_paths())
+    picked = probe._select_paths(registry, "liked,unpass,like")
+
+    assert picked == ["like", "liked", "unpass"], (
+        f"подбор вернул {picked}: посевы пробегут в другом порядке, и стенд соберётся другой"
+    )
+    assert picked == sorted(picked, key=registry.index), (
+        f"подбор {picked} идёт не в порядке реестра"
+    )
+    assert probe._select_paths(registry, "") == registry, (
+        "пустой отбор обязан звать весь реестр — именно так печатается опубликованная таблица"
+    )
+
+    with pytest.raises(SystemExit):
+        probe._select_paths(registry, "liked,deck_exhausted_typo")

@@ -873,6 +873,27 @@ def _build_paths():
     }
 
 
+def _select_paths(known: list[str], requested: str) -> list[str]:
+    """Which paths a run measures, in the order the registry builds them.
+
+    The order is not cosmetic: `_measure_size` runs each path's setup when its turn comes, and the
+    seeds read and clear the same tables. The `likes` seeded by the tap-list setup delete the `passes`
+    rows a withdrawal pool was addressed from (stage 26 makes a tap erase a pass), so a filter that
+    kept the operator's order put `liked` before the inbox seed and made the `unpass` row answer
+    `NotFoundError` instead of a number — `s123_scale_a.json` and `s123_scale_b.json` each show it.
+    A name the registry does not know is refused rather than dropped: a silent typo publishes a
+    shorter table than the document claims.
+    """
+    wanted = {part for part in requested.split(",") if part}
+    unknown = sorted(wanted.difference(known))
+    if unknown:
+        raise SystemExit(
+            f"прибор не знает путей: {', '.join(unknown)}; реестр держит {len(known)}: "
+            f"{', '.join(known)}"
+        )
+    return [name for name in known if not wanted or name in wanted]
+
+
 def _build_setups():
     """The state a path needs the stand in before it is timed, keyed by path name.
 
@@ -2030,7 +2051,7 @@ async def main() -> None:
         )
 
     known = list(_build_paths())
-    wanted = [p for p in (args.paths.split(",") if args.paths else known) if p in known]
+    wanted = _select_paths(known, args.paths)
     report = {"generated_at": time.strftime("%Y-%m-%d %H:%M:%S"), "postgres": None, "scales": []}
     # The plan shape is what the document argues from, and the planner's choices belong to a
     # server version — a report without one cannot be reproduced by anyone else.
