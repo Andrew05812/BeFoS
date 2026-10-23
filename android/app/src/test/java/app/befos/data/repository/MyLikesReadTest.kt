@@ -14,6 +14,7 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -32,6 +33,12 @@ import org.junit.Test
  * The withdrawal is the third thing, and its shape is the bargain the release of a pass struck: DELETE
  * on the like the account wrote, answering with the page that survives rather than with a boolean. A
  * client that subtracted the tapped row locally would be guessing what the server holds.
+ *
+ * The fourth is the walk, and it is what stage 123 changed on this side of the wire: the first page is
+ * asked for with no query at all, every page after it is asked for by the key the previous answer
+ * handed out, and the key is carried whole rather than rebuilt. The screen's «Показать ещё» and its
+ * arrival at the end of the list both read that field, so a mapper that dropped it would leave a page
+ * that says more exists and cannot reach it — the exact hole this door had until the cursor came.
  */
 class MyLikesReadTest {
 
@@ -39,6 +46,7 @@ class MyLikesReadTest {
         val method: String,
         val path: String,
         val bearer: String?,
+        val query: String? = null,
     )
 
     private class FakeSession : SessionTokens {
@@ -81,6 +89,7 @@ class MyLikesReadTest {
                 method = request.method.value,
                 path = request.url.encodedPath,
                 bearer = request.headers[HttpHeaders.Authorization],
+                query = request.url.encodedQuery.takeIf { it.isNotEmpty() },
             )
             respond(body, status, headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()))
         }),
@@ -105,6 +114,9 @@ class MyLikesReadTest {
         assertEquals("Bearer token-alice", seen[0].bearer)
         // Whose list this is comes from the token alone: nothing in the URL, nothing in a body. The path
         // differs from the inbox by one word, which is exactly how far apart the two directions are.
+        // And the first page asks with no query at all — a client that sent `cursor=` would be teaching
+        // the server a shape its own decoder says means «from the newest tap».
+        assertNull(seen[0].query)
         assertEquals(1, seen.size)
 
         val page = (result as ApiResult.Success).data
@@ -115,6 +127,33 @@ class MyLikesReadTest {
         assertEquals(74, page.likes[0].compatibility)
         assertEquals("2026-10-19T06:00:00+00:00", page.likes[0].likedAt)
         assertEquals(false, page.hasMore)
+        // A body that names no cursor reads as no cursor, not as an empty one: the screen decides whether
+        // to offer «Показать ещё» by this field being absent.
+        assertNull(page.nextCursor)
+    }
+
+    @Test
+    fun `the page behind the first one is asked for by the link the server handed out`() = runBlocking {
+        val session = FakeSession().apply { login("token-alice", "alice") }
+        val (client, seen) = clientAnswering(
+            session,
+            body = """
+                {"likes":[{"user_id":"c","name":"Вера","age":27,"city":"Тверь","photo_url":null,"compatibility":55,"liked_at":"2026-10-17T06:00:00+00:00"}],"has_more":false,"next_cursor":null}
+            """.trimIndent(),
+        )
+
+        val page = (ApiService(client).likedUsers(cursor = "dGFwOjE3OTI1NDQwMDAwMDAwMDA6YWJj") as ApiResult.Success).data
+        client.close()
+
+        assertEquals("GET", seen[0].method)
+        assertEquals("/api/v1/discover/liked", seen[0].path)
+        // The only thing the client adds between one page and the next is the key, carried whole: a
+        // device that rebuilt it from the row's timestamp would be guessing at the server's ordering.
+        assertEquals("cursor=dGFwOjE3OTI1NDQwMDAwMDAwMDA6YWJj", seen[0].query)
+        assertEquals("Bearer token-alice", seen[0].bearer)
+        assertEquals(listOf("c"), page.likes.map { it.userId })
+        assertFalse(page.hasMore)
+        assertNull(page.nextCursor)
     }
 
     @Test
@@ -152,23 +191,24 @@ class MyLikesReadTest {
         }
 
     @Test
-    fun `a page that stopped at fifty reaches the screen as a page that stopped`() = runBlocking {
+    fun `a page that stopped at fifty arrives with the link that goes past it`() = runBlocking {
         val session = FakeSession().apply { login("token-alice", "alice") }
         val rows = (1..50).joinToString(",") {
             """{"user_id":"u$it","name":"Анкета $it","age":25,"city":"Москва","photo_url":null,"compatibility":60,"liked_at":"2026-10-19T06:00:00+00:00"}"""
         }
         val (client, _) = clientAnswering(
             session,
-            body = """{"likes":[$rows],"has_more":true}""",
+            body = """{"likes":[$rows],"has_more":true,"next_cursor":"dGFwOjE3OTI1NDQwMDAwMDAwMDA6YWJj"}""",
         )
 
         val page = (DiscoveryRepositoryImpl(ApiService(client)).liked() as ApiResult.Success).data
         client.close()
 
-        // The server shows fifty rows and names no cursor, so the flag is the only thing that separates
-        // a complete list from a cut one — and the screen has to say which it is holding.
+        // The flag says the list is longer than what is here, and the key is what makes that survivable:
+        // a screen that shows both and holds neither has the same hole stage 116 shipped with.
         assertEquals(50, page.likes.size)
         assertEquals(true, page.truncated)
+        assertEquals("dGFwOjE3OTI1NDQwMDAwMDAwMDA6YWJj", page.nextCursor)
     }
 
     @Test
@@ -178,7 +218,7 @@ class MyLikesReadTest {
             val (client, seen) = clientAnswering(
                 session,
                 body = """
-                    {"likes":[{"user_id":"a","name":"Анна","age":29,"city":"Москва","photo_url":null,"compatibility":62,"liked_at":"2026-10-19T06:00:00+00:00"}],"has_more":false}
+                    {"likes":[{"user_id":"a","name":"Анна","age":29,"city":"Москва","photo_url":null,"compatibility":62,"liked_at":"2026-10-19T06:00:00+00:00"}],"has_more":true,"next_cursor":"dGFwOnR3bw"}
                 """.trimIndent(),
             )
 
@@ -195,7 +235,10 @@ class MyLikesReadTest {
             assertEquals(1, seen.size)
 
             assertEquals(listOf("a"), page.likes.map { it.userId })
-            assertEquals(false, page.truncated)
+            assertEquals(true, page.truncated)
+            // The page a write answers with has to be turnable: a row that left through the top of the
+            // list would otherwise strand the screen at fifty with the walk it had just been on gone.
+            assertEquals("dGFwOnR3bw", page.nextCursor)
             assertEquals(62, page.likes[0].compatibility)
         }
 

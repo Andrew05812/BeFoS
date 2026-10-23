@@ -418,10 +418,19 @@ data class MyLikeDto(
     @SerialName("liked_at") val likedAt: String = "",
 )
 
+/**
+ * One page of the account's own taps.
+ *
+ * `nextCursor` is the link the server hands out with a page it could not finish: opaque, carrying no
+ * account, and null exactly when `hasMore` is false. Stage 116 built this screen on a page that
+ * admitted more taps existed and gave nothing to reach them with — the sentence written below about
+ * [SessionsDto]'s `hasMore` was true of this list too, until the door grew a cursor of its own.
+ */
 @Serializable
 data class MyLikesDto(
     val likes: List<MyLikeDto> = emptyList(),
     @SerialName("has_more") val hasMore: Boolean = false,
+    @SerialName("next_cursor") val nextCursor: String? = null,
 )
 
 @Serializable
