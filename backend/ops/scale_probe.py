@@ -883,8 +883,14 @@ def _select_paths(known: list[str], requested: str) -> list[str]:
     `NotFoundError` instead of a number — `s123_scale_a.json` and `s123_scale_b.json` each show it.
     A name the registry does not know is refused rather than dropped: a silent typo publishes a
     shorter table than the document claims.
+
+    A comma separates names and is not part of one, so each part is stripped before the registry is
+    consulted — `--paths "liked, unpass"` is the same four characters of intent as `--paths liked,unpass`
+    — and a value that holds no name at all, whether empty or padded or a bare separator, means the whole
+    registry. That is the run the published table comes from, and it is a rule rather than what an empty
+    set happens to produce: naming one path means measuring exactly that path and nothing else.
     """
-    wanted = {part for part in requested.split(",") if part}
+    wanted = {part.strip() for part in requested.split(",") if part.strip()}
     unknown = sorted(wanted.difference(known))
     if unknown:
         raise SystemExit(
@@ -911,6 +917,14 @@ def _build_setups():
         "liked_me": _seed_incoming_taps,
         "liked": _seed_own_taps,
         "unlike": _seed_taps_for_return,
+        # The withdrawal of a pass reads no seed of its own — `_seed_activity` has been passing 40 % of
+        # the crowd off the viewer since stage 20 — but its rotation pool has to be named at this path's
+        # turn rather than once for the whole run: the two tap seeds above delete `passes` rows, because
+        # a tap erases a pass (stage 26), and a pool addressed in `_context` goes on naming rows that
+        # are gone. That is how `--paths liked,unpass,like` answered `NotFoundError` where a number
+        # belongs (`s123_scale_a.json`, `s123_scale_b.json`), and the same in `unlike,unpass` after the
+        # order was fixed. The address is one query, shared with `_context`, so the two cannot disagree.
+        "unpass": _address_pass_pool,
         # Both doors of the plan family stand on the same seed: the screen needs the arrangements to
         # be on the page, and the card needs one of them to be addressable. `_seed_arrangements`
         # stops at what the pairs already hold, so the second call of a scale writes nothing and the
@@ -1247,6 +1261,49 @@ async def _seed_taps_for_return(session, ctx) -> None:
         )
     ctx["unlike_peers"] = list(rows)
     ctx["unlike_turn"] = 0
+
+
+# People the viewer has actually passed, in the order the return rotates over them. One query, used by
+# `_context` for the first address and by `_address_pass_pool` at the path's own turn: two copies of the
+# same text is how a pool addressed once and a pool re-addressed later start naming different rows.
+_PASS_POOL_ADDRESS = (
+    "SELECT ps.to_user_id FROM passes ps "
+    "JOIN users u ON u.id = ps.to_user_id "
+    "WHERE ps.from_user_id = :v AND u.is_active AND NOT u.is_deleted "
+    "ORDER BY md5(u.email::text) LIMIT 64"
+)
+
+
+async def _address_pass_pool(session, ctx) -> None:
+    """Name the passes the withdrawal can take back, at the turn the withdrawal is measured.
+
+    `unpass` consumes its own row: the second return of one pass answers 404 and writes nothing, so the
+    target arrives from a pool the harness rotates over — the bargain stage 115 struck with this door and
+    stage 118 restated for `unlike`. What stage 115 could not see is that the pool was addressed once, in
+    `_context`, before any path ran, while the tap seeds that come earlier in the registry delete
+    `passes` rows: a tap erases a pass (stage 26). So whether the row got a number or an error depended
+    on which other paths the operator asked for — `--paths liked,unpass,like` and `--paths unlike,unpass`
+    both answered `NotFoundError: You have not passed this user.` while the full registry and
+    `--paths liked,liked_me,unpass` answered 42.9 and 46.0 ms.
+
+    Re-reading the address at the path's turn makes the gesture measurable in every subset: the pool
+    holds exactly the passes that stand when the withdrawal is timed. Reading is all it does — the
+    rotation index restarts at zero, so the first measured call takes the first standing row rather than
+    the fourth of a list two of which no longer exist. An empty pool is refused rather than rotated
+    over, because `% len(peers)` would abort the whole shooting for one row's missing state.
+    """
+    from sqlalchemy import text
+
+    rows = (
+        await session.execute(text(_PASS_POOL_ADDRESS), {"v": ctx["viewer_id"]})
+    ).scalars().all()
+    if not rows:
+        raise RuntimeError(
+            "the pass pool is empty: the withdrawal would rotate over nothing and time a refusal "
+            "instead of the gesture"
+        )
+    ctx["unpass_peers"] = list(rows)
+    ctx["unpass_turn"] = 0
 
 
 _PLAN_CHOSEN = """
@@ -1598,15 +1655,12 @@ async def _context(engine) -> dict:
         # 404. The pool is addressed here — before any window opens — the same way `like_peers`
         # is; `_seed_activity` wrote every one of these rows. Showability is not part of the
         # address: the return clears the answer whatever the deck's filter says about the person.
+        # `unpass` takes the same address again at its own turn (`_address_pass_pool`), because the
+        # tap seeds that come earlier in the registry delete `passes` rows out of this list.
         unpass_peers = list(
             (
                 await session.execute(
-                    text(
-                        "SELECT ps.to_user_id FROM passes ps "
-                        "JOIN users u ON u.id = ps.to_user_id "
-                        "WHERE ps.from_user_id = :v AND u.is_active AND NOT u.is_deleted "
-                        "ORDER BY md5(u.email::text) LIMIT 64"
-                    ),
+                    text(_PASS_POOL_ADDRESS),
                     {"v": viewer},
                 )
             ).scalars()

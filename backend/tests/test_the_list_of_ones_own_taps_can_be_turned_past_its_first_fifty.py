@@ -28,6 +28,7 @@ from __future__ import annotations
 import base64
 import importlib.util
 import inspect
+import sys
 import uuid
 from collections import Counter
 from datetime import date, timedelta
@@ -36,11 +37,11 @@ from typing import Callable
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import event, insert, select, update
+from sqlalchemy import delete, event, func, insert, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import engine
-from app.models import Like, Profile, User
+from app.models import Like, Match, Message, Pass, Profile, User
 from app.models.base import utcnow
 from app.services.discovery_service import BAD_CURSOR, LIKED_SHOWN
 
@@ -362,6 +363,29 @@ async def test_a_cursor_beyond_any_clock_is_refused_rather_than_raising(
         assert BAD_CURSOR in text
 
 
+async def test_a_cursor_of_digits_the_language_does_not_share_is_refused(
+    client: AsyncClient,
+) -> None:
+    """The tap door reads the same sentence as the deck's, and it has to refuse the same way.
+
+    `str.isdigit()` answers yes to `²`, to `٣`, to a full-width `１`, and Python's `int()` then either
+    raises on a run past 4300 digits or returns a number no clock and no column holds. The bound on the
+    deck's rank (stage 17) and the bound here are the same rule about the same kind of text: a person
+    typing at the API gets `422`, and the server keeps its traceback to itself.
+    """
+    from app.services.discovery_service import TAP_CURSOR_PREFIX
+
+    viewer = await _account(client, "digits_v")
+    hex_id = "00000000000000000000000000000000"
+
+    for digits in ("²", "١٢٣", "１２３", "9" * 5000, "1٢3"):
+        payload = f"{TAP_CURSOR_PREFIX}:{digits}:{hex_id}"
+        cursor = base64.urlsafe_b64encode(payload.encode()).decode().rstrip("=")
+        code, text = await _raw(client, viewer["token"], cursor=cursor)
+        assert code == 422, f"{digits[:12]!r} answered {code}: {text[:160]}"
+        assert BAD_CURSOR in text, f"{digits[:12]!r} was refused with another sentence: {text[:160]}"
+
+
 async def test_a_cursor_carried_from_another_account_reads_only_ones_own_taps(
     client: AsyncClient, session: AsyncSession
 ) -> None:
@@ -440,6 +464,80 @@ async def test_a_withdrawn_tap_leaves_the_walk_whole(
         f"the pages after a withdrawal answered {tail} instead of the taps still standing behind them"
     )
     assert await _walk(client, viewer["token"], limit=5) == ids[:2] + ids[3:]
+
+
+async def test_the_same_cursor_turned_twice_answers_the_same_page(
+    client: AsyncClient, session: AsyncSession,
+) -> None:
+    """A link is a place in the list, so asking for it twice gets the same page twice.
+
+    The reader can lose a response and press the button again, and the screen must not have to know
+    whether the retry re-serves rows it already showed or quietly advances. The cursor carries the two
+    values the read is ordered by rather than a position, so nothing is remembered between the calls
+    and nothing can drift: the second answer is the first one again, down to its own next link.
+    """
+    viewer = await _account(client, "replay_v")
+    ids = await _seed_taps(session, viewer["user_id"], 12, tag="replay", minutes_apart=3)
+    first = await _page(client, viewer["token"], limit=4)
+    assert [card["user_id"] for card in first["likes"]] == ids[:4]
+
+    held = first["next_cursor"]
+    assert isinstance(held, str)
+
+    again = await _page(client, viewer["token"], cursor=held, limit=4)
+    once = await _page(client, viewer["token"], cursor=held, limit=4)
+
+    assert [card["user_id"] for card in again["likes"]] == ids[4:8]
+    assert again == once, "the same link answered differently the second time it was turned"
+
+
+async def test_a_cursor_held_over_a_page_the_reader_emptied_names_no_row_it_already_showed(
+    client: AsyncClient, session: AsyncSession,
+) -> None:
+    """Turning a link whose whole page has been taken back must not hand that page out again.
+
+    This is the case a cursor that stored a *position* fails: after the first page is emptied by
+    withdrawals, an offset of 4 lands on the rows that slid up into the top of the list and repeats
+    cards the reader has already seen. A keyset cursor cannot do that, because the link names the last
+    row it showed — moment and id — and the next page is drawn strictly below those two values. Rows
+    deleted from above the boundary therefore change nothing behind it: the tail arrives whole, in
+    order, with nothing already shown mixed in. The boundary row's own disappearance is the sharpest
+    part of the claim, so the test takes back the served page including the row the link points at.
+    """
+    viewer = await _account(client, "emptied_v")
+    ids = await _seed_taps(session, viewer["user_id"], 12, tag="emptied", minutes_apart=2)
+    first = await _page(client, viewer["token"], limit=4)
+    assert [card["user_id"] for card in first["likes"]] == ids[:4]
+    held = first["next_cursor"]
+    assert isinstance(held, str)
+
+    for tapped_id in ids[:4]:
+        resp = await client.delete(
+            f"/api/v1/users/{tapped_id}/like", headers=auth_headers(viewer["token"])
+        )
+        assert resp.status_code == 200, resp.text
+
+    shown_again = await _page(client, viewer["token"], cursor=held, limit=4)
+    served = [card["user_id"] for card in shown_again["likes"]]
+    assert served == ids[4:8], (
+        f"the page behind an emptied first page answered {served} instead of the taps still standing "
+        "below the link"
+    )
+    assert not set(served) & set(ids[:4]), (
+        "rows the reader had already been shown came back once the page above them was withdrawn"
+    )
+
+    tail: list[str] = list(served)
+    cursor = shown_again["next_cursor"]
+    while cursor is not None:
+        body = await _page(client, viewer["token"], cursor=cursor, limit=4)
+        tail.extend(card["user_id"] for card in body["likes"])
+        cursor = body["next_cursor"]
+
+    assert tail == ids[4:], (
+        f"the walk from an emptied page answered {tail} — a row was lost between the links"
+    )
+    assert len(tail) == len(set(tail)), "a tap was named twice on the way down from an emptied page"
 
 
 async def test_the_withdrawal_answers_a_page_that_can_still_be_turned(
@@ -585,3 +683,256 @@ def test_a_subset_of_paths_keeps_the_registry_order() -> None:
 
     with pytest.raises(SystemExit):
         probe._select_paths(registry, "liked,deck_exhausted_typo")
+
+
+def test_a_selection_is_one_sequence_whatever_order_the_names_were_typed_in() -> None:
+    """Every typing of one set of names runs the stand's state machine in the same sequence.
+
+    The order the setups and paths are taken in is part of the state a row is measured against: a tap
+    seed deletes the pass rows a withdrawal rotates over (stage 26 makes a tap erase a pass), so two
+    runs of the same four names in two different orders measure two different stands. The filter
+    therefore returns the registry's own sequence and nothing else, and this check is what keeps it
+    that way — the answer is the same list for all twenty-four permutations of these names, in the
+    order the registry holds them, whatever order the operator remembered.
+
+    It is written as permutations rather than as one example because the defect that brought it was a
+    specific pair of orders (the tap seed before the inbox seed): a single typing would let a selection
+    that happened to follow the input order through.
+    """
+    import itertools
+
+    probe = _probe()
+    registry = list(probe._build_paths())
+    expected = [name for name in registry if name in {"liked", "liked_me", "passed", "unpass"}]
+    assert len(expected) == 4, "реестр потерял один из четырёх рядом стоящих путей"
+
+    for order in itertools.permutations(["passed", "liked", "unpass", "liked_me"]):
+        typed = ",".join(order)
+        assert probe._select_paths(registry, typed) == expected, (
+            f"`--paths {typed}` собрал {probe._select_paths(registry, typed)}: посевы пробегут в ином "
+            "порядке, и стенд под строками соберётся другой"
+        )
+
+
+def test_a_name_padded_or_typed_twice_is_measured_once() -> None:
+    """A comma separates names; it is not part of one, and a name typed twice is one row.
+
+    The first shooting of the filter asked for the list the way a person types a list — with the space
+    after the comma — and got a refusal, because ` unpass` is not a name the registry holds. Refusing a
+    name that does not exist is right; refusing one that exists wearing a separator is the harness
+    arguing with the command line. So padding comes off before the registry is consulted, and a genuinely
+    unknown name still stops the run, padded or not.
+
+    A name typed twice lands in one set, so the rotation pools advance once per row rather than once per
+    mention: pricing `liked` twice in a row would measure the second call against a page the first had
+    already been read from, and publish one of the two as the row.
+    """
+    probe = _probe()
+    registry = list(probe._build_paths())
+
+    assert probe._select_paths(registry, "liked, unpass , liked") == ["liked", "unpass"], (
+        "пробел после запятой читается частью имени — прибор откажет человеку, который набрал список "
+        "как список"
+    )
+    assert probe._select_paths(registry, "  liked  ") == ["liked"], (
+        "отбор не снимает обрамляющие пробелы"
+    )
+    with pytest.raises(SystemExit):
+        probe._select_paths(registry, " liked_typo ")
+
+
+def test_a_selection_that_names_nothing_measures_the_whole_registry() -> None:
+    """No names typed means every row — and that is a rule of the stand, not what falls out of a set.
+
+    This is the one case where the filter deliberately measures paths nobody named, because the
+    published table *is* a run with no filter. `--paths ""`, a value that strips to nothing and a bare
+    separator all mean the whole registry; a value that names even one path means exactly those paths in
+    registry order. The distinction is what lets `docs/SCALE_PLAN.md` say that a subset shooting and a
+    table shooting are two commands rather than one command run twice.
+    """
+    probe = _probe()
+    registry = list(probe._build_paths())
+
+    assert probe._select_paths(registry, "") == registry
+    assert probe._select_paths(registry, "   ") == registry, (
+        "пустой после обрезки отбор собрал не весь реестр — значит подмножество и таблица меряются "
+        "разными правилами"
+    )
+    assert probe._select_paths(registry, ",") == registry, (
+        "один разделитель без имён обязан значить то же, что и пустой отбор"
+    )
+
+
+async def test_a_name_the_registry_does_not_know_is_refused_before_the_stand_is_touched(
+    client: AsyncClient, session: AsyncSession,
+) -> None:
+    """A typo in `--paths` stops the run before the stand has destroyed anything.
+
+    The refusal has to be a command-line refusal: `_measure_size` drops and recreates its `--database`
+    for every scale, so a filter that checked names after that would answer an operator's typing mistake
+    by erasing the database a previous shoot's report describes — and the report would go on citing rows
+    that no longer exist. The check sits in `main` ahead of the first connection, and this runs the real
+    command to prove both halves of it: the process fails, names the unknown path, and leaves no database
+    of that name behind.
+    """
+    import asyncio
+    import os
+    import subprocess
+
+    database = "befos_s123refusal"
+    before = await session.execute(
+        text("SELECT 1 FROM pg_database WHERE datname = :n"), {"n": database}
+    )
+    assert before.first() is None, (
+        f"стендовая база {database} уже есть: проверка оставленного состояния ничего не доказывает"
+    )
+
+    completed = await asyncio.to_thread(
+        subprocess.run,
+        [
+            sys.executable,
+            str(_PROBE_PATH),
+            "--database", database,
+            "--sizes", "1000",
+            "--runs", "2",
+            "--paths", "liked, deck_exhausted_typo",
+            "--quiet",
+        ],
+        cwd=str(_PROBE_PATH.parents[1]),
+        env={**os.environ},
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode != 0, (
+        f"прибор вышел с {completed.returncode} на имени, которого нет в реестре: "
+        f"{completed.stdout[-300:]}"
+    )
+    assert "deck_exhausted_typo" in completed.stderr + completed.stdout, (
+        "отказ не назвал имя, которого нет, — человек получит обрыв вместо ответа"
+    )
+
+    after = await session.execute(
+        text("SELECT 1 FROM pg_database WHERE datname = :n"), {"n": database}
+    )
+    assert after.first() is None, (
+        f"отказ по имени успел создать базу {database}: проверка отбора идёт после пересоздания стенда"
+    )
+
+
+async def _stand(session: AsyncSession, uids: list[uuid.UUID]) -> None:
+    """Accounts a pass pool is addressed over — `users` rows only, no questionnaires.
+
+    The address reads `passes` joined to `users` and asks nothing of a profile, so an account with no
+    questionnaire is still somebody the viewer swiped past.
+    """
+    await session.execute(
+        insert(User),
+        [
+            {
+                "id": uid,
+                "email": f"s123_pool_{i}@befos.app",
+                "password_hash": "not-a-real-hash",
+                "is_active": True,
+                "is_deleted": False,
+            }
+            for i, uid in enumerate(uids)
+        ],
+    )
+    await session.commit()
+
+
+async def _row_counts(session: AsyncSession) -> dict[str, int]:
+    """How many rows the tables a pool address could reach hold — the writing nothing checks."""
+    counts: dict[str, int] = {}
+    for name, model in (("passes", Pass), ("likes", Like), ("matches", Match), ("messages", Message)):
+        counts[name] = (await session.execute(select(func.count()).select_from(model))).scalar_one()
+    return counts
+
+
+async def test_the_pass_pool_is_addressed_from_the_rows_the_return_can_actually_take(
+    client: AsyncClient, session: AsyncSession,
+) -> None:
+    """The withdrawal of a pass rotates over the passes that still stand when its own turn comes.
+
+    `unpass` is the one priced door whose target pool was addressed once, in `_context`, before any path
+    ran — while the tap seeds that come earlier in the registry delete `passes` rows, because a real tap
+    erases a pass (stage 26). So the rotation could point at a pass that no longer existed and the shoot
+    answered `NotFoundError: You have not passed this user.` instead of a number: `s123_scale_a.json` and
+    `s123_scale_b.json` for the subset typed in a person's order, and the same in `unlike,unpass` after
+    the order was fixed. Whether a row got measured at all was decided by which other rows the operator
+    happened to ask for.
+
+    The withdrawal of a tap answered the same problem in stage 118 by taking its pool in its own setup.
+    A pass return does the same here: the address is re-read at the path's turn, so every subset and
+    every registry order prices the gesture against a row that is present, and the row cannot silently
+    become the price of a 404.
+    """
+    probe = _probe()
+    assert hasattr(probe, "_address_pass_pool"), (
+        "у возврата пропуска нет своей адресации пула: путь вращается по строкам, которые посев "
+        "касаний мог удалить до его очереди"
+    )
+
+    viewer = uuid.uuid4()
+    standing = [uuid.uuid4() for _ in range(4)]
+    taken_back = uuid.uuid4()
+    deleted_account = uuid.uuid4()
+    await _stand(session, [viewer, *standing, taken_back, deleted_account])
+    await session.execute(
+        insert(Pass),
+        [
+            {"id": uuid.uuid4(), "from_user_id": viewer, "to_user_id": peer}
+            for peer in standing + [taken_back]
+        ],
+    )
+    await session.commit()
+
+    # The state the tap seed leaves behind: the pass of one pool member is gone, an account the viewer
+    # passed has been deleted, and the pool `_context` addressed still names both.
+    await session.execute(
+        delete(Pass).where(Pass.from_user_id == viewer, Pass.to_user_id == taken_back)
+    )
+    await session.execute(
+        update(User)
+        .where(User.id == deleted_account)
+        .values(is_active=False, is_deleted=True)
+    )
+    await session.execute(
+        insert(Pass),
+        {"id": uuid.uuid4(), "from_user_id": viewer, "to_user_id": deleted_account},
+    )
+    await session.commit()
+
+    counts_before = await _row_counts(session)
+    ctx = {"viewer_id": viewer, "unpass_peers": [taken_back, deleted_account], "unpass_turn": 3}
+    await probe._address_pass_pool(session, ctx)
+
+    assert set(ctx["unpass_peers"]) == set(standing), (
+        f"пул возврата адресован {ctx['unpass_peers']}: в нём остались строки, которых нет, или "
+        "пропущены те, что стоят"
+    )
+    assert ctx["unpass_turn"] == 0, (
+        "отсчёт вращения не сброшен — первый замеряемый вызов возьмёт цель из середины старого пула"
+    )
+    assert await _row_counts(session) == counts_before, (
+        "адресация пула записала что-то в стенд: подготовка пути чтения обязана остаться чтением"
+    )
+
+
+def test_the_return_of_a_pass_is_wired_to_that_address() -> None:
+    """The registry binds the address to the path, or the pool stays frozen and only the test is green.
+
+    Setups are looked up by path name in `_measure_size`, so a function nobody keys is a function that
+    never runs: the `unpass` row would go on being priced over whatever `_context` happened to see, and
+    the check above would pass in a stand that ignores it.
+    """
+    probe = _probe()
+    setups = probe._build_setups()
+
+    assert "unpass" in setups, (
+        "у возврата пропуска нет подготовки: его пул адресуют в `_context`, а посевы касаний, которые "
+        "идут раньше по реестру, удаляют строки `passes`, из которых тот пул собран"
+    )
+    assert setups["unpass"] is probe._address_pass_pool, (
+        "подготовка `unpass` — не адресация пула, значит строка меряется по старому списку целей"
+    )

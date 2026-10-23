@@ -18,6 +18,7 @@ import subprocess
 import sys
 import time
 import uuid
+from datetime import datetime
 
 import httpx
 import websockets  # comes with uvicorn[standard], the same server that answers here
@@ -1341,6 +1342,23 @@ def main() -> int:
     check(zero.status_code == 422, "a page of no rows is refused rather than answered",
           str(zero.status_code))
 
+    # A link is a place in the list, not a counter that moves when it is read. The reader who loses a
+    # response presses the same word and the server answers the same page: a cursor that carried a row
+    # number and advanced on being used would turn one scroll into two, and the row it stepped over is a
+    # person this account liked.
+    replay = c.get(f"{BASE}/discover/liked", headers=hp,
+                   params={"limit": 1, "cursor": narrow_body["next_cursor"]})
+    check(replay.status_code == 200 and replay.json() == turned_body,
+          "the same link turned twice answers the same page", str(replay.json())[:80])
+
+    # Newest first, across the seam: the walk that orders one page and loses the order between two would
+    # still show every tap, and the reader would read them in a sequence the account never lived.
+    first_moment = datetime.fromisoformat(narrow_body["likes"][0]["liked_at"])
+    second_moment = datetime.fromisoformat(turned_body["likes"][0]["liked_at"])
+    check(first_moment >= second_moment,
+          "the page behind the link is older than the page before it",
+          f"{narrow_body['likes'][0]['liked_at']} / {turned_body['likes'][0]['liked_at']}")
+
     whole = c.get(f"{BASE}/discover/liked", headers=hp)
     check(len(whole.json()["likes"]) == 2 and whole.json()["next_cursor"] is None,
           "a list shorter than the cap answers its own size and no link",
@@ -1380,6 +1398,17 @@ def main() -> int:
     after_taps = c.get(f"{BASE}/discover/liked", headers=hp)
     check(all(it["user_id"] != uid_b for it in after_taps.json()["likes"]),
           "the tapper no longer names the person", f"{len(after_taps.json()['likes'])} rows")
+
+    # The bargain between this door and the screen, on every answer the walk collected: a page that
+    # promises more rows names the link that reaches them, and a page that names none promises none.
+    # `has_more` without a cursor is the defect this stage closed — the device reads it as «за ними ждут
+    # другие» and has nothing to press — and a cursor with `has_more: false` would invite a page the
+    # server has just said does not exist.
+    promised = [narrow_body, turned_body, whole.json(), after_taps.json()]
+    check(all(bool(b["has_more"]) == bool(b.get("next_cursor")) for b in promised),
+          "no answer of this door promises rows it does not hand the way to",
+          str([(b["has_more"], bool(b.get("next_cursor"))) for b in promised]))
+
     after_inbox = c.get(f"{BASE}/discover/liked-me", headers=hb)
     check(uid_p not in [it["user_id"] for it in after_inbox.json()["likes"]],
           "the person tapped no longer names the tapper", f"{len(after_inbox.json()['likes'])} rows")

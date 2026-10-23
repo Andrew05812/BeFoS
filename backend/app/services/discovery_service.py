@@ -69,10 +69,8 @@ def decode_cursor(cursor: str | None) -> int:
     except (binascii.Error, UnicodeDecodeError, ValueError):
         raise ValidationError(BAD_CURSOR)
     prefix, _, digits = raw.partition(":")
-    if prefix != CURSOR_PREFIX or not digits.isdigit():
-        raise ValidationError(BAD_CURSOR)
-    rank = int(digits)
-    if rank > MAX_RANK:
+    rank = _plain_digits(digits, MAX_RANK)
+    if prefix != CURSOR_PREFIX or rank is None:
         raise ValidationError(BAD_CURSOR)
     return rank
 
@@ -89,6 +87,25 @@ _MICROSECOND = timedelta(microseconds=1)
 # bound, and a hand-typed cursor beyond it is refused as the broken link it is rather than reaching the
 # arithmetic that would fail on it. Stage 17 put the same kind of bound on the deck's rank.
 MAX_TAP_MICROS = (datetime.max.replace(tzinfo=timezone.utc) - _EPOCH) // _MICROSECOND
+
+
+def _plain_digits(text: str, bound: int) -> int | None:
+    """A digit run the client typed, converted — or nothing, when it is not a number at all.
+
+    `str.isdigit()` is not the claim people read it as: `²`, `٣` and `１` all answer yes, and `int()`
+    then either converts them to something nobody typed or raises on a run past 4300 characters
+    (`ValueError: Exceeds the limit (4300 digits)`). Either way the value never reaches the column it
+    was meant for: it is refused as the broken link it is, so a typo at the URL stays a `422` and does
+    not become a 500 with a traceback. The length of the bound's own text is the second half of the
+    same refusal — a longer run cannot be inside the bound, and refusing it before `int()` is what
+    keeps the 4300-character case out of the exception path entirely.
+    """
+    if not text.isascii() or not text.isdigit():
+        return None
+    if len(text) > len(str(bound)):
+        return None
+    value = int(text)
+    return value if value <= bound else None
 
 
 def encode_tap_cursor(tapped_at: datetime, tap_id: uuid.UUID) -> str:
@@ -112,10 +129,10 @@ def decode_tap_cursor(cursor: str | None) -> tuple[datetime, uuid.UUID] | None:
     except (binascii.Error, UnicodeDecodeError, ValueError):
         raise ValidationError(BAD_CURSOR)
     parts = raw.split(":")
-    if len(parts) != 3 or parts[0] != TAP_CURSOR_PREFIX or not parts[1].isdigit():
+    if len(parts) != 3 or parts[0] != TAP_CURSOR_PREFIX:
         raise ValidationError(BAD_CURSOR)
-    micros = int(parts[1])
-    if micros > MAX_TAP_MICROS:
+    micros = _plain_digits(parts[1], MAX_TAP_MICROS)
+    if micros is None:
         raise ValidationError(BAD_CURSOR)
     try:
         tap_id = uuid.UUID(hex=parts[2])
