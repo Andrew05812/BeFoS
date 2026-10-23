@@ -38,7 +38,9 @@ from typing import Any, Callable
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 from sqlalchemy.sql import Select
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.models import (
     PHOTO_DISPLAY_ORDER,
@@ -51,6 +53,7 @@ from app.models import (
     Photo,
     Report,
     ReportReview,
+    SharedPlanMember,
     TestAnswer,
     User,
 )
@@ -68,6 +71,12 @@ EXPORT_FORMAT = "befos.account-export/1"
 # Rows a single section carries. A file is written once and may be forwarded, so an unbounded read is
 # not a safer one — it is only a less predictable one.
 ROWS_PER_SECTION = 500
+
+# Lines of one plan's history the file carries. This is not a second ceiling invented here: it is the
+# page the plan's own card reads (`PlanRepository.events` answers thirty), named so that the journal
+# in the file and the journal on the screen stay the same thirty lines. The tie is machine-checked in
+# `tests/test_the_door_that_takes_its_rows_out_gets_a_price_in_the_stand.py`.
+JOURNAL_LINES = 30
 
 
 class ExportService:
@@ -279,7 +288,10 @@ class ExportService:
 
         The ceiling belongs to a pair rather than to the whole section, which is the difference
         between a file and a page: a person with one long conversation must not lose it because ten
-        short ones filled the count.
+        short ones filled the count. Stage 122 moved the read from one statement per pair to one
+        statement for the page — `s122_shape.json` counted 41 statements and 174.9 мс on forty
+        pairs, all of it the loop, and the document that came out of the loop is what
+        `test_the_batched_chats_answer_the_same_pairs_as_the_loop_did` keeps identical.
         """
         if not pairs:
             return []
@@ -289,32 +301,18 @@ class ExportService:
             .select_from(Message)
             .where(Message.match_id.in_(ids))
         )
+        grouped, cut = await self._ranked("match_id", Message.match_id.in_(ids), ROWS_PER_SECTION)
         sections: list[dict[str, Any]] = []
         for pair in pairs:
             match_id = uuid.UUID(pair["match_id"])
-            rows = await self._section(
-                "chats",
-                (
-                    select(Message)
-                    .where(Message.match_id == match_id)
-                    .order_by(Message.created_at, Message.id)
-                ),
-                lambda m: {
-                    "id": str(m.id),
-                    "sender_id": str(m.sender_id),
-                    "is_own": m.sender_id == user_id,
-                    "kind": m.kind,
-                    "body": m.body,
-                    "plan_id": str(m.plan_id) if m.plan_id else None,
-                    "created_at": m.created_at,
-                    "recalled": m.is_deleted,
-                },
-            )
+            rows = grouped.get(match_id, [])
+            if match_id in cut:
+                self.truncated.append("chats")
             sections.append(
                 {
                     "match_id": pair["match_id"],
                     "partner": {"user_id": pair["user_id"], "name": pair["name"]},
-                    "lines": rows,
+                    "lines": [self._line(line, user_id) for line in rows],
                 }
             )
         # The count of a capped section is the number of lines that stand, not the number the file
@@ -325,38 +323,128 @@ class ExportService:
             self.true_counts["chats"] = int(held)
         return sections
 
+    @staticmethod
+    def _line(message: Message, user_id: uuid.UUID) -> dict[str, Any]:
+        """One line of a pair's conversation, shaped the way the transcript section publishes it."""
+        return {
+            "id": str(message.id),
+            "sender_id": str(message.sender_id),
+            "is_own": message.sender_id == user_id,
+            "kind": message.kind,
+            "body": message.body,
+            "plan_id": str(message.plan_id) if message.plan_id else None,
+            "created_at": message.created_at,
+            "recalled": message.is_deleted,
+        }
+
     async def _plans(self, user_id: uuid.UUID) -> list[dict[str, Any]]:
         """Every arrangement this person is in, with the words the pair wrote about it.
 
-        The list door owns the shared fields; the detail door owns this person's own remark and the
-        lines the chat holds about the plan. Both are asked here rather than reconstructed, so the
-        file and the screen of «Наши планы» cannot tell two stories about one agreement — and
-        `my_note` of the detail arrives as the reader's own, which is the only private remark in the
-        document.
+        The list door owns the shared fields, so they are taken from it unchanged. What the card owns
+        is this person's own remark and the lines the chat holds about the plan, and stage 122 gets
+        both for the whole page instead of once per plan: `s122_shape.json` measured 649 statements
+        and 2837 мс of a 712-statement document on forty arrangements, because asking the card for
+        each plan re-reads the pair, re-syncs it, and re-asks the catalogue and the members every
+        time. The two statements below answer the same two questions for all of them at once.
+
+        The journal is the newest `JOURNAL_LINES` lines, oldest first, and only the five fields the
+        file has always carried: the card's own answer holds more (the activity title, the read
+        mark, whose line it is), and none of that is this person's row. `my_note` stays the reader's
+        own remark — the only private field in the document.
         """
         rows = await self.plans.list_for_viewer(user_id)
         if len(rows) > ROWS_PER_SECTION:
             self.truncated.append("plans")
+        kept = rows[:ROWS_PER_SECTION]
+        if not kept:
+            return []
+        plan_ids = [uuid.UUID(row["id"]) for row in kept]
+
+        notes: dict[uuid.UUID, str | None] = {}
+        for member in (
+            await self.session.scalars(
+                select(SharedPlanMember).where(
+                    SharedPlanMember.plan_id.in_(plan_ids),
+                    SharedPlanMember.user_id == user_id,
+                )
+            )
+        ).all():
+            notes[member.plan_id] = member.personal_note
+
+        journals, _ = await self._ranked(
+            "plan_id",
+            (Message.plan_id.in_(plan_ids), Message.is_deleted.is_(False)),
+            JOURNAL_LINES,
+            newest=True,
+        )
+
         out: list[dict[str, Any]] = []
-        for row in rows[:ROWS_PER_SECTION]:
-            detail = await self.plans.detail(uuid.UUID(row["id"]), user_id)
+        for row in kept:
+            plan_id = uuid.UUID(row["id"])
+            lines = journals.get(plan_id, [])
             out.append(
                 {
                     **row,
-                    "my_note": detail["my_note"],
+                    "my_note": notes.get(plan_id),
                     "journal": [
                         {
-                            "id": str(event["id"]),
-                            "sender_id": str(event["sender_id"]),
-                            "kind": event["kind"],
-                            "body": event["body"],
-                            "created_at": event["created_at"],
+                            "id": str(line.id),
+                            "sender_id": str(line.sender_id),
+                            "kind": line.kind,
+                            "body": line.body,
+                            "created_at": line.created_at,
                         }
-                        for event in detail["events"]
+                        for line in lines
                     ],
                 }
             )
         return out
+
+    async def _ranked(
+        self,
+        partition: str,
+        conditions: Any,
+        ceiling: int,
+        *,
+        newest: bool = False,
+    ) -> tuple[dict[uuid.UUID, list[Message]], set[uuid.UUID]]:
+        """Rows of `messages`, at most `ceiling` per group, one statement for every group.
+
+        The window stays one row wider than the ceiling and the second answer names the groups that
+        filled it: that row is what tells a cut apart from a complete list without a second query per
+        group, which is the same bargain `_section` strikes with a single list. `newest` picks which
+        end the ceiling keeps — a plan's history is its last thirty lines, a transcript its first five
+        hundred — and every list handed back stands oldest first, so the row the window found extra
+        leaves from the front when the ceiling keeps the end nearer the present.
+        """
+        order = (
+            (Message.created_at.desc(), Message.id.desc())
+            if newest
+            else (Message.created_at, Message.id)
+        )
+        column = getattr(Message, partition)
+        rank = func.row_number().over(partition_by=column, order_by=order).label("rank_in_group")
+        if isinstance(conditions, ColumnElement):
+            conditions = (conditions,)
+        ranked = select(Message, rank).where(*conditions).subquery()
+        line = aliased(Message, ranked)
+        found = await self.session.execute(
+            select(line, ranked.c.rank_in_group)
+            .where(ranked.c.rank_in_group <= ceiling + 1)
+            .order_by(ranked.c[partition], ranked.c.rank_in_group)
+        )
+        grouped: dict[uuid.UUID, list[Message]] = {}
+        for row in found:
+            grouped.setdefault(getattr(row[0], partition), []).append(row[0])
+        cut: set[uuid.UUID] = set()
+        for key, rows in grouped.items():
+            if newest:
+                rows.reverse()
+            if len(rows) > ceiling:
+                cut.add(key)
+                rows = rows[1:] if newest else rows[:ceiling]
+            grouped[key] = rows
+        return grouped, cut
 
     async def _blocks(self, user_id: uuid.UUID) -> list[dict[str, Any]]:
         """The blocked list as its own screen answers it, capped and named like the rest.
