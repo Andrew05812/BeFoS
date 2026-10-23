@@ -986,14 +986,28 @@ async def _seed_own_rows(session, ctx) -> None:
     # to a reader of this table.
     if targets:
         moderator = targets[-1]
-        # `open` is the only status a second decision can be asked for: a complaint the queue already
-        # moved is a dead end on purpose, and the second call of one scale would otherwise answer the
-        # row it just answered. The moderator is not the person the complaint is about, because the
-        # role says who may decide and never whom they may decide about.
-        decided = await session.scalar(
-            text("SELECT id FROM reports WHERE reporter_id = :v AND status = 'open' "
-                 "AND reported_id <> :m ORDER BY created_at LIMIT 1"),
-            {"v": viewer, "m": moderator},
+        # Exactly one complaint of the page is decided, and the stop rule says so rather than
+        # implying it: `open` is the only status a decision may move, so a second call of one scale
+        # would otherwise answer a different complaint and leave the row standing on two histories at
+        # once — the same rule stage 118 put on the taps, read here off `report_reviews`. The
+        # moderator is never the person the complaint is about, because the role says who may decide
+        # and never whom they may decide about.
+        reviewed = int(
+            await session.scalar(
+                text("SELECT count(*) FROM report_reviews rr JOIN reports r ON r.id = rr.report_id "
+                     "WHERE r.reporter_id = :v"),
+                {"v": viewer},
+            )
+            or 0
+        )
+        decided = (
+            None
+            if reviewed
+            else await session.scalar(
+                text("SELECT id FROM reports WHERE reporter_id = :v AND status = 'open' "
+                     "AND reported_id <> :m ORDER BY created_at LIMIT 1"),
+                {"v": viewer, "m": moderator},
+            )
         )
         if decided is not None:
             await session.execute(

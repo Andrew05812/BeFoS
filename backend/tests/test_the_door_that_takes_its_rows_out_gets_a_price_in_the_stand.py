@@ -11,7 +11,7 @@ callable the stand times — so that the state it proves (nothing written, nothi
 secret travelling, one page length priced twice) is the state of the measured call rather than of a
 copy someone made for the test.
 
-Fourteen checks, in the order the risk sits:
+Fifteen checks, in the order the risk sits:
 
 * the registry has the path, and its wrapper calls the handler the route dispatches with the reader
   and the session id the context carries — stage 76 and stage 77 each published a price that
@@ -29,7 +29,10 @@ Fourteen checks, in the order the risk sits:
   stand, and the repeat of the same export costs the same as the first call did;
 * the two page-sized reads that replaced the per-pair and per-plan loops answer the same rows the
   loops answered — the transcript line by line, the plan's journal against the card that owns it,
-  and a journal longer than the card's page ending where the card ends.
+  and a journal longer than the card's page ending where the card ends;
+* what the row is allowed to cost: four statements per pair — the slope the screen of «Наши планы»
+  already publishes — plus the constant the two shoots measured, and four reads of `messages` for
+  the whole page instead of one per group.
 """
 
 from __future__ import annotations
@@ -59,6 +62,20 @@ _SCALE_DOC = _ROOT / "docs" / "SCALE_PLAN.md"
 
 EXPORT = "account_export"
 CEILING = 500
+
+# Three ceilings read off the stand rather than invented. `s122_scale_a.json` and
+# `s122_scale_b.json` agree on the row of this door at 113 statements over twenty pairs and 276 over
+# sixty, which is a slope of four statements per pair — the same four the screen of «Наши планы»
+# carries in the published table (85 over twenty, 245 over sixty) — and an intercept of 33 on the
+# short scale against 36 on the long one, 32 on the six pairs this file itself seeds, so the
+# constant below carries the four between the smallest and the largest of them. The ceiling on reads
+# of `messages` is the four the batched page pays: one for the last line the pair list shows, one
+# count and one windowed read for the transcript, one windowed read for the plan journals. The shape
+# these three hold is the one `s122_shape.json` measured before the fix: 41 statements for forty
+# pairs and 649 for forty arrangements.
+STATEMENTS_PER_PAIR = 4
+FILE_OVERHEAD_CEILING = 40
+MESSAGES_READS_CEILING = 4
 
 
 def _probe():
@@ -226,37 +243,49 @@ def test_the_export_setup_gives_the_sections_rows_to_read() -> None:
     )
 
 
+async def _own_rows(session: AsyncSession, viewer_id: uuid.UUID) -> dict[str, int]:
+    """The rows the export's own seed puts under the viewer, counted one by one.
+
+    The history row is in here too: a complaint the queue has looked at carries a `report_reviews`
+    row, so a seed that decided a second complaint on its second call would leave the row of one
+    scale standing on two statuses while another scale's row stands on one.
+    """
+    found = await session.execute(
+        text(
+            "SELECT (SELECT count(*) FROM photos WHERE user_id = :v) AS photos, "
+            "       (SELECT count(*) FROM blocks WHERE blocker_id = :v) AS blocks, "
+            "       (SELECT count(*) FROM reports WHERE reporter_id = :v) AS reports, "
+            "       (SELECT count(*) FROM reports WHERE reporter_id = :v "
+            "        AND status <> 'open') AS decided, "
+            "       (SELECT count(*) FROM report_reviews rr JOIN reports r ON r.id = rr.report_id "
+            "        WHERE r.reporter_id = :v) AS reviews, "
+            "       (SELECT count(*) FROM refresh_tokens WHERE user_id = :v "
+            "        AND revoked IS FALSE) AS sessions"
+        ),
+        {"v": viewer_id},
+    )
+    return {name: int(value) for name, value in found.mappings().first().items()}
+
+
 async def test_the_setup_second_call_writes_nothing_new(client: AsyncClient) -> None:
     a, ctx = await _account(client, "twice")
     setup = _probe()._build_setups()[EXPORT]
     async with AsyncSessionLocal() as session:
         ctx["viewer_user"] = await _viewer_row(a["user_id"])
         await setup(session, ctx)
-        again = _probe()._build_paths()  # noqa: F841 — the registry must stay loaded for the window
-        before = {
-            table: await session.scalar(
-                text(f"SELECT count(*) FROM {table} WHERE "  # noqa: S608 — fixed table names below
-                     + {"photos": "user_id", "reports": "reporter_id",
-                        "blocks": "blocker_id"}[table]
-                     + " = :v"),
-                {"v": ctx["viewer_id"]},
-            )
-            for table in ("photos", "reports", "blocks")
-        }
+        before = await _own_rows(session, ctx["viewer_id"])
         await setup(session, ctx)
-        after = {
-            table: await session.scalar(
-                text(f"SELECT count(*) FROM {table} WHERE "
-                     + {"photos": "user_id", "reports": "reporter_id",
-                        "blocks": "blocker_id"}[table]
-                     + " = :v"),
-                {"v": ctx["viewer_id"]},
-            )
-            for table in ("photos", "reports", "blocks")
-        }
+        after = await _own_rows(session, ctx["viewer_id"])
     assert after == before, (
         "the second call of one scale put a fresh page of rows on top of the first: stage 118 "
         f"learned this on the taps — {before} against {after}"
+    )
+    assert before["photos"] and before["blocks"] and before["reports"], (
+        f"the seed left a section of the file with nothing to read: {before}"
+    )
+    assert before["reviews"] == before["decided"] == 1, (
+        "the number of decided complaints is not one rule of the scale: the row of the complaints "
+        f"section would then stand on a different history at every scale — {before}"
     )
 
 
@@ -298,6 +327,47 @@ async def test_the_priced_window_writes_nothing_and_marks_nothing_read(
             "reading one's own file cost the partner an unread line: the badge is the other "
             "person's state"
         )
+
+
+async def test_the_priced_window_holds_the_screens_slope_and_pays_its_reads_once(
+    client: AsyncClient, session: AsyncSession
+) -> None:
+    """What the door may cost, written as the two numbers the stand measured rather than as prose.
+
+    The slope belongs to the screen of «Наши планы», and the file is allowed no more than the screen
+    charges for a pair; the reads of `messages` belong to the page and must stay one count and two
+    windows however many pairs and arrangements the account holds. Before stage 122 the same window
+    paid one read per pair for its transcript and a card's worth of reads per arrangement
+    (`s122_shape.json`: 41 statements on forty pairs, 649 on forty arrangements).
+    """
+    a, ctx = await _account(client, "slope", pairs=6)
+    async with AsyncSessionLocal() as fresh:
+        ctx["viewer_user"] = await _viewer_row(a["user_id"])
+        await _probe()._build_setups()[EXPORT](fresh, ctx)
+
+    statements, _ = await _window(session, ctx)
+    pairs = int(await session.scalar(
+        text("SELECT count(*) FROM matches WHERE user_a_id = :v OR user_b_id = :v"),
+        {"v": ctx["viewer_id"]},
+    ))
+    assert pairs >= 6, f"the account this check runs on holds {pairs} pairs, not six"
+    windows = [s for s in statements if "row_number() over" in s]
+    assert len(windows) == 2, (
+        "the page did not ask its two capped questions once each: the transcript and the plan "
+        f"journals are two windowed reads for the whole account, not a read per group — {windows}"
+    )
+    messages = [s for s in statements if "from messages" in s]
+    assert len(messages) <= MESSAGES_READS_CEILING, (
+        f"the window paid {len(messages)} reads of `messages` on {pairs} pairs: a count that moves "
+        "with the number of groups is the loop this stage removed — "
+        + "\n".join(messages[:8])[:800]
+    )
+    assert len(statements) <= STATEMENTS_PER_PAIR * pairs + FILE_OVERHEAD_CEILING, (
+        f"the file costs {len(statements)} statements on {pairs} pairs, which is more than the four "
+        "the screen charges per pair plus the constant the stand measured: the row of "
+        f"`docs/SCALE_PLAN.md` is this door read at the screen's price, not at a card per "
+        f"arrangement — {statements[:4]}"
+    )
 
 
 async def test_the_priced_answer_is_a_file_and_carries_no_secret(
