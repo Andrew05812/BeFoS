@@ -167,7 +167,9 @@ Signer #1 certificate SHA-256 digest: 8e979e69b90e36386bfa64e547e13d0186e2419011
       `tests/test_the_door_that_takes_its_rows_out_gets_a_price_in_the_stand.py`. Круг сверки
       документов вырос своим файлом — 42 файл и 378 проверок (378 = 363 + 15:
 `378 passed in 577.26s (0:09:37)`, `exit 0`, база `befos_s122guard`, окно 01:57:14…02:06:57 UTC,
-      `files=42`, `tree=b8fc746` с `tree_dirty=0`, `s122_docguards_42.log`). Ряд цены снят четырьмя
+      `files=42`, `tree=b8fc746` с `tree_dirty=0`, `s122_docguards_42.log`; пересъём на дереве этих
+      строк — `378 passed in 590.70s (0:09:50)`, база `befos_s122onb`, окно 02:37:03…02:46:59
+      UTC, `tree=ca3ace0` и `files=42`, `s122_docguards_42_onB.log`). Ряд цены снят четырьмя
       прогонами одной команды на четырёх базах и опубликован прогоном C (`s122_scale_c.json`,
       00:27:12…00:33:21 UTC), подтверждённым прогоном D (`s122_scale_d.json`, 00:48:51…00:55:00 UTC);
       пробел до правки назван разбором двери (`s122_gap.json`, 23:23:52…23:24:37 UTC, и
