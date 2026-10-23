@@ -4,7 +4,7 @@ import calendar
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import and_, or_, select, func, delete, update, text
+from sqlalchemy import and_, or_, select, func, delete, update, text, tuple_
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -745,8 +745,12 @@ class DiscoveryRepository:
 
     # --- the account's own taps ------------------------------------------------
     async def liked(
-        self, viewer_id: uuid.UUID, limit: int
-    ) -> list[tuple[uuid.UUID, float | None, datetime]]:
+        self,
+        viewer_id: uuid.UUID,
+        limit: int,
+        *,
+        before: tuple[datetime, uuid.UUID] | None = None,
+    ) -> list[tuple[uuid.UUID, float | None, datetime, uuid.UUID]]:
         """The taps this account made, newest first, at most ``limit`` of them.
 
         The mirror of ``liked_me``, and it differs from that read in exactly one clause: the direction
@@ -765,9 +769,19 @@ class DiscoveryRepository:
         The viewer's own pass is not a filter again, and for the opposite reason from the inbox: there
         is nothing here about a pass to drop, because ``like`` deletes the pass row when it writes
         (stage 26), so a tap and a pass for the same pair do not both stand.
+
+        ``before`` is where the previous page stopped, and it carries both halves of the order for the
+        reason stage 54 wrote down for the pair's history: a boundary drawn through ``created_at`` alone
+        cuts between rows that share a microsecond, and the rows on the far side of the cut are then
+        neither on the page that was answered nor reachable from it. The reader's fifth row and the
+        writer's fifth row are the same moment when a deck is swiped fast.
+
+        The id travels out of this read because the cursor has to name it: the page that resumes has to
+        say *which* tap at that moment the reader stood on, and a row count would shift under a
+        withdrawal the way ``LIMIT … OFFSET`` shifts under any write.
         """
         stmt = (
-            select(Like.to_user_id, Like.compatibility_score, Like.created_at)
+            select(Like.to_user_id, Like.compatibility_score, Like.created_at, Like.id)
             .join(Profile, Profile.user_id == Like.to_user_id)
             .join(User, User.id == Profile.user_id)
             .where(
@@ -775,12 +789,23 @@ class DiscoveryRepository:
                 *self._candidate_conditions(viewer_id, Profile.user_id),
                 *self._relationship_conditions(viewer_id, Profile.user_id),
             )
+        )
+        if before is not None:
+            # The same tuple comparison the conversation's page uses (`chat_repo.list_messages`), and
+            # it needs no anchor read: the cursor carries the moment and the id, so turning a page costs
+            # the page rather than the page plus a lookup of where the reader left off.
+            stmt = stmt.where(tuple_(Like.created_at, Like.id) < before)
+        stmt = (
+            stmt
             # The inbox's tie-break, and for the same reason: two taps a microsecond apart are a coin
             # flip without the id deciding once (stage 54).
             .order_by(Like.created_at.desc(), Like.id.desc())
             .limit(limit)
         )
-        return [(row[0], row[1], row[2]) for row in (await self.session.execute(stmt)).all()]
+        return [
+            (row[0], row[1], row[2], row[3])
+            for row in (await self.session.execute(stmt)).all()
+        ]
 
     # --- the account's own passes ----------------------------------------------
     async def passed(

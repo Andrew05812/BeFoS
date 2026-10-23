@@ -431,15 +431,21 @@ class LikedMeResponse(BaseModel):
 
 
 class LikedUsersResponse(BaseModel):
-    """The newest ``LIKED_SHOWN`` taps the account made, and whether more stand behind them.
+    """One page of the ``LIKED_SHOWN`` taps the account made, and the link to the page behind it.
 
     The card shape is the inbox's, and so is its honesty: the percent is the number the reader was
     shown when they tapped, read off the like row, and null stays null. The undo route answers with
     this same shape, so the screen that withdrew a tap paints the list the server actually holds.
+
+    ``next_cursor`` is opaque and carries no account: it names where this reader stood in their own
+    history, and it is null exactly when ``has_more`` is false. The inbox and the pass list still have
+    no such field, which is the difference stage 123 left standing as an open end rather than closed by
+    a door nobody asked to open.
     """
 
     likes: list[IncomingLikeCard]
     has_more: bool
+    next_cursor: str | None = None
 
 
 class PassedUserSummary(BaseModel):

@@ -690,9 +690,20 @@ def _build_paths():
         # dispatches. Unlike its mirror on the deck side this door needs a setup: every social row
         # the stand writes about the viewer points outward, so without `_seed_own_taps` the row
         # would price an empty page — stage 113 learned the same lesson on the inbox.
+        #
+        # `limit` and `cursor` are named here rather than left to the handler's defaults, because a
+        # harness that calls a FastAPI handler directly receives the `Query(...)` descriptor instead of
+        # the value it declares — and because the row the table publishes is the price of the first
+        # page, which is what the device reads when it opens the screen.
         from app.api.v1.discover import liked_users as liked_users_route
+        from app.services.discovery_service import LIKED_SHOWN
 
-        return await liked_users_route(current_user=ctx["viewer_user"], session=session)
+        return await liked_users_route(
+            current_user=ctx["viewer_user"],
+            session=session,
+            limit=LIKED_SHOWN,
+            cursor=None,
+        )
 
     async def undo_tap(session, ctx):
         from app.api.v1.discover import undo_like as undo_like_route

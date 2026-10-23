@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import binascii
 import uuid
+from datetime import datetime, timedelta, timezone
 from typing import Mapping, NamedTuple
 
 from sqlalchemy import select
@@ -37,7 +38,8 @@ LIKED_ME_SHOWN = 50
 PASSED_SHOWN = 50
 # How many of the account's own taps one page carries. The same bargain as the inbox and the pass
 # list, for the same reason: read newest-first, so the cap cuts the oldest taps, and the flag beside
-# it admits the rest exist.
+# it admits the rest exist. This is the one door of the three whose rest the reader can ask for —
+# stage 123 gave it a cursor, and the inbox and the pass list are the open end it names.
 LIKED_SHOWN = 50
 
 CURSOR_PREFIX = "rank"
@@ -75,9 +77,55 @@ def decode_cursor(cursor: str | None) -> int:
     return rank
 
 
+# A page of the account's own taps resumes from where the reader stood in its own history. The place is
+# named by both halves of the order the read is built on, because `created_at` alone is not a total
+# order and a boundary drawn through it cuts between rows that share a microsecond — the loss stage 54
+# proved for the pair's conversation, in the one table where two gestures a microsecond apart are the
+# normal case rather than the accident.
+TAP_CURSOR_PREFIX = "tap"
+_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
+_MICROSECOND = timedelta(microseconds=1)
+# `timestamptz` ends in 294276 and Python's `datetime` ends in 9999; the smaller of the two is the
+# bound, and a hand-typed cursor beyond it is refused as the broken link it is rather than reaching the
+# arithmetic that would fail on it. Stage 17 put the same kind of bound on the deck's rank.
+MAX_TAP_MICROS = (datetime.max.replace(tzinfo=timezone.utc) - _EPOCH) // _MICROSECOND
+
+
+def encode_tap_cursor(tapped_at: datetime, tap_id: uuid.UUID) -> str:
+    micros = (tapped_at - _EPOCH) // _MICROSECOND
+    raw = f"{TAP_CURSOR_PREFIX}:{micros}:{tap_id.hex}"
+    return base64.urlsafe_b64encode(raw.encode()).decode().rstrip("=")
+
+
+def decode_tap_cursor(cursor: str | None) -> tuple[datetime, uuid.UUID] | None:
+    """Where the reader stopped in its own taps. Absent or empty means "from the newest one".
+
+    The cursor is opaque to the client and comes back shaped only if somebody is typing at the API, so
+    anything that does not decode to a moment and a row is refused as input — with the deck's sentence,
+    because «the link to the next page is broken» is the same fact about a different list, and two
+    wordings for one fact is how two screens start disagreeing about it.
+    """
+    if not cursor:
+        return None
+    try:
+        raw = base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4)).decode()
+    except (binascii.Error, UnicodeDecodeError, ValueError):
+        raise ValidationError(BAD_CURSOR)
+    parts = raw.split(":")
+    if len(parts) != 3 or parts[0] != TAP_CURSOR_PREFIX or not parts[1].isdigit():
+        raise ValidationError(BAD_CURSOR)
+    micros = int(parts[1])
+    if micros > MAX_TAP_MICROS:
+        raise ValidationError(BAD_CURSOR)
+    try:
+        tap_id = uuid.UUID(hex=parts[2])
+    except ValueError:
+        raise ValidationError(BAD_CURSOR)
+    return _EPOCH + timedelta(microseconds=micros), tap_id
+
+
 class _RankedCandidate(NamedTuple):
     """A candidate this request has already read and scored: the row, its inputs, its result.
-
     The deck ranks a batch and serves cards out of it inside one request. Handing the ranked rows
     over instead of reading them again keeps the page's two halves on the same numbers: the
     percentage a card reports is the one the queue row that ordered it stores.
@@ -354,8 +402,10 @@ class DiscoveryService:
             )
         return {"likes": likes, "has_more": len(rows) > LIKED_ME_SHOWN}
 
-    async def liked(self, viewer_id: uuid.UUID) -> dict:
-        """Whom this account tapped, newest tap first, at most ``LIKED_SHOWN`` of them.
+    async def liked(
+        self, viewer_id: uuid.UUID, *, cursor: str | None = None, limit: int = LIKED_SHOWN
+    ) -> dict:
+        """Whom this account tapped, newest tap first, one page of them.
 
         The read is the mirror of the inbox and shares its projection, not its address. A card here
         is built from the same batch reads — the person's profile and leading photo — and carries the
@@ -363,19 +413,29 @@ class DiscoveryService:
         its own ``likes`` row rather than recomputed. The pair and block exclusions come from the same
         repository rule, so a tap that a stranger answered back has already left for the match list and
         is not held up here a second time.
-        """
-        cards, rows = await self._liked_page(viewer_id)
-        return {"likes": cards, "has_more": len(rows) > LIKED_SHOWN}
 
-    async def _liked_page(self, viewer_id: uuid.UUID) -> tuple[list[dict], list]:
-        rows = await self.discovery.liked(viewer_id, LIKED_SHOWN + 1)
-        shown = rows[:LIKED_SHOWN]
+        ``cursor`` is the reader's own place in that list and ``limit`` how many rows a page may carry,
+        both of them new here in stage 123. Before them the door answered fifty and said no more existed
+        than it had already named, which was true of the page and false of the account: the stand holds
+        87 / 893 / 4 493 of its own taps at the three scales its table publishes (`s122_walk.json`), so
+        the cap cut three quarters of the smallest list and all but one percent of the largest, and left
+        the reader no way to ask for the rest.
+        """
+        cards, rows, next_cursor = await self._liked_page(viewer_id, cursor=cursor, limit=limit)
+        return {"likes": cards, "has_more": len(rows) > limit, "next_cursor": next_cursor}
+
+    async def _liked_page(
+        self, viewer_id: uuid.UUID, *, cursor: str | None = None, limit: int = LIKED_SHOWN
+    ) -> tuple[list[dict], list, str | None]:
+        before = decode_tap_cursor(cursor)
+        rows = await self.discovery.liked(viewer_id, limit + 1, before=before)
+        shown = rows[:limit]
         ids = [row[0] for row in shown]
         profiles = {p.user_id: p for p in await self.users.get_profile_cards(ids)}
         photos = await self.users.get_primary_photos(ids)
         today = utc_today()
         cards: list[dict] = []
-        for tapped_id, score, tapped_at in shown:
+        for tapped_id, score, tapped_at, _tap_id in shown:
             profile = profiles.get(tapped_id)
             if profile is None:
                 continue
@@ -390,7 +450,14 @@ class DiscoveryService:
                     "liked_at": tapped_at,
                 }
             )
-        return cards, rows
+        # The next link is drawn from the last row this page named, not from the row that only proved
+        # more exist: the reader who follows it starts one step past what they have already been shown,
+        # and the extra row stays where it is for the page that will read it.
+        next_cursor = None
+        if len(rows) > limit and shown:
+            _tapped_id, _score, tapped_at, tap_id = shown[-1]
+            next_cursor = encode_tap_cursor(tapped_at, tap_id)
+        return cards, rows, next_cursor
 
     async def undo_like(self, viewer_id: uuid.UUID, target_id: uuid.UUID) -> dict:
         """Take one's own tap back, and answer with the list that is left.
@@ -421,8 +488,12 @@ class DiscoveryService:
         if not await self.social.delete_like(viewer_id, target_id):
             raise NotFoundError("You have not liked this user.")
         await self.session.commit()
-        cards, rows = await self._liked_page(viewer_id)
-        return {"likes": cards, "has_more": len(rows) > LIKED_SHOWN}
+        cards, rows, next_cursor = await self._liked_page(viewer_id)
+        return {
+            "likes": cards,
+            "has_more": len(rows) > LIKED_SHOWN,
+            "next_cursor": next_cursor,
+        }
 
     async def passed(self, viewer_id: uuid.UUID) -> dict:
         """Whom this account dismissed, newest answer first, at most ``PASSED_SHOWN`` of them.
