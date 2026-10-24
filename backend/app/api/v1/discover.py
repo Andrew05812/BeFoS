@@ -16,7 +16,7 @@ from app.schemas.schemas import (
     PassedUsersResponse,
     PassResponse,
 )
-from app.services.discovery_service import DiscoveryService
+from app.services.discovery_service import LIKED_SHOWN, DiscoveryService
 from app.services.match_service import MatchService
 
 router = APIRouter(tags=["discovery"])
@@ -57,17 +57,25 @@ async def liked_me(
 
 @router.get("/discover/liked", response_model=LikedUsersResponse)
 async def liked_users(
+    limit: int = Query(default=LIKED_SHOWN, ge=1, le=LIKED_SHOWN),
+    cursor: str | None = Query(default=None),
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
-    """Whom the account tapped, newest tap first, at most fifty of them.
+    """Whom the account tapped, newest tap first, one page of them and the link to the next.
 
     The mirror of the inbox: stage 112 opened the door that reads the taps pointing at the account,
     and this one reads the taps the account's own card wrote outward. Each card carries the number
     that card was shown when it tapped, not a fresh guess about whether the two still fit.
+
+    Paging is a keyset over `(created_at, id)` rather than an offset, for the two reasons the deck and
+    the pair's history each learned: an offset moves under a withdrawal, so the page a reader asked for
+    second is not the page that follows the one they were shown, and a boundary drawn through the
+    timestamp alone cuts between taps made in the same microsecond. The cursor is opaque and carries no
+    account — the token still decides whose taps these are.
     """
     service = DiscoveryService(session)
-    data = await service.liked(current_user.id)
+    data = await service.liked(current_user.id, cursor=cursor, limit=limit)
     return LikedUsersResponse(**data)
 
 
@@ -109,6 +117,9 @@ async def undo_like(
     Only the requester's half of the pair is cleared: a tap says nothing about the tap the other
     person may have made, and it leaves a formed pair standing — un-pairing is the match list's own
     door, not something a "withdraw my tap" button should silently do to a conversation.
+
+    The page that comes back is the newest one and carries its own link forward, so a screen that
+    withdrew a row from page one is not left holding a list it can no longer turn through.
     """
     service = DiscoveryService(session)
     data = await service.undo_like(current_user.id, user_id)

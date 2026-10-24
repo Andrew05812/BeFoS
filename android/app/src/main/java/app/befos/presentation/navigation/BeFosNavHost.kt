@@ -6,10 +6,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.navigation.NavHostController
-import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
-import androidx.navigation.navArgument
 import app.befos.core.di.appContainer
 import app.befos.core.di.beFosViewModel
 import app.befos.presentation.auth.AuthScreen
@@ -100,15 +98,7 @@ fun BeFosNavHost(navController: NavHostController) {
 
         composable(
             route = Routes.TEST,
-            arguments = listOf(
-                // The band a compatibility screen sent the person in for. Nullable with no default,
-                // so a route built without one opens the test where they stopped, as it did before.
-                navArgument(Routes.SECTION_ARG) {
-                    type = NavType.StringType
-                    nullable = true
-                    defaultValue = null
-                },
-            ),
+            arguments = NavArguments.test(),
         ) { entry ->
             TestScreen(
                 startSection = entry.arguments?.getString(Routes.SECTION_ARG),
@@ -208,7 +198,7 @@ fun BeFosNavHost(navController: NavHostController) {
 
         composable(
             route = Routes.PUBLIC_PROFILE,
-            arguments = listOf(navArgument(Routes.USER_ARG) { type = NavType.StringType }),
+            arguments = NavArguments.publicProfile(),
         ) { entry ->
             val userId = entry.arguments?.getString(Routes.USER_ARG).orEmpty()
             PublicProfileScreen(
@@ -229,16 +219,7 @@ fun BeFosNavHost(navController: NavHostController) {
 
         composable(
             route = Routes.CHAT,
-            arguments = listOf(
-                navArgument(Routes.CHAT_ARG) { type = NavType.StringType },
-                // The line a tap on the map left for the composer. Nullable with no default so a
-                // route built without one opens an empty field, exactly as it did before.
-                navArgument(Routes.DRAFT_ARG) {
-                    type = NavType.StringType
-                    nullable = true
-                    defaultValue = null
-                },
-            ),
+            arguments = NavArguments.chat(),
         ) { entry ->
             val matchId = entry.arguments?.getString(Routes.CHAT_ARG).orEmpty()
             ChatScreen(
@@ -268,7 +249,7 @@ fun BeFosNavHost(navController: NavHostController) {
 
         composable(
             route = Routes.PARTNER,
-            arguments = listOf(navArgument(Routes.CHAT_ARG) { type = NavType.StringType }),
+            arguments = NavArguments.partner(),
         ) { entry ->
             val matchId = entry.arguments?.getString(Routes.CHAT_ARG).orEmpty()
             PublicProfileScreen(
@@ -288,7 +269,7 @@ fun BeFosNavHost(navController: NavHostController) {
 
         composable(
             route = Routes.COMPATIBILITY,
-            arguments = listOf(navArgument(Routes.CHAT_ARG) { type = NavType.StringType }),
+            arguments = NavArguments.compatibility(),
         ) { entry ->
             val matchId = entry.arguments?.getString(Routes.CHAT_ARG).orEmpty()
             CompatibilityScreen(
@@ -310,7 +291,7 @@ fun BeFosNavHost(navController: NavHostController) {
 
         composable(
             route = Routes.UNIVERSE,
-            arguments = listOf(navArgument(Routes.CHAT_ARG) { type = NavType.StringType }),
+            arguments = NavArguments.universe(),
         ) { entry ->
             val matchId = entry.arguments?.getString(Routes.CHAT_ARG).orEmpty()
             UniverseScreen(
@@ -330,37 +311,23 @@ fun BeFosNavHost(navController: NavHostController) {
 
         composable(
             route = Routes.RECOMMENDATIONS,
-            arguments = listOf(
-                navArgument(Routes.CHAT_ARG) { type = NavType.StringType },
-                navArgument(Routes.ACTIVITY_ARG) {
-                    type = NavType.IntType
-                    nullable = true
-                    defaultValue = null
-                },
-            ),
+            arguments = NavArguments.recommendations(),
         ) { entry ->
             val matchId = entry.arguments?.getString(Routes.CHAT_ARG).orEmpty()
             RecommendationsScreen(
                 matchId = matchId,
                 // The idea a plan line in the chat was about, or null when the page was opened from
-                // the top bar and has nothing to bring into view. Read with `get` rather than
-                // `getInt`: an absent optional int answers 0 to the latter, and 0 is a row the page
-                // would go looking for.
-                focusActivityId = entry.arguments?.get(Routes.ACTIVITY_ARG) as? Int,
+                // the top bar and has nothing to bring into view.
+                focusActivityId = NavArguments.focusActivityId(
+                    entry.arguments?.getString(Routes.ACTIVITY_ARG),
+                ),
                 onBack = { navController.popBackStack() },
             )
         }
 
         composable(
             route = Routes.PLANS,
-            arguments = listOf(
-                navArgument(Routes.CHAT_ARG) { type = NavType.StringType },
-                navArgument(Routes.PLAN_ARG) {
-                    type = NavType.StringType
-                    nullable = true
-                    defaultValue = null
-                },
-            ),
+            arguments = NavArguments.plans(),
         ) { entry ->
             PlansScreen(
                 matchId = entry.arguments?.getString(Routes.CHAT_ARG).orEmpty(),
@@ -376,7 +343,7 @@ fun BeFosNavHost(navController: NavHostController) {
 
         composable(
             route = Routes.PLAN_HISTORY,
-            arguments = listOf(navArgument(Routes.PLAN_ARG) { type = NavType.StringType }),
+            arguments = NavArguments.planHistory(),
         ) { entry ->
             PlanHistoryScreen(
                 planId = entry.arguments?.getString(Routes.PLAN_ARG).orEmpty(),

@@ -151,10 +151,14 @@ interface DiscoveryRepository {
     suspend fun unpass(userId: String): ApiResult<PassedPage>
 
     /**
-     * The account's own list of the taps it left standing, read the same way the inbox and the pass
-     * list are: no cursor, and the newest fifty rows are the whole answer the screen gets.
+     * The account's own list of the taps it left standing, read a page at a time.
+     *
+     * [cursor] is the link the previous page answered with, and null asks for the newest one — the same
+     * bargain the deck's [feed] struck, and for the same reason: the list is longer than a page, and a
+     * screen that only ever showed the first fifty rows would leave the reader believing those fifty
+     * were the whole history of their own heart.
      */
-    suspend fun liked(): ApiResult<OutgoingLikesPage>
+    suspend fun liked(cursor: String? = null): ApiResult<OutgoingLikesPage>
 
     /**
      * Takes one of this account's own taps back, and only ever its own half of the pair. A formed

@@ -17,6 +17,12 @@ Withdrawal is deliberately narrower than a tap is wide. `DELETE /users/{id}/like
 requester's own direction, and it leaves a formed pair standing — ending a pair is stage 105's door,
 with its own cascade over the chat and the plans, and a "take my tap back" button must not silently
 dissolve a conversation the two of them built.
+
+Stage 123 changed one thing in the shape this file pins down: the answer gained `next_cursor`, because
+the door had been admitting that taps stood behind its fifty while giving the reader no way to ask for
+them. The places here that compare a whole body therefore name the new key, and an empty account answers
+`{"likes": [], "has_more": False, "next_cursor": None}`. Rows, order, card fields and the visibility
+rules are the ones this file has held since the evening the door opened.
 """
 
 from __future__ import annotations
@@ -171,7 +177,11 @@ async def test_an_account_that_tapped_nobody_gets_an_empty_page(
 ) -> None:
     """Empty answers with the same shape as a full one, and promises no second page."""
     viewer = await _account(client, "empty")
-    assert await _liked(client, viewer["token"]) == {"likes": [], "has_more": False}
+    assert await _liked(client, viewer["token"]) == {
+        "likes": [],
+        "has_more": False,
+        "next_cursor": None,
+    }
 
 
 async def test_a_tap_arrives_with_the_person_and_the_number_my_card_carried(
@@ -234,7 +244,11 @@ async def test_a_tap_another_made_at_me_stays_out_of_my_own_list(
 
     await _tap(client, peer, viewer["user_id"])
 
-    assert await _liked(client, viewer["token"]) == {"likes": [], "has_more": False}
+    assert await _liked(client, viewer["token"]) == {
+        "likes": [],
+        "has_more": False,
+        "next_cursor": None,
+    }
 
 
 async def test_the_newest_tap_is_answered_first(client: AsyncClient, session: AsyncSession) -> None:
@@ -271,13 +285,18 @@ async def test_a_tap_whose_score_was_never_measured_arrives_without_a_number(
 async def test_the_page_carries_the_newest_fifty_taps_and_says_there_are_more(
     client: AsyncClient, session: AsyncSession,
 ) -> None:
-    """A cap that cuts the oldest taps, and a flag that admits the rest exist."""
+    """A cap that cuts the oldest taps, a flag that admits the rest exist, and a link that reaches them.
+
+    The flag and the link were split apart by stage 123: until then the door admitted the rest existed
+    and gave the reader nothing to ask with, so this file's cap guard had to gain the second half.
+    """
     viewer = await _account(client, "cap_v")
     ids = await _seed_taps(session, viewer["user_id"], LIKED_SHOWN + 1, tag="cap")
 
     body = await _liked(client, viewer["token"])
     assert len(body["likes"]) == LIKED_SHOWN
     assert body["has_more"] is True
+    assert body["next_cursor"], "the page admitted more taps exist and handed over no way to reach them"
     assert [card["user_id"] for card in body["likes"]] == ids[:LIKED_SHOWN], (
         "the page cut somebody other than the oldest tapped person"
     )
@@ -286,12 +305,15 @@ async def test_the_page_carries_the_newest_fifty_taps_and_says_there_are_more(
 async def test_a_page_exactly_at_the_cap_promises_no_more(
     client: AsyncClient, session: AsyncSession,
 ) -> None:
-    """`has_more` means more rows, not a page that happened to be full."""
+    """`has_more` means more rows, not a page that happened to be full — and the cursor agrees."""
     viewer = await _account(client, "capfit_v")
     await _seed_taps(session, viewer["user_id"], LIKED_SHOWN, tag="capfit")
 
     body = await _liked(client, viewer["token"])
     assert len(body["likes"]) == LIKED_SHOWN
+    assert body["next_cursor"] is None, (
+        "a page that promises nothing behind it still hands out a link to follow"
+    )
     assert body["has_more"] is False
 
 
@@ -311,7 +333,11 @@ async def test_a_pair_already_formed_is_read_as_a_pair_and_not_as_a_tap(
     back = await _tap(client, peer, viewer["user_id"])
     assert back["match"] is True, back
 
-    assert await _liked(client, viewer["token"]) == {"likes": [], "has_more": False}
+    assert await _liked(client, viewer["token"]) == {
+        "likes": [],
+        "has_more": False,
+        "next_cursor": None,
+    }
 
     matches = await client.get("/api/v1/matches", headers=auth_headers(viewer["token"]))
     assert matches.status_code == 200, matches.text
@@ -337,7 +363,11 @@ async def test_a_person_who_hid_their_profile_stops_being_named_by_the_list(
     )
     await session.commit()
 
-    assert await _liked(client, viewer["token"]) == {"likes": [], "has_more": False}
+    assert await _liked(client, viewer["token"]) == {
+        "likes": [],
+        "has_more": False,
+        "next_cursor": None,
+    }
 
 
 async def test_a_tapped_person_whose_account_stopped_being_shown_is_not_named(
@@ -355,7 +385,11 @@ async def test_a_tapped_person_whose_account_stopped_being_shown_is_not_named(
     )
     await session.commit()
 
-    assert await _liked(client, viewer["token"]) == {"likes": [], "has_more": False}
+    assert await _liked(client, viewer["token"]) == {
+        "likes": [],
+        "has_more": False,
+        "next_cursor": None,
+    }
 
 
 async def test_a_block_in_either_direction_takes_the_tap_out_of_the_list(

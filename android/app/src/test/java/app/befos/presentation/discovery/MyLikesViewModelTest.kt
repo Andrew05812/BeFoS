@@ -31,7 +31,24 @@ import java.time.ZoneId
  * The withdrawal is held to the same bargain the release of a pass struck. The server answers the
  * DELETE with the list that survives, so the page paints that answer instead of subtracting the tapped
  * row: a tap the write refused has to stay visible with a working verb, and a row removed on a refusal
- * would be a gesture the account never took back, drawn as one it did.
+ * would be a gesture the account never took back, drawn as one it did. One case splits that bargain,
+ * and it is the case the cursor made: once the reader has walked past the first page, the page the
+ * write returns describes rows they have already read, so the row leaves the list and the frontier
+ * stays where the reader put it.
+ *
+ * A refusal speaks on the write channel and never on the read one. Both say «something did not come
+ * back», and only one of them is true: the read of the account's history answered perfectly well, and
+ * the gesture the reader asked for did not land. Until stage 123 they shared a field, and the body of
+ * the screen — which resolves a read error into its own full-height card — replaced a list the server
+ * still held with «Не удалось прочитать ваши лайки» whose only verb re-read a page that had never
+ * failed. The row a refusal belongs to is kept beside its sentence so that «Повторить» repeats that tap
+ * rather than starting a fresh read.
+ *
+ * The walk is the family these checks grew around (stage 123). Two asks of one link are one request; a
+ * page that fails keeps the rows above it and names itself as the missing half; the same face coming
+ * back on two pages is drawn once; and a list never ends with a promise — the line that says what is
+ * shown counts the rows this device holds, because the server never said how many taps the account
+ * made.
  *
  * The deck is deliberately absent from these checks, and that is the difference between this verb and
  * the inbox's reply. Answering a tap makes a person answered; taking a tap back un-makes it, so the
@@ -64,8 +81,13 @@ class MyLikesViewModelTest {
         likedAt = likedAt,
     )
 
-    private fun open(vararg rows: OutgoingLike, truncated: Boolean = false): MyLikesViewModel {
-        coEvery { repo.liked() } returns ApiResult.Success(OutgoingLikesPage(rows.toList(), truncated))
+    private fun open(
+        vararg rows: OutgoingLike,
+        truncated: Boolean = false,
+        nextCursor: String? = null,
+    ): MyLikesViewModel {
+        coEvery { repo.liked() } returns
+            ApiResult.Success(OutgoingLikesPage(rows.toList(), truncated, nextCursor))
         return MyLikesViewModel(repo).also { mainRule.testDispatcher.scheduler.advanceUntilIdle() }
     }
 
@@ -111,9 +133,13 @@ class MyLikesViewModelTest {
         val vm = MyLikesViewModel(repo)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
 
-        // The server stopped at fifty and names no cursor, so the page cannot promise the rest is here.
+        // The server stopped at fifty and named no cursor, so the screen holds the flag and asks for
+        // nothing: inventing a link of its own is how a device starts paging against a door that cannot
+        // answer it.
         assertEquals(50, vm.uiState.value.likes.size)
         assertEquals(true, vm.uiState.value.truncated)
+        assertEquals(false, vm.uiState.value.canLoadMore)
+        assertNull(vm.uiState.value.nextCursor)
     }
 
     @Test
@@ -135,7 +161,7 @@ class MyLikesViewModelTest {
     }
 
     @Test
-    fun `a refused withdrawal keeps the person on the page and calls the tap unrevoked`() = runTest {
+    fun `a refused withdrawal speaks on the write channel and leaves the read alone`() = runTest {
         val vm = open(row("b"))
         coEvery { repo.unlike("b") } returns
             ApiResult.Error(404, "Вы этого человека не лайкали. Обновите список.")
@@ -148,8 +174,38 @@ class MyLikesViewModelTest {
         assertEquals(listOf("b"), vm.uiState.value.likes.map { it.userId })
         assertEquals(false, vm.uiState.value.busy)
         assertNull(vm.uiState.value.withdrawn)
-        assertTrue(vm.uiState.value.error.orEmpty(), vm.uiState.value.error!!.contains("Лайк не отозван"))
-        assertTrue(vm.uiState.value.error.orEmpty(), vm.uiState.value.error!!.contains("не лайкали"))
+        assertTrue(vm.uiState.value.writeError.orEmpty(), vm.uiState.value.writeError!!.contains("Лайк не отозван"))
+        assertTrue(vm.uiState.value.writeError.orEmpty(), vm.uiState.value.writeError!!.contains("не лайкали"))
+        // A refused write is not a failed read. Until stage 123 separated them the screen put this
+        // sentence in the read channel, and its body drew «Не удалось прочитать ваши лайки» over a list
+        // the account still holds — a card the reader had to dismiss by re-reading a page that had never
+        // stopped answering.
+        assertNull(vm.uiState.value.error)
+        assertEquals("b", vm.uiState.value.withdrawFailed)
+    }
+
+    @Test
+    fun `a refused withdrawal does not ask the reader to reload the list it just answered`() = runTest {
+        val vm = open(row("b"), row("a"), truncated = true, nextCursor = "c1")
+        coEvery { repo.unlike("b") } returns ApiResult.Error(404, "Вы этого человека не лайкали.")
+
+        vm.withdraw("b")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        // The write failed for one row. The read is whole, so the walk stays walkable: the link the last
+        // page handed over still reaches the taps behind it, and the reader is not sent back to the top.
+        assertEquals(true, vm.uiState.value.canLoadMore)
+        assertEquals("c1", vm.uiState.value.nextCursor)
+        assertEquals(1, vm.uiState.value.pages)
+        assertEquals(MyLikesBody.Rows, myLikesBody(vm.uiState.value))
+        // The one read this screen made is the one it made on opening. A refusal that asked the door
+        // again would be the old behaviour wearing a new field, and the count is the only place where
+        // «the notice does not reload the list» is visible from outside.
+        coVerify(exactly = 1) { repo.liked(null) }
+        // The notice's verb has one target, and it is the row the refusal named — not the first row of
+        // the list, not the reader's place, not nothing.
+        assertEquals("b", myLikesWriteRetryTarget(vm.uiState.value))
+        assertNull(myLikesWriteRetryTarget(vm.uiState.value.copy(withdrawFailed = null, writeError = null)))
     }
 
     @Test
@@ -188,7 +244,7 @@ class MyLikesViewModelTest {
         coEvery { repo.unlike("b") } returns ApiResult.Error(404, "Вы этого человека не лайкали. Обновите список.")
         vm.withdraw("b")
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
-        assertTrue(vm.uiState.value.error != null)
+        assertTrue(vm.uiState.value.writeError != null)
 
         coEvery { repo.unlike("a") } returns
             ApiResult.Success(OutgoingLikesPage(listOf(row("b")), truncated = false))
@@ -197,9 +253,218 @@ class MyLikesViewModelTest {
 
         // A stale refusal line sitting over a list the server has just redrawn would read as if the
         // second tap had failed too.
+        assertNull(vm.uiState.value.writeError)
+        assertNull(vm.uiState.value.withdrawFailed)
         assertNull(vm.uiState.value.error)
         assertEquals(listOf("b"), vm.uiState.value.likes.map { it.userId })
         assertEquals("a", vm.uiState.value.withdrawn)
+    }
+
+    @Test
+    fun `the notice repeats the very tap the server refused and lets it through`() = runTest {
+        val vm = open(row("b", name = "Борис"), row("a"))
+        coEvery { repo.unlike("b") } returnsMany listOf(
+            ApiResult.Error(404, "Вы этого человека не лайкали. Обновите список."),
+            ApiResult.Success(OutgoingLikesPage(listOf(row("a")), truncated = false)),
+        )
+
+        vm.withdraw("b")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals("b", vm.uiState.value.withdrawFailed)
+
+        // The word «Повторить» on the notice has to repeat the gesture it names. A retry that re-read the
+        // list would answer a refused write with a page, and the reader would have to find the row again.
+        vm.withdraw(vm.uiState.value.withdrawFailed!!)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(listOf("a"), vm.uiState.value.likes.map { it.userId })
+        assertNull(vm.uiState.value.writeError)
+        assertNull(vm.uiState.value.withdrawFailed)
+        assertEquals("Борис", vm.uiState.value.withdrawn)
+        coVerify(exactly = 2) { repo.unlike("b") }
+    }
+
+    @Test
+    fun `a withdrawal asked for while a page is on the wire is not sent`() = runTest {
+        val vm = open(row("a"), row("b"), truncated = true, nextCursor = "c1")
+        val gate = CompletableDeferred<Unit>()
+        coEvery { repo.liked("c1") } coAnswers {
+            gate.await()
+            ApiResult.Success(OutgoingLikesPage(listOf(row("c")), truncated = false, nextCursor = null))
+        }
+
+        vm.loadMore()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(true, vm.uiState.value.loadingMore)
+
+        // The page in flight is an answer about rows this screen has already promised to show. A write
+        // that lands while it is out redraws the same list from the server's newest page, and the page
+        // still to come then appends rows that overlap the one the write returned — the reader loses a
+        // name in the seam. One request at a time is the rule the two asks of one link already follow.
+        vm.withdraw("a")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 0) { repo.unlike(any()) }
+        assertEquals(true, vm.uiState.value.loadingMore)
+
+        gate.complete(Unit)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(listOf("a", "b", "c"), vm.uiState.value.likes.map { it.userId })
+
+        coEvery { repo.unlike("a") } returns
+            ApiResult.Success(OutgoingLikesPage(listOf(row("b"), row("c")), truncated = false))
+        vm.withdraw("a")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 1) { repo.unlike("a") }
+    }
+
+    @Test
+    fun `a reload that fails drops the frontier but keeps saying the list goes further`() = runTest {
+        val vm = open(row("a"), truncated = true, nextCursor = "c1")
+        coEvery { repo.liked("c1") } returns ApiResult.Success(
+            OutgoingLikesPage(listOf(row("b")), truncated = true, nextCursor = "c2"),
+        )
+        vm.loadMore()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals("c2", vm.uiState.value.nextCursor)
+
+        coEvery { repo.liked("c2") } returns ApiResult.Error(-1, "Страница не дошла.")
+        vm.loadMore()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals("Страница не дошла.", vm.uiState.value.moreError)
+
+        coEvery { repo.liked() } returns ApiResult.Error(-1, "Сервер недоступен.")
+        vm.load()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        // A reload asks the server what the list holds now. When that answer does not come, the link the
+        // earlier walk left behind describes a page the reload was going to replace: keeping it would let
+        // «Показать ещё» hand a stale cursor to a door whose newest page this screen no longer knows.
+        assertNull(vm.uiState.value.nextCursor)
+        assertEquals(false, vm.uiState.value.canLoadMore)
+        // What the last answer that did come said about the rest of the list survives. A reload that
+        // failed does not unmake it, and erasing it here made the tail print «Дальше ваших касаний нет»
+        // and the counter «весь список» over a history this account had not finished reading.
+        assertEquals(true, vm.uiState.value.truncated)
+        // The refusal of a page goes with the key that page needed. The reload's own failure is named
+        // above the rows, and a notice left standing without its cursor is a word nobody can use.
+        assertNull(vm.uiState.value.moreError)
+        // The count of pages is not part of what is dropped: the rows on the screen still came from two
+        // reads, and a withdrawal decides by that number whether the write's answer is the whole list or
+        // only the row that left it. Zeroing it here would make the next withdrawal replace a walked list
+        // with the server's first page — the rows below it disappearing under a reader who never asked.
+        assertEquals(2, vm.uiState.value.pages)
+        // The rows stay: they are the account's own taps, read once already, and a failed refresh does
+        // not unmake them.
+        assertEquals(listOf("a", "b"), vm.uiState.value.likes.map { it.userId })
+        assertEquals("Сервер недоступен.", vm.uiState.value.error)
+        assertEquals(MyLikesBody.Rows, myLikesBody(vm.uiState.value))
+        assertEquals(MyLikesTail.WaitingForReread, myLikesTail(vm.uiState.value))
+    }
+
+    @Test
+    fun `a write that answered the first page closes the page that never came`() = runTest {
+        val vm = open(row("a"), truncated = true, nextCursor = "c1")
+        coEvery { repo.liked("c1") } returns ApiResult.Error(-1, "Страница не дошла.")
+        vm.loadMore()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals("Страница не дошла.", vm.uiState.value.moreError)
+
+        coEvery { repo.unlike("a") } returns
+            ApiResult.Success(OutgoingLikesPage(emptyList(), truncated = false))
+        vm.withdraw("a")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        // The write answered this very page, so the screen knows again where its own list ends. The link
+        // the refusal was waiting for is gone with the rows it pointed at, and the notice about that
+        // refusal has nothing left to repeat: «Повторить» on it would ask for a page this list no longer
+        // has, and the walk's gate would answer by doing nothing at all.
+        assertEquals("a", vm.uiState.value.withdrawn)
+        assertNull(vm.uiState.value.nextCursor)
+        assertNull(vm.uiState.value.moreError)
+        assertEquals(MyLikesTail.Nothing, myLikesTail(vm.uiState.value))
+    }
+
+    @Test
+    fun `the tail offers no verb unless the key that verb needs is on the screen`() {
+        val held = listOf(row("a"), row("b"))
+        val walked = MyLikesUiState(
+            loading = false, likes = held, truncated = true, nextCursor = "c2", pages = 2,
+        )
+        assertEquals(MyLikesTail.MoreAvailable, myLikesTail(walked))
+        assertEquals(MyLikesTail.PageRefused, myLikesTail(walked.copy(moreError = "Страница не дошла.")))
+        assertEquals(MyLikesTail.Loading, myLikesTail(walked.copy(loadingMore = true, moreError = null)))
+        // The end of the walk is the server's sentence about what stands beyond these rows, not the
+        // absence of a key: it is drawn once the last answer said there is nothing further.
+        assertEquals(MyLikesTail.End, myLikesTail(walked.copy(truncated = false, nextCursor = null)))
+        // A reload that failed leaves the screen holding no key while the list still goes on. That is the
+        // state the tail used to answer with «Дальше ваших касаний нет» — and, with a page refusal still
+        // standing, with a «Повторить» pointed at a page whose link had just been thrown away.
+        assertEquals(
+            MyLikesTail.WaitingForReread,
+            myLikesTail(walked.copy(nextCursor = null, error = "Сервер недоступен.")),
+        )
+        assertEquals(
+            MyLikesTail.WaitingForReread,
+            myLikesTail(walked.copy(nextCursor = null, moreError = "Страница не дошла.")),
+        )
+        // The first page, read to its end: nothing has to be said under it.
+        assertEquals(
+            MyLikesTail.Nothing,
+            myLikesTail(MyLikesUiState(loading = false, likes = held, pages = 1)),
+        )
+    }
+
+    @Test
+    fun `a withdrawal after a failed reload keeps the pages the reader walked through`() = runTest {
+        val vm = open(row("a"), truncated = true, nextCursor = "c1")
+        coEvery { repo.liked("c1") } returns ApiResult.Success(
+            OutgoingLikesPage(listOf(row("b")), truncated = true, nextCursor = "c2"),
+        )
+        vm.loadMore()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        coEvery { repo.liked() } returns ApiResult.Error(-1, "Сервер недоступен.")
+        vm.load()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        coEvery { repo.unlike("b") } returns ApiResult.Success(
+            OutgoingLikesPage(listOf(row("z"), row("y")), truncated = true, nextCursor = "c9"),
+        )
+        vm.withdraw("b")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        // The walk this screen made is still the walk it holds: the write answers a page from the top of
+        // the list, and adopting that page would trade two rows the reader reached for two they never saw.
+        assertEquals(listOf("a"), vm.uiState.value.likes.map { it.userId })
+        assertEquals(2, vm.uiState.value.pages)
+        assertNull(vm.uiState.value.nextCursor)
+        assertEquals("b", vm.uiState.value.withdrawn)
+        coVerify(exactly = 1) { repo.unlike("b") }
+    }
+
+    @Test
+    fun `the body of the list is the rows whenever the account holds rows`() {
+        val held = listOf(row("a"))
+        val readFailed = MyLikesUiState(
+            loading = false,
+            likes = held,
+            error = "Сервер недоступен.",
+            nextCursor = "c1",
+            pages = 1,
+        )
+        // Rows before failure: the notice above them says which read did not come, and the history the
+        // device holds stays on the screen. This is the branch the write channel was invented for — a
+        // refused tap used to reach here as a read error and replace the list with its own card.
+        assertEquals(MyLikesBody.Rows, myLikesBody(readFailed))
+        assertEquals(MyLikesBody.ReadFailure, myLikesBody(readFailed.copy(likes = emptyList())))
+        assertEquals(MyLikesBody.Skeleton, myLikesBody(MyLikesUiState(likes = held)))
+        assertEquals(MyLikesBody.Empty, myLikesBody(MyLikesUiState(loading = false)))
+        assertEquals(
+            MyLikesBody.Rows,
+            myLikesBody(readFailed.copy(error = null, writeError = "Лайк не отозван.", withdrawFailed = "a")),
+        )
+        // A walk that ended with nothing left to read is drawn as the rows it gathered, not as a failure.
+        assertEquals(MyLikesBody.Rows, myLikesBody(readFailed.copy(error = null, nextCursor = null, pages = 3)))
     }
 
     @Test
@@ -255,6 +520,320 @@ class MyLikesViewModelTest {
 
         assertEquals(listOf("c", "b"), vm.uiState.value.likes.map { it.userId })
         coVerify(exactly = 2) { repo.liked() }
+    }
+
+    @Test
+    fun `the page behind the first one joins the rows on the screen in the order the server gave them`() =
+        runTest {
+            val vm = open(row("a"), row("b"), truncated = true, nextCursor = "c1")
+
+            coEvery { repo.liked("c1") } returns ApiResult.Success(
+                OutgoingLikesPage(listOf(row("c"), row("d")), truncated = false, nextCursor = null),
+            )
+            vm.loadMore()
+            mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(listOf("a", "b", "c", "d"), vm.uiState.value.likes.map { it.userId })
+            assertEquals(2, vm.uiState.value.pages)
+            assertEquals(false, vm.uiState.value.truncated)
+            assertEquals(false, vm.uiState.value.loadingMore)
+            assertNull(vm.uiState.value.moreError)
+            coVerify(exactly = 1) { repo.liked("c1") }
+        }
+
+    @Test
+    fun `scrolling to the end twice while a page is out asks the server once`() = runTest {
+        val vm = open(row("a"), truncated = true, nextCursor = "c1")
+        val gate = CompletableDeferred<Unit>()
+        coEvery { repo.liked("c1") } coAnswers {
+            gate.await()
+            ApiResult.Success(OutgoingLikesPage(listOf(row("b")), truncated = false))
+        }
+
+        vm.loadMore()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        vm.loadMore()
+        vm.loadMore()
+
+        assertEquals(true, vm.uiState.value.loadingMore)
+        coVerify(exactly = 1) { repo.liked("c1") }
+
+        gate.complete(Unit)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(listOf("a", "b"), vm.uiState.value.likes.map { it.userId })
+    }
+
+    @Test
+    fun `a withdrawal on the wire stops a page from starting over it`() = runTest {
+        val vm = open(row("a"), row("b"), truncated = true, nextCursor = "c1")
+        val gate = CompletableDeferred<Unit>()
+        coEvery { repo.unlike("a") } coAnswers {
+            gate.await()
+            ApiResult.Success(OutgoingLikesPage(listOf(row("b")), truncated = false))
+        }
+        coEvery { repo.liked("c1") } returns
+            ApiResult.Success(OutgoingLikesPage(listOf(row("c")), truncated = false))
+
+        vm.withdraw("a")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(true, vm.uiState.value.busy)
+
+        // Пока запись на проводе, страница не стартует. Её ответ описывает список, которого этот отзыв
+        // уже мог не оставить: страница дописалась бы поверх перечитанного первого экрана, и строка,
+        // которую сервер убрал, вернулась бы на экран без единого касания человека.
+        vm.loadMore()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(false, vm.uiState.value.loadingMore)
+        coVerify(exactly = 0) { repo.liked("c1") }
+
+        gate.complete(Unit)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(false, vm.uiState.value.busy)
+        assertEquals(listOf("b"), vm.uiState.value.likes.map { it.userId })
+    }
+
+    @Test
+    fun `a reload asked twice while the first is still out asks the server once`() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        coEvery { repo.liked() } coAnswers {
+            gate.await()
+            ApiResult.Success(OutgoingLikesPage(listOf(row("a")), truncated = false))
+        }
+
+        // Первый кадр сам просит чтение — `init` отправляет его до того, как экран подписывается на
+        // состояние. Плашка с «Повторить» живёт над этим же состоянием и до его ответа.
+        val vm = MyLikesViewModel(repo)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        vm.load()
+        vm.load()
+
+        assertEquals(true, vm.uiState.value.loading)
+        coVerify(exactly = 1) { repo.liked() }
+
+        gate.complete(Unit)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 1) { repo.liked() }
+        assertEquals(listOf("a"), vm.uiState.value.likes.map { it.userId })
+    }
+
+    @Test
+    fun `a reload does not start over a withdrawal that is still on the wire`() = runTest {
+        val vm = open(row("a"), row("b"))
+        val gate = CompletableDeferred<Unit>()
+        coEvery { repo.unlike("a") } coAnswers {
+            gate.await()
+            ApiResult.Success(OutgoingLikesPage(listOf(row("b")), truncated = false))
+        }
+        coEvery { repo.liked() } returns
+            ApiResult.Success(OutgoingLikesPage(listOf(row("a"), row("b")), truncated = false))
+
+        vm.withdraw("a")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        // Перечитывание, отправленное поверх живого отзыва, отвечает списком, в котором отозванная
+        // строка ещё стоит: экран назвал её убранной, а ответ вернул бы её же на то же место.
+        vm.load()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        coVerify(exactly = 1) { repo.liked() }
+
+        gate.complete(Unit)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(listOf("b"), vm.uiState.value.likes.map { it.userId })
+        assertEquals("a", vm.uiState.value.withdrawn)
+    }
+
+    @Test
+    fun `a page with no rows and a link forward is not an account that never liked anybody`() {
+        // Страница могла прийти без строк: видимая половина правила отбора живёт в присоединённых
+        // таблицах, а ссылка — в окне, которое сервер прочитал до этого отбора. «Вы пока никого не
+        // лайкали» — это утверждение про аккаунт, а этот ответ говорит только про страницу.
+        val walked = MyLikesUiState(
+            loading = false, likes = emptyList(), truncated = true, nextCursor = "c2", pages = 2,
+        )
+        assertEquals(MyLikesBody.Rows, myLikesBody(walked))
+        assertEquals(MyLikesTail.MoreAvailable, myLikesTail(walked))
+        // Действительно пустой список — это пустой список: прочитана одна страница, и сервер сказал,
+        // что за ней ничего не стоит.
+        assertEquals(
+            MyLikesBody.Empty,
+            myLikesBody(walked.copy(truncated = false, nextCursor = null, pages = 1)),
+        )
+        // А отказ чтения остаётся отказом и при живом ключе: плашка называет чтение, которое не пришло.
+        assertEquals(MyLikesBody.ReadFailure, myLikesBody(walked.copy(error = "Сервер недоступен.")))
+    }
+
+    @Test
+    fun `a page that did not arrive leaves the rows the screen holds and says which half is missing`() =
+        runTest {
+            val vm = open(row("a"), row("b"), truncated = true, nextCursor = "c1")
+            coEvery { repo.liked("c1") } returns
+                ApiResult.Error(-1, "Сервер недоступен. Проверьте соединение и попробуйте ещё раз.")
+
+            vm.loadMore()
+            mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+            // The account's own history did not shrink because its older half timed out: the rows stay,
+            // the link stays, and the failure is drawn where the missing rows would have been.
+            assertEquals(listOf("a", "b"), vm.uiState.value.likes.map { it.userId })
+            assertEquals("c1", vm.uiState.value.nextCursor)
+            // Живой прогон показал, что этотexpectation был дефектом, а не поведением: дверь
+            // `/discover/liked` отвечала 503 через четыре секунды, триггер у края списка снова читал
+            // `canLoadMore` истинным — курсор-то остался — и просил страницу заново, и заново, и заново.
+            // Хвост пять минут держал «Догружаю ваши касания…» и ни разу не показал отметку с
+            // «Повторить», то есть читатель не мог ни узнать об отказе, ни сделать шаг сам. Автоматический
+            // обход и человеческий тап не могут стоять на одних воротах: скролл останавливается на
+            // первом отказе, а повторить имеет право только глагол на отметке.
+            assertEquals(false, vm.uiState.value.canLoadMore)
+            assertTrue(vm.uiState.value.moreError.orEmpty().contains("Сервер недоступен"))
+            assertNull(vm.uiState.value.error)
+            assertEquals(false, vm.uiState.value.loadingMore)
+        }
+
+    /**
+     * The gate the walk at the bottom of the list reads has to be closed by a refusal, while the verb on
+     * the notice still reaches the server — both halves are the same five lines of state, and only one of
+     * them was measured on a device.
+     */
+    @Test
+    fun `a refused page closes the automatic walk and leaves the notices verb working`() = runTest {
+        val vm = open(row("a"), truncated = true, nextCursor = "c1")
+        coEvery { repo.liked("c1") } returns ApiResult.Error(503, "Сервер недоступен.")
+
+        vm.loadMore()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(false, vm.uiState.value.canLoadMore)
+        assertEquals("c1", vm.uiState.value.nextCursor)
+        coVerify(exactly = 1) { repo.liked("c1") }
+
+        coEvery { repo.liked("c1") } returns
+            ApiResult.Success(OutgoingLikesPage(listOf(row("b")), truncated = false))
+        vm.loadMore()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(listOf("a", "b"), vm.uiState.value.likes.map { it.userId })
+        assertNull(vm.uiState.value.moreError)
+        // Два обращения за весь прогон: одно принес отказ, второе принёс человек, нажавший «Повторить».
+        coVerify(exactly = 2) { repo.liked("c1") }
+    }
+
+    @Test
+    fun `repeating the failed page asks the same link and appends once`() = runTest {
+        val vm = open(row("a"), truncated = true, nextCursor = "c1")
+        coEvery { repo.liked("c1") } returnsMany listOf(
+            ApiResult.Error(500, "Сервер недоступен."),
+            ApiResult.Success(OutgoingLikesPage(listOf(row("b")), truncated = false)),
+        )
+
+        vm.loadMore()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        vm.loadMore()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(listOf("a", "b"), vm.uiState.value.likes.map { it.userId })
+        assertNull(vm.uiState.value.moreError)
+        assertEquals(2, vm.uiState.value.pages)
+    }
+
+    @Test
+    fun `a row the next page names twice enters the list once`() = runTest {
+        val vm = open(row("a"), row("b"), truncated = true, nextCursor = "c1")
+        // A person the account liked again between two pages wrote a fresh row, and the keyset happily
+        // reads the gesture twice. A list that showed the same face twice would be this screen's bug.
+        coEvery { repo.liked("c1") } returns ApiResult.Success(
+            OutgoingLikesPage(listOf(row("b"), row("c")), truncated = false),
+        )
+
+        vm.loadMore()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(listOf("a", "b", "c"), vm.uiState.value.likes.map { it.userId })
+    }
+
+    @Test
+    fun `a tap taken back from a deep page leaves the walk where the reader put it`() = runTest {
+        val vm = open(row("a"), row("b"), truncated = true, nextCursor = "c1")
+        coEvery { repo.liked("c1") } returns ApiResult.Success(
+            OutgoingLikesPage(listOf(row("c"), row("d")), truncated = true, nextCursor = "c2"),
+        )
+        vm.loadMore()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(2, vm.uiState.value.pages)
+
+        // The write answers the newest page, which this reader walked past two requests ago: adopting it
+        // would drop the rows below and drag the frontier back to the top of the list.
+        coEvery { repo.unlike("b") } returns ApiResult.Success(
+            OutgoingLikesPage(listOf(row("a"), row("c")), truncated = true, nextCursor = "c9"),
+        )
+        vm.withdraw("b")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(listOf("a", "c", "d"), vm.uiState.value.likes.map { it.userId })
+        assertEquals("c2", vm.uiState.value.nextCursor)
+        assertEquals(2, vm.uiState.value.pages)
+        assertEquals("b", vm.uiState.value.withdrawn)
+        coVerify(exactly = 0) { repo.liked("c2") }
+    }
+
+    @Test
+    fun `reloading the list starts the walk again from the newest tap`() = runTest {
+        val vm = open(row("a"), truncated = true, nextCursor = "c1")
+        coEvery { repo.liked("c1") } returns ApiResult.Success(
+            OutgoingLikesPage(listOf(row("b")), truncated = false, nextCursor = null),
+        )
+        vm.loadMore()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(listOf("a", "b"), vm.uiState.value.likes.map { it.userId })
+
+        coEvery { repo.liked() } returns ApiResult.Success(
+            OutgoingLikesPage(listOf(row("z")), truncated = false, nextCursor = null),
+        )
+        vm.load()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        // The reader asked what the server holds now, and the older pages answered an earlier question:
+        // they leave with the reload rather than sitting under a list that no longer matches.
+        assertEquals(listOf("z"), vm.uiState.value.likes.map { it.userId })
+        assertEquals(1, vm.uiState.value.pages)
+        assertNull(vm.uiState.value.nextCursor)
+    }
+
+    @Test
+    fun `the row that is on the wire says so while the others stay lit`() = runTest {
+        val vm = open(row("a", name = "Анна"), row("b", name = "Борис"))
+        val gate = CompletableDeferred<Unit>()
+        coEvery { repo.unlike("a") } coAnswers {
+            gate.await()
+            ApiResult.Success(OutgoingLikesPage(listOf(row("b")), truncated = false))
+        }
+
+        vm.withdraw("a")
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        // One write, one row that knows it: a list that greyed itself row by row would read as a
+        // history the app had refused to draw.
+        assertEquals("a", vm.uiState.value.withdrawing)
+        assertEquals(true, vm.uiState.value.busy)
+
+        gate.complete(Unit)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        assertNull(vm.uiState.value.withdrawing)
+        assertEquals(false, vm.uiState.value.busy)
+    }
+
+    @Test
+    fun `the line under the list counts the rows the walk gathered, not a total nobody named`() {
+        assertEquals(
+            "Показано 50 касаний, и список идёт дальше",
+            myLikesShownWord(50, truncated = true),
+        )
+        assertEquals(
+            "Показано 87 касаний — весь список",
+            myLikesShownWord(87, truncated = false),
+        )
+        // The server never answers how many taps an account has, and a «из N» invented here would be a
+        // number about nothing — the mistake defect 72-1 named for an empty compatibility band.
+        assertFalse(myLikesShownWord(12, truncated = false).contains("из"))
     }
 
     @Test

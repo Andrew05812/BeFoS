@@ -359,18 +359,23 @@ class ApiService(private val client: HttpClient) {
         }
 
     /**
-     * Whom this account tapped, newest tap first, at most fifty of them.
+     * Whom this account tapped, newest tap first, one page of them.
      *
-     * The mirror of `likedMe()`: the same row shape, the other direction. Until now the account could
-     * read who had come to it and who it had pushed away, but never what it had left standing as a
+     * The mirror of `likedMe()`: the same row shape, the other direction. Until stage 116 the account
+     * could read who had come to it and who it had pushed away, but never what it had left standing as a
      * heart — an outward tap was a write with no read, so the only way to review one was memory. The
      * percent each row carries is the one the tap was made carrying, not a fresh score. No identifier
      * travels with this call: the token says whose taps these are.
+     *
+     * [cursor] is the only thing that turns that page into a list: the server caps a page at fifty rows
+     * and names the moment and the row it stopped on, and the screen follows the link rather than
+     * counting. Null asks for the newest page, so the first call stays exactly the call it was before.
      */
-    suspend fun likedUsers(): ApiResult<MyLikesDto> =
+    suspend fun likedUsers(cursor: String? = null): ApiResult<MyLikesDto> =
         client.apiCall {
             method = HttpMethod.Get
             url(endpoint("discover/liked"))
+            if (cursor != null) parameter("cursor", cursor)
         }
 
     /**

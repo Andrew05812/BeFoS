@@ -468,6 +468,33 @@ async def test_cursor_beyond_the_rank_column_is_refused_as_input(
         assert resp.json()["error"]["code"] == "validation_error"
 
 
+async def test_a_cursor_of_digits_the_language_does_not_share_is_refused(
+    client: AsyncClient, session: AsyncSession
+):
+    """`isdigit()` is not "ascii digits": the bound has to be, or a typo reaches `int`.
+
+    The check above asks whether the text is made of digits, and Python answers yes to `²`, to `٣` and
+    to four thousand nines — then `int()` either raises (`ValueError: Exceeds the limit (4300 digits)`)
+    or hands back a number the `integer` column refuses. Both are the client's broken link, and both
+    came out of this route as a 500 with a traceback until stage 123 put the same bound on the tap
+    list's cursor and the two doors were read side by side.
+    """
+    viewer = await _viewer(client, "digits")
+    await _seed_candidates(session, 3, tag="digits")
+
+    def forge(rank: str) -> str:
+        return base64.urlsafe_b64encode(f"rank:{rank}".encode()).decode().rstrip("=")
+
+    for rank in ("²", "١٢٣", "１２３", "9" * 5000, "1٢3"):
+        resp = await client.get(
+            "/api/v1/discover",
+            params={"cursor": forge(rank)},
+            headers=auth_headers(viewer["token"]),
+        )
+        assert resp.status_code == 422, (rank[:12], resp.text[:200])
+        assert resp.json()["error"]["code"] == "validation_error", rank[:12]
+
+
 async def test_a_rebuilt_deck_survives_the_request_that_rebuilt_it(
     client: AsyncClient, session: AsyncSession
 ):

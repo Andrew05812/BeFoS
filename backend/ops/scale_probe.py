@@ -690,9 +690,20 @@ def _build_paths():
         # dispatches. Unlike its mirror on the deck side this door needs a setup: every social row
         # the stand writes about the viewer points outward, so without `_seed_own_taps` the row
         # would price an empty page — stage 113 learned the same lesson on the inbox.
+        #
+        # `limit` and `cursor` are named here rather than left to the handler's defaults, because a
+        # harness that calls a FastAPI handler directly receives the `Query(...)` descriptor instead of
+        # the value it declares — and because the row the table publishes is the price of the first
+        # page, which is what the device reads when it opens the screen.
         from app.api.v1.discover import liked_users as liked_users_route
+        from app.services.discovery_service import LIKED_SHOWN
 
-        return await liked_users_route(current_user=ctx["viewer_user"], session=session)
+        return await liked_users_route(
+            current_user=ctx["viewer_user"],
+            session=session,
+            limit=LIKED_SHOWN,
+            cursor=None,
+        )
 
     async def undo_tap(session, ctx):
         from app.api.v1.discover import undo_like as undo_like_route
@@ -862,6 +873,33 @@ def _build_paths():
     }
 
 
+def _select_paths(known: list[str], requested: str) -> list[str]:
+    """Which paths a run measures, in the order the registry builds them.
+
+    The order is not cosmetic: `_measure_size` runs each path's setup when its turn comes, and the
+    seeds read and clear the same tables. The `likes` seeded by the tap-list setup delete the `passes`
+    rows a withdrawal pool was addressed from (stage 26 makes a tap erase a pass), so a filter that
+    kept the operator's order put `liked` before the inbox seed and made the `unpass` row answer
+    `NotFoundError` instead of a number — `s123_scale_a.json` and `s123_scale_b.json` each show it.
+    A name the registry does not know is refused rather than dropped: a silent typo publishes a
+    shorter table than the document claims.
+
+    A comma separates names and is not part of one, so each part is stripped before the registry is
+    consulted — `--paths "liked, unpass"` is the same four characters of intent as `--paths liked,unpass`
+    — and a value that holds no name at all, whether empty or padded or a bare separator, means the whole
+    registry. That is the run the published table comes from, and it is a rule rather than what an empty
+    set happens to produce: naming one path means measuring exactly that path and nothing else.
+    """
+    wanted = {part.strip() for part in requested.split(",") if part.strip()}
+    unknown = sorted(wanted.difference(known))
+    if unknown:
+        raise SystemExit(
+            f"прибор не знает путей: {', '.join(unknown)}; реестр держит {len(known)}: "
+            f"{', '.join(known)}"
+        )
+    return [name for name in known if not wanted or name in wanted]
+
+
 def _build_setups():
     """The state a path needs the stand in before it is timed, keyed by path name.
 
@@ -879,6 +917,14 @@ def _build_setups():
         "liked_me": _seed_incoming_taps,
         "liked": _seed_own_taps,
         "unlike": _seed_taps_for_return,
+        # The withdrawal of a pass reads no seed of its own — `_seed_activity` has been passing 40 % of
+        # the crowd off the viewer since stage 20 — but its rotation pool has to be named at this path's
+        # turn rather than once for the whole run: the two tap seeds above delete `passes` rows, because
+        # a tap erases a pass (stage 26), and a pool addressed in `_context` goes on naming rows that
+        # are gone. That is how `--paths liked,unpass,like` answered `NotFoundError` where a number
+        # belongs (`s123_scale_a.json`, `s123_scale_b.json`), and the same in `unlike,unpass` after the
+        # order was fixed. The address is one query, shared with `_context`, so the two cannot disagree.
+        "unpass": _address_pass_pool,
         # Both doors of the plan family stand on the same seed: the screen needs the arrangements to
         # be on the page, and the card needs one of them to be addressable. `_seed_arrangements`
         # stops at what the pairs already hold, so the second call of a scale writes nothing and the
@@ -1215,6 +1261,49 @@ async def _seed_taps_for_return(session, ctx) -> None:
         )
     ctx["unlike_peers"] = list(rows)
     ctx["unlike_turn"] = 0
+
+
+# People the viewer has actually passed, in the order the return rotates over them. One query, used by
+# `_context` for the first address and by `_address_pass_pool` at the path's own turn: two copies of the
+# same text is how a pool addressed once and a pool re-addressed later start naming different rows.
+_PASS_POOL_ADDRESS = (
+    "SELECT ps.to_user_id FROM passes ps "
+    "JOIN users u ON u.id = ps.to_user_id "
+    "WHERE ps.from_user_id = :v AND u.is_active AND NOT u.is_deleted "
+    "ORDER BY md5(u.email::text) LIMIT 64"
+)
+
+
+async def _address_pass_pool(session, ctx) -> None:
+    """Name the passes the withdrawal can take back, at the turn the withdrawal is measured.
+
+    `unpass` consumes its own row: the second return of one pass answers 404 and writes nothing, so the
+    target arrives from a pool the harness rotates over — the bargain stage 115 struck with this door and
+    stage 118 restated for `unlike`. What stage 115 could not see is that the pool was addressed once, in
+    `_context`, before any path ran, while the tap seeds that come earlier in the registry delete
+    `passes` rows: a tap erases a pass (stage 26). So whether the row got a number or an error depended
+    on which other paths the operator asked for — `--paths liked,unpass,like` and `--paths unlike,unpass`
+    both answered `NotFoundError: You have not passed this user.` while the full registry and
+    `--paths liked,liked_me,unpass` answered 42.9 and 46.0 ms.
+
+    Re-reading the address at the path's turn makes the gesture measurable in every subset: the pool
+    holds exactly the passes that stand when the withdrawal is timed. Reading is all it does — the
+    rotation index restarts at zero, so the first measured call takes the first standing row rather than
+    the fourth of a list two of which no longer exist. An empty pool is refused rather than rotated
+    over, because `% len(peers)` would abort the whole shooting for one row's missing state.
+    """
+    from sqlalchemy import text
+
+    rows = (
+        await session.execute(text(_PASS_POOL_ADDRESS), {"v": ctx["viewer_id"]})
+    ).scalars().all()
+    if not rows:
+        raise RuntimeError(
+            "the pass pool is empty: the withdrawal would rotate over nothing and time a refusal "
+            "instead of the gesture"
+        )
+    ctx["unpass_peers"] = list(rows)
+    ctx["unpass_turn"] = 0
 
 
 _PLAN_CHOSEN = """
@@ -1566,15 +1655,12 @@ async def _context(engine) -> dict:
         # 404. The pool is addressed here — before any window opens — the same way `like_peers`
         # is; `_seed_activity` wrote every one of these rows. Showability is not part of the
         # address: the return clears the answer whatever the deck's filter says about the person.
+        # `unpass` takes the same address again at its own turn (`_address_pass_pool`), because the
+        # tap seeds that come earlier in the registry delete `passes` rows out of this list.
         unpass_peers = list(
             (
                 await session.execute(
-                    text(
-                        "SELECT ps.to_user_id FROM passes ps "
-                        "JOIN users u ON u.id = ps.to_user_id "
-                        "WHERE ps.from_user_id = :v AND u.is_active AND NOT u.is_deleted "
-                        "ORDER BY md5(u.email::text) LIMIT 64"
-                    ),
+                    text(_PASS_POOL_ADDRESS),
                     {"v": viewer},
                 )
             ).scalars()
@@ -2019,7 +2105,7 @@ async def main() -> None:
         )
 
     known = list(_build_paths())
-    wanted = [p for p in (args.paths.split(",") if args.paths else known) if p in known]
+    wanted = _select_paths(known, args.paths)
     report = {"generated_at": time.strftime("%Y-%m-%d %H:%M:%S"), "postgres": None, "scales": []}
     # The plan shape is what the document argues from, and the planner's choices belong to a
     # server version — a report without one cannot be reproduced by anyone else.

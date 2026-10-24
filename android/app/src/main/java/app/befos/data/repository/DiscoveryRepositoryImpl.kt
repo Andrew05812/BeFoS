@@ -57,9 +57,13 @@ class DiscoveryRepositoryImpl(private val api: ApiService) : DiscoveryRepository
     /**
      * The account's own taps, and the list that stands after one of them is taken back. Both answers
      * are built the same way: rows the server holds, never the rows this screen happened to remember.
+     *
+     * The withdrawal answers with the newest page and its own link, so a screen that is standing three
+     * pages deep keeps its place by the cursor it already holds rather than by being handed back the
+     * first fifty rows it has moved past.
      */
-    override suspend fun liked(): ApiResult<OutgoingLikesPage> =
-        api.likedUsers().map { it.toPage() }
+    override suspend fun liked(cursor: String?): ApiResult<OutgoingLikesPage> =
+        api.likedUsers(cursor).map { it.toPage() }
 
     override suspend fun unlike(userId: String): ApiResult<OutgoingLikesPage> =
         api.unlike(userId).map { it.toPage() }
@@ -67,5 +71,6 @@ class DiscoveryRepositoryImpl(private val api: ApiService) : DiscoveryRepository
     private fun MyLikesDto.toPage() = OutgoingLikesPage(
         likes = likes.map { it.toDomain() },
         truncated = hasMore,
+        nextCursor = nextCursor,
     )
 }

@@ -317,15 +317,18 @@ data class OutgoingLike(
 )
 
 /**
- * What the account's own read of its taps answered: the rows it named, and whether it stopped.
+ * What the account's own read of its taps answered: the rows it named, whether it stopped, and the
+ * link that goes past where it stopped.
  *
- * No cursor, for the same reason the inbox and the pass list have none — a tap row stays in this list
- * while it is read and leaves when its author takes it back or the pair is dissolved. So the newest
- * fifty are enough to say whether older taps wait behind them, which is all [truncated] claims.
+ * [nextCursor] is the whole difference between a list and a page: stage 116 could say «за ними ждут
+ * другие» and leave the reader no way to answer, because the door took no cursor. The key is opaque,
+ * built by the server from the last row this page showed, and null exactly when [truncated] is false —
+ * a link to a page that does not exist would be a promise the screen then breaks.
  */
 data class OutgoingLikesPage(
     val likes: List<OutgoingLike>,
     val truncated: Boolean,
+    val nextCursor: String? = null,
 )
 
 data class PublicProfile(
