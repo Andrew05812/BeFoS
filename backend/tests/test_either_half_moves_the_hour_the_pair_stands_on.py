@@ -34,7 +34,10 @@ word that a meeting happened after it was reported as one.
 The partner with the chat open receives both frames in order, and the pair's state stays coherent
 under the races the two doors make: a cancellation crossing a move, and both halves moving at once.
 
-The two endings that are not the pair's last word: a plan called off and an idea the other half pushed away are both refused by the door that reports a meeting as having happened, and each refusal is undone by the very tap that ended it — which is what names the state that refused rather than the clock or an answer already given.
+The two endings that are not the pair's last word: a plan called off and an idea the other half
+pushed away are both refused by the door that reports a meeting as having happened, and each refusal
+is undone by the very tap that ended it — which is what names the state that refused rather than the
+clock or an answer already given.
 
 A stranger naming a real plan id has no plan to move.
 """
