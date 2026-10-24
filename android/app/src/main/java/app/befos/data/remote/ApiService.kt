@@ -30,6 +30,7 @@ import app.befos.data.model.PhotoOrderRequest
 import app.befos.data.model.PlanDetailDto
 import app.befos.data.model.PlanEditRequest
 import app.befos.data.model.PlanListDto
+import app.befos.data.model.PlanNoteRequest
 import app.befos.data.model.ProfileDto
 import app.befos.data.model.ProfileUpdateRequest
 import app.befos.data.model.ProgressDto
@@ -618,6 +619,21 @@ class ApiService(private val client: HttpClient) {
             method = HttpMethod.Patch
             url(endpoint("plans/$planId"))
             setBody(PlanEditRequest(place, note, clearPlace, clearNote))
+        }
+
+    /**
+     * Write, replace, or take back this person's own word about their own plan.
+     *
+     * A PUT, not a PATCH: this route holds one field and replaces it, so an absent `note` is the
+     * erasure the phone sends when the person rubs the field clean. Nothing of the other half's is
+     * read or written here, and the answer carries no plan — the page that sent the tap reads the plan
+     * back, so a card can never be repainted from a response the pair's record did not agree to.
+     */
+    suspend fun savePlanNote(planId: String, note: String?): ApiResult<Unit> =
+        client.apiCallUnit {
+            method = HttpMethod.Put
+            url(endpoint("plans/$planId/note"))
+            setBody(PlanNoteRequest(note))
         }
 
     // ---------- Safety ----------

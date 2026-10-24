@@ -17,16 +17,24 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import app.befos.core.designsystem.AppButton
+import app.befos.core.designsystem.AppButtonVariant
 import app.befos.core.designsystem.AppCard
+import app.befos.core.designsystem.AppTextField
 import app.befos.core.designsystem.AppTopBar
 import app.befos.core.designsystem.EmptyState
 import app.befos.core.designsystem.ErrorState
@@ -43,12 +51,17 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 /**
- * What the plan went through, in the order the pair went through it.
+ * What the plan went through, in the order the pair went through it, and the word only this person
+ * keeps about it.
  *
  * The rows are the conversation's own plan lines, read through the plan rather than through the
  * thread, so this page draws the chat's vocabulary instead of a second one: a pair comparing the two
  * screens finds the same words for the same move, and a move written after this build was frozen
  * arrives here as a line that says it is not readable rather than as a hole in the record.
+ *
+ * The remark sits above them and is not one of them. It is the plan's own page holding the one field
+ * the pair does not share, and it stays on screen even when the chronology is empty — a plan the pair
+ * has not yet moved is exactly the plan a person wants to leave themselves a line about.
  */
 @Composable
 fun PlanHistoryScreen(planId: String, onBack: () -> Unit) {
@@ -59,6 +72,9 @@ fun PlanHistoryScreen(planId: String, onBack: () -> Unit) {
     // starts where the arrangement now stands: opening a long history at its top would make the
     // person scroll to find out what their plan currently is.
     val listState = rememberLazyListState()
+    // Every row the page puts before the chronology moves the reading position: the private remark is
+    // one item, a refused refresh is another, and a plan nobody has moved yet carries its own notice.
+    val headerRows = 1 + (if (state.error != null) 1 else 0) + (if (rows.isEmpty()) 1 else 0)
 
     Scaffold(topBar = { AppTopBar(title = "История плана", onBack = onBack) }) { padding ->
         when {
@@ -67,15 +83,6 @@ fun PlanHistoryScreen(planId: String, onBack: () -> Unit) {
                 message = state.error.orEmpty(),
                 title = "Не удалось прочитать историю",
                 onRetry = vm::load,
-                modifier = Modifier.padding(padding),
-            )
-            rows.isEmpty() -> EmptyState(
-                title = "Истории пока нет",
-                message = "Строк здесь столько, сколько движений сделал план. Первая появится, когда пара " +
-                    "изменит час, место или свой ответ.",
-                overline = "История плана",
-                actionLabel = "Обновить",
-                onAction = vm::load,
                 modifier = Modifier.padding(padding),
             )
             else -> LazyColumn(
@@ -94,6 +101,39 @@ fun PlanHistoryScreen(planId: String, onBack: () -> Unit) {
                         InlineNotice(text = failure, actionLabel = "Перечитать", onAction = vm::load)
                     }
                 }
+                item {
+                    NoteCard(
+                        note = state.myNote,
+                        busy = state.noteBusy,
+                        error = state.noteError,
+                        onSave = vm::saveNote,
+                    )
+                }
+                if (rows.isEmpty()) {
+                    item {
+                        // Not an error and not an empty screen: a plan the pair has not moved yet has
+                        // nothing to report, and the person came here for their own line about it.
+                        AppCard(modifier = Modifier.fillMaxWidth()) {
+                            Column(
+                                modifier = Modifier.padding(Spacing.lg),
+                                verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+                            ) {
+                                Text(
+                                    "ИСТОРИИ ПОКА НЕТ",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                                Text(
+                                    "Строк здесь столько, сколько движений сделал план. Первая появится, " +
+                                        "когда пара изменит час, место или свой ответ.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
                 items(rows, key = { it.id }) { row ->
                     HistoryRow(row)
                 }
@@ -101,23 +141,144 @@ fun PlanHistoryScreen(planId: String, onBack: () -> Unit) {
         }
     }
 
-    // One item past the end still lands on the last row, and the count is deliberately not added out
-    // by hand: the notice above is the list's own first item only when the read was refused, and a
-    // scroll that counted it either way would be one row short half the time.
-    LaunchedEffect(rows.size) {
-        if (rows.isNotEmpty()) listState.scrollToItem(rows.size)
+    // One item past the end still lands on the last row, and the count is not added out by hand at the
+    // call site: the notices above are the list's own items only when their read failed or the plan
+    // has no lines yet, so `headerRows` is what says where the chronology actually begins.
+    LaunchedEffect(rows.size, headerRows) {
+        if (rows.isNotEmpty()) listState.scrollToItem(headerRows + rows.size)
     }
 }
 
 /**
- * One move the plan made, as the pair's record says it.
+ * The person's own line about their own plan: printed, editable, and erasable from one card.
  *
- * The row answers the four questions a history is opened for: what kind of word this is, whose tap
- * wrote it, when, and what actually moved. The last is left to the server's own sentence, because
- * that is the only place the value a field had *before* the move still exists — the plan row holds
- * only what it holds now, and a screen that reprinted those fields would show the pair their current
- * place and nothing of the one they gave up.
+ * The field starts from what the server holds, so an emptied one is a decision to take the word back
+ * rather than a blank nobody meant, and a save that moved nothing sends no request at all. Both the
+ * opened editor and the text inside it are kept across a recreation of the screen: a person who typed
+ * a reminder and turned the phone lost both the sentence and the reason they wrote it if either were
+ * plain composition state.
  */
+@Composable
+private fun NoteCard(
+    note: String?,
+    busy: Boolean,
+    error: String?,
+    onSave: (String) -> Unit,
+) {
+    var open by rememberSaveable { mutableStateOf(false) }
+    var draft by rememberSaveable { mutableStateOf(note.orEmpty()) }
+    var sent by rememberSaveable { mutableStateOf(false) }
+    val stored = note.orEmpty().trim()
+    val limit = planNoteOverfall(draft)
+    // The editor closes when the word the server holds catches up with what was typed — «сохранено»
+    // says the reloaded row rather than a flag this screen invented — and a refusal leaves the typed
+    // text where it was, because losing a word the server would not take is the worse ending.
+    LaunchedEffect(sent, busy, draft, note) {
+        if (sent && !busy && draft.trim() == stored) {
+            sent = false
+            open = false
+        }
+    }
+
+    AppCard(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(Spacing.lg),
+            verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+        ) {
+            Text(
+                PLAN_NOTE_OVERLINE,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (!open) {
+                Text(
+                    planNoteWord(note),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    PLAN_NOTE_PRIVATE_WORD,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                AppButton(
+                    text = if (stored.isEmpty()) PLAN_NOTE_EDIT_WORD else "Изменить своё слово",
+                    onClick = {
+                        draft = stored
+                        sent = false
+                        open = true
+                    },
+                    enabled = !busy,
+                    variant = AppButtonVariant.Ghost,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                if (stored.isNotEmpty()) {
+                    TextButton(onClick = { onSave("") }, enabled = !busy) {
+                        Text(
+                            PLAN_NOTE_CLEAR_WORD,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            } else {
+                AppTextField(
+                    value = draft,
+                    onValueChange = { draft = it },
+                    label = "Моё слово об этой встрече",
+                    placeholder = "Например, взять билеты и подъезд с торца",
+                    singleLine = false,
+                    minLines = 2,
+                    maxLines = 4,
+                    error = limit,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                if (limit != null) {
+                    Text(
+                        limit,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                } else {
+                    Text(
+                        PLAN_NOTE_PRIVATE_WORD,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                AppButton(
+                    text = if (planNoteEdit(note, draft).change == PlanNoteChange.CLEAR)
+                        PLAN_NOTE_CLEAR_WORD else PLAN_NOTE_SAVE_WORD,
+                    onClick = {
+                        sent = true
+                        onSave(draft)
+                    },
+                    enabled = !busy && canSavePlanNote(note, draft),
+                    variant = AppButtonVariant.Tonal,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                TextButton(
+                    onClick = {
+                        draft = stored
+                        open = false
+                    },
+                    enabled = !busy,
+                ) {
+                    Text(
+                        "Отмена",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            error?.let {
+                InlineNotice(text = it, actionLabel = "Повторить", onAction = { onSave(draft) })
+            }
+        }
+    }
+}
+
+/** One move the plan made, as the pair's record says it. */
 @Composable
 private fun HistoryRow(row: PlanHistoryRowUi) {
     AppCard(modifier = Modifier.fillMaxWidth()) {

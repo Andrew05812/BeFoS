@@ -659,6 +659,21 @@ data class PlanListDto(
 data class PlanDetailDto(
     val plan: PlanDto,
     val events: List<MessageDto> = emptyList(),
+    // The reader's own remark about their own plan. Absent means the person never wrote one; it is
+    // never the other half's word, and never a line of the pair's journal.
+    @SerialName("my_note") val myNote: String? = null,
+)
+
+/**
+ * One person's own word about a plan they are in, written through its own door.
+ *
+ * The field leaves when it has text and is absent when the person rubbed it clean, and the server
+ * reads the two cases differently on purpose: this route replaces the remark rather than editing one
+ * of several fields, so an absent `note` is the erasure and not a no-op.
+ */
+@Serializable
+data class PlanNoteRequest(
+    @SerialName("note") val note: String? = null,
 )
 
 // ---------- Safety ----------
