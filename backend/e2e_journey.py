@@ -413,6 +413,22 @@ def agreed_hour_reaches_the_chat(match_id: str, tok_a: str, tok_b: str, activity
             # exactly as far, or the pair arranges a meeting whose address lives in one phone only.
             plan_id = plans[0]["id"]
             words_url = f"{BASE}/plans/{plan_id}"
+            # Stage 124 asks the question the screen of plans was built on: an arrangement the read
+            # itself discovered has to stay the pair's, under one name. Before this the reader built
+            # the row inside its own transaction and lost it at close, so three calls to `/plans`
+            # printed three different ids for one plan and every verb carrying a printed name was
+            # refused as `Plan not found` — a card the person can look at and cannot answer.
+            visits = [
+                (await asyncio.to_thread(
+                    c.get, f"{BASE}/plans", headers=ha)).json()["plans"]
+                for _ in range(2)
+            ]
+            opened = await asyncio.to_thread(c.get, words_url, headers=ha)
+            check(len(visits[0]) == len(visits[1]) == 1
+                  and visits[0][0]["id"] == visits[1][0]["id"] == plan_id
+                  and opened.status_code == 200,
+                  "one arrangement keeps one name across visits, and the name printed can be opened",
+                  f"{[p['id'] for p in visits[0]]} detail={opened.status_code}")
             written = await asyncio.to_thread(
                 c.patch, words_url, headers=ha,
                 json={"place": "Кофейня у парка", "note": "Возьму зонт"},
@@ -459,6 +475,63 @@ def agreed_hour_reaches_the_chat(match_id: str, tok_a: str, tok_b: str, activity
             check(gone_frame is not None and gone_frame.get("kind") == "plan_changed",
                   "an erasure is said in the chat too, not only written to the row",
                   str(gone_frame)[:140])
+
+            # Stage 124 gives a person one word about the plan that the pair does not share. The field
+            # and its route have been in the API since stage 95 and the phone carried neither the read
+            # nor the verb, so a reminder somebody wanted to keep for themselves — «взять билеты» — had
+            # no door in the product. What the walk checks is the part a screen cannot fake: whose eyes
+            # the word reaches, what the empty body the client builds actually does, and that a private
+            # field stays out of the record both halves read.
+            note_url = f"{words_url}/note"
+            lines_before_note = plan_lines(ha)
+            kept_word = await asyncio.to_thread(
+                c.put, note_url, headers=ha, json={"note": "взять билеты у кассы"},
+            )
+            seen_by_a = await asyncio.to_thread(c.get, words_url, headers=ha)
+            seen_by_b = await asyncio.to_thread(c.get, words_url, headers=hb)
+            check(kept_word.status_code == 204
+                  and seen_by_a.json()["my_note"] == "взять билеты у кассы"
+                  and seen_by_b.json()["my_note"] is None
+                  and seen_by_b.json()["plan"]["note"] == "Билеты у кассы"
+                  and await b.nothing("message", 1.0),
+                  "one half's own word is read by its author alone and said to nobody in the chat",
+                  f"B={seen_by_b.json()['my_note']} shared={seen_by_b.json()['plan']['note']}")
+
+            # The phone sends an emptied field as an absent one, because its serializer drops nulls;
+            # the route has to read that shape as the erasure the person meant rather than as a field
+            # left alone, or rubbing the word clean would leave it standing.
+            cleared = await asyncio.to_thread(c.put, note_url, headers=ha, json={})
+            after_clear = await asyncio.to_thread(c.get, words_url, headers=ha)
+            check(cleared.status_code == 204 and after_clear.json()["my_note"] is None
+                  and plan_lines(ha) == lines_before_note,
+                  "the empty body the phone builds for an erasure erases the word and writes no line",
+                  str(after_clear.json()["my_note"]))
+
+            # A word written twice is one word: the route replaces its field, and neither the pair's
+            # history nor their conversation gains anything from the retry of a lost response.
+            again_word = await asyncio.to_thread(
+                c.put, note_url, headers=ha, json={"note": "взять билеты у кассы"},
+            )
+            twice_word = await asyncio.to_thread(
+                c.put, note_url, headers=ha, json={"note": "взять билеты у кассы"},
+            )
+            settled = await asyncio.to_thread(c.get, words_url, headers=ha)
+            check(again_word.status_code == 204 and twice_word.status_code == 204
+                  and settled.json()["my_note"] == "взять билеты у кассы"
+                  and plan_lines(ha) == lines_before_note,
+                  "the same private word written twice is one word and no new line",
+                  str(settled.json()["my_note"]))
+            # The ceiling the page warns at is the ceiling the route holds; a hand-built request past it
+            # is refused where the client would have been stopped, and refuses without moving the plan.
+            too_long = await asyncio.to_thread(
+                c.put, note_url, headers=ha, json={"note": "а" * 501},
+            )
+            held = await asyncio.to_thread(c.get, words_url, headers=ha)
+            check(too_long.status_code == 422
+                  and held.json()["my_note"] == "взять билеты у кассы"
+                  and plan_lines(ha) == lines_before_note,
+                  "a private word past the ceiling is refused and changes nothing the plan held",
+                  f"{too_long.status_code} {str(too_long.text)[:100]}")
 
             # A tap that moved nothing is not a write: the pair's history keeps its length and the open
             # chat stays silent, which is how a lost response being retried does not read as a change.
