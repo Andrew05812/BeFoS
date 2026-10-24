@@ -275,7 +275,13 @@ onboarding_completed_at IS NOT NULL` добавлен миграцией `f3a07c
 ## Социальный граф
 
 ### `likes`
-`from_user_id`, `to_user_id` (FK users, cascade), `compatibility_score` (Float, null). `uq_like_pair (from_user_id, to_user_id)`; индекс `ix_likes_to_user_id` — «кто меня лайкнул» ведёт вторую колонку, и ни один ключ с неё не начинается. Чтение `from_user_id` обслуживает тот же уникальный ключ: одиночный индекс по нему удалён `e6b28c4a13d0`.
+`from_user_id`, `to_user_id` (FK users, cascade), `compatibility_score` (Float, null).
+`uq_like_pair (from_user_id, to_user_id)`; индекс `ix_likes_to_user_id` — «кто меня лайкнул»
+ведёт вторую колонку, и ни один ключ с неё не начинается. Чтение `from_user_id` с стадии 123
+ведёт ключ порядка `ix_likes_tapper_order (from_user_id, created_at DESC, id DESC)`: он
+обслуживает обход своих касаний курсором, и цена его записи названа в `docs/SCALE_PLAN.md`.
+Одиночный индекс по этой колонке `e6b28c4a13d0` удалил как левый префикс уникального ключа —
+и вернул не его, а ключ с порядком.
 
 ### `passes`
 Аналогично `likes`, `uq_pass_pair`. Используется, чтобы не показывать пропущенных повторно.
