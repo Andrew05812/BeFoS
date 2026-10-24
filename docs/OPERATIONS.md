@@ -156,18 +156,13 @@ EXPLAIN на такой трафик никто не переснимал. Drill
    `docker run --rm -v myapp_befos_uploads:/data alpine tar xzf /in/uploads-<timestamp>.tgz -C /data`.
 5. `docker start befos_backend`, дождаться healthy, проверить `/health/db`, затем
    `alembic current` — он должен показать тот же `revision`, что и отпечаток копии.
-6. Прогнать `python e2e_journey.py` (ожидание: 277/277; замер 2026-10-24 — окно
-   01:01:02…01:07:39 UTC на дереве `fdcf876`, отпечатанном в заголовке артефакта
-   `s123_journey_ft2.log` вместе с `tree_dirty=4` и `parity=4 строк отчёта`; четыре
-   грязных файла — документы под `docs/` и `CHANGELOG.md`, которых этот прогон не читает,
-   а под `backend/` и `android/` на тот момент не было изменено ни одного файла), против
-   контейнера
-   `befos_backend`, собранного из того же дерева в 01:00:26…01:00:42 UTC
-   (`s123_journey_ft2_build.log`, `build_exit=0`,
-   `image=sha256:c70dc66533140aea74175ad71eaf8a549c23636c35ad75b60f1585d75ae49d10`), с
-   сверкой 83 файлов `.py` под `app/`: `tree_files=83 image_files=83`, и все три списка
-   расхождений пусты (`s123_image_parity_ft2.txt`, снимок сделан перед прогоном).
-   Итог ряда — `E2E RESULT: 277/277 passed`, 277 отметок `[PASS]` при нуле `[FAIL]`, `exit 0`.
+6. Прогнать `python e2e_journey.py` (ожидание: 282/282; замер 2026-10-24 — окно
+   14:08:01…14:14:42 UTC на дереве `a3a64d9`, отпечатанном в заголовке артефакта
+   `s124_journey_run2.log` вместе с `tree_dirty=0` и `image_parity=4 строк отчёта`), против
+   контейнера `befos_backend`, собранного из того же дерева (`s124_journey_run2_build.log`,
+   `build_exit=0`), со сверкой файлов `.py` под `app/`: `tree_files=83 image_files=83`, и все три
+   списка расхождений пусты (`s124_image_parity_run2.txt`, снимок сделан перед прогоном).
+   Итог ряда — `E2E RESULT: 282/282 passed`, 282 отметок `[PASS]` при нуле `[FAIL]`, `exit 0`.
    Прежнее чтение этого шага ждало 263/263 дерева `b8fc746` — окно 02:08:07…02:14:41 UTC
    (`s122_journey.log`, `build_exit=0`, образ `sha256:be47223e…`, сверка 83 файлов при нуле
    расхождений, `s122_image_parity.txt`), — а ещё прежде этот шаг ждал 263/263 дерева

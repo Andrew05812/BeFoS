@@ -15,6 +15,7 @@ import app.befos.domain.model.OnboardingData
 import app.befos.domain.model.OutgoingLikesPage
 import app.befos.domain.model.PassedPage
 import app.befos.domain.model.Plan
+import app.befos.domain.model.PlanHistory
 import app.befos.domain.model.Profile
 import app.befos.domain.model.ProfileUpdateData
 import app.befos.domain.model.PublicProfile
@@ -210,14 +211,27 @@ interface PlanRepository {
     suspend fun plan(planId: String): ApiResult<Plan>
 
     /**
-     * The plan's own chronology, as the pair's conversation holds it.
+     * The plan's own chronology and this person's own word about it, in one read.
      *
      * These are the same journal lines the chat draws, read through the plan rather than through the
      * thread: the server writes one line per state the pair moved through, with its kind, the person
      * whose tap produced it, and both edges of whatever field moved. No screen keeps a second copy of
      * that record, so a history cannot disagree with the chat about a tap whose answer was lost.
+     *
+     * `myNote` rides along because the answer already carries it: the remark lives on the reader's own
+     * member row, is returned to its author alone, and asking for it a second time would cost a
+     * request to learn something the page was handed.
      */
-    suspend fun history(planId: String): ApiResult<List<Message>>
+    suspend fun history(planId: String): ApiResult<PlanHistory>
+
+    /**
+     * Write this person's own remark about their own plan, or take it back.
+     *
+     * The word is the author's and travels nowhere else: not onto the pair's shared card, not into
+     * their journal, not to the other half's screen. Passing null is the erasure, which the route
+     * reads as a replacement rather than as a field left alone.
+     */
+    suspend fun saveNote(planId: String, note: String?): ApiResult<Unit>
 
     /** Stand behind the idea — the same write as the tap on the pair's card, from another door. */
     suspend fun accept(planId: String): ApiResult<Unit>

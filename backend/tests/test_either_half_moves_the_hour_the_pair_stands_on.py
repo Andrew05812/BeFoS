@@ -34,6 +34,11 @@ word that a meeting happened after it was reported as one.
 The partner with the chat open receives both frames in order, and the pair's state stays coherent
 under the races the two doors make: a cancellation crossing a move, and both halves moving at once.
 
+The two endings that are not the pair's last word: a plan called off and an idea the other half
+pushed away are both refused by the door that reports a meeting as having happened, and each refusal
+is undone by the very tap that ended it — which is what names the state that refused rather than the
+clock or an answer already given.
+
 A stranger naming a real plan id has no plan to move.
 """
 from __future__ import annotations
@@ -476,3 +481,72 @@ async def test_a_stranger_naming_a_real_plan_cannot_move_its_hour(
     assert mine["status"] == "planned" and _instant(mine["starts_at"]) == first, mine
     after = await _chat(client, a["token"], match_id)
     assert [line["id"] for line in after] == [line["id"] for line in before], after
+
+
+async def test_a_called_off_plan_is_not_a_meeting_to_mark_as_done(
+    client: AsyncClient, pair_on_a_standing_hour, monkeypatch: pytest.MonkeyPatch
+):
+    """Both halves' word that the evening happened has nowhere to land on a plan that was called off.
+
+    `set_attended` refuses `cancelled` before it looks at the clock or at either answer, and the row
+    keeps everything it held: a person tapping «встреча состоялась» on a card their phone still shows
+    live gets a refusal rather than a plan that is simultaneously called off and over. The guard has
+    lived in the service since stage 108 without being asked by any check, and stage 108's own row
+    pinned the opposite direction only — `completed` refusing a cancellation.
+
+    The way back is the door the guard names: the half who called the plan off takes it back, and the
+    same two taps then complete it, which is what shows the refusal came from the cancellation rather
+    than from an hour that had not passed or an answer that was already given.
+    """
+    a, b, match_id, idea, plan_id, _first = pair_on_a_standing_hour
+    await _hour_behind_them(client, a, b, match_id, idea, monkeypatch)
+    assert (await _tap(client, a["token"], "POST", plan_id, "cancel"))[0] == 204
+    before = await _chat(client, a["token"], match_id)
+
+    refusals = [await _tap(client, token, "POST", plan_id, "complete")
+                for token in (a["token"], b["token"])]
+    assert [code for code, _ in refusals] == [409, 409], refusals
+    assert all("not a meeting to mark as done" in text for _code, text in refusals), refusals
+
+    mine, theirs = await _read(client, a, b, plan_id)
+    assert [plan["status"] for plan in (mine, theirs)] == ["cancelled", "cancelled"], (mine, theirs)
+    assert mine["hour_passed"] is True and mine["starts_at"] == theirs["starts_at"], (mine, theirs)
+    assert mine["i_attended"] is False and theirs["i_attended"] is False, (mine, theirs)
+    after = await _chat(client, a["token"], match_id)
+    assert [line["id"] for line in after] == [line["id"] for line in before], after
+
+    assert (await _tap(client, a["token"], "DELETE", plan_id, "cancel"))[0] == 204
+    assert (await _tap(client, a["token"], "POST", plan_id, "complete"))[0] == 204
+    assert (await _tap(client, b["token"], "POST", plan_id, "complete"))[0] == 204
+    done = (await _detail(client, a["token"], plan_id))["plan"]
+    assert done["status"] == "completed" and done["can_cancel"] is False, done
+
+
+async def test_a_refused_idea_is_not_a_meeting_to_complete(
+    client: AsyncClient, pair_on_a_standing_hour, monkeypatch: pytest.MonkeyPatch
+):
+    """The other ending the pair can reach: an idea one half pushed away has no meeting to confirm.
+
+    The hour here has already passed, so the refusal cannot be read as the clock's — `declined` is
+    checked before `starts_at` is looked at, and the row says so: the half who refused still owes no
+    answer to anybody, and the other half's word that they went stays refused until the refusal is
+    taken back. Taking it back is the same tap that made it (stage 107), and after it the completion
+    doors open, which is what names the refusal as the thing that refused.
+    """
+    a, b, match_id, idea, plan_id, _first = pair_on_a_standing_hour
+    await _hour_behind_them(client, a, b, match_id, idea, monkeypatch)
+    assert (await _tap(client, b["token"], "POST", plan_id, "decline"))[0] == 204
+
+    code, text = await _tap(client, a["token"], "POST", plan_id, "complete")
+    assert code == 409, text
+    assert "was declined" in text, text
+
+    mine, theirs = await _read(client, a, b, plan_id)
+    assert mine["status"] == theirs["status"] == "declined", (mine, theirs)
+    assert mine["i_attended"] is False and theirs["partner_attended"] is False, (mine, theirs)
+
+    assert (await _tap(client, b["token"], "DELETE", plan_id, "decline"))[0] == 204
+    assert (await _tap(client, a["token"], "POST", plan_id, "complete"))[0] == 204
+    assert (await _tap(client, b["token"], "POST", plan_id, "complete"))[0] == 204
+    done = (await _detail(client, a["token"], plan_id))["plan"]
+    assert done["status"] == "completed", done

@@ -561,6 +561,22 @@ data class Plan(
         get() = pendingHour != null && partnerId != null && pendingBy == partnerId
 }
 
+/**
+ * One plan read by itself: what the pair's record says happened, and the word this person kept for
+ * their own eyes.
+ *
+ * Both arrive in one answer, because the server attaches the journal lines to the plan's own row and
+ * the private remark to the reader's member row. Splitting them across two reads would let the page
+ * show a chronology the person's own note had not caught up with — and cost the phone a request for
+ * every question the plan already answers together.
+ */
+data class PlanHistory(
+    val lines: List<Message>,
+    // This person's own remark about their own plan. The other half never sees this field, and the
+    // pair's journal never carries it, which is why the page can call it private and mean it.
+    val myNote: String?,
+)
+
 data class LikeOutcome(
     val matched: Boolean,
     val matchId: String?,

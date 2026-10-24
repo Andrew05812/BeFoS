@@ -108,7 +108,25 @@ class PlanDetailReadTest {
         // The chronology is attached to the arrangement's own row, so the page asks once: a second
         // request to the thread could only read it while the plan stood somewhere else.
         assertTrue(result is ApiResult.Success)
-        assertEquals(listOf("l1", "l2"), (result as ApiResult.Success).data.map { it.id })
+        assertEquals(listOf("l1", "l2"), (result as ApiResult.Success).data.lines.map { it.id })
+        coVerify(exactly = 1) { api.getPlan("p1") }
+    }
+
+    @Test
+    fun `the same answer hands the page its own word without a second request`() = runTest {
+        val withNote = befosJson.decodeFromString<PlanDetailDto>(
+            full.replace("\"events\": [", "\"my_note\": \"взять билеты\", \"events\": [")
+        )
+        val api = mockk<ApiService> {
+            coEvery { getPlan("p1") } returns ApiResult.Success(withNote)
+        }
+
+        val result = PlanRepositoryImpl(api).history("p1")
+
+        // The remark travels in the answer that already carries the record: the page reaches its own
+        // word for the price of the chronology, and cannot show a journal the word lagged behind.
+        assertEquals("взять билеты", (result as ApiResult.Success).data.myNote)
+        assertEquals(listOf("l1", "l2"), result.data.lines.map { it.id })
         coVerify(exactly = 1) { api.getPlan("p1") }
     }
 
