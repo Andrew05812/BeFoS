@@ -25,13 +25,23 @@ of the person who asked still names the instant. Everything else about the hour 
 Journal lines are written on state moves, not on taps, for the reason `docs/DATABASE.md` already
 gives: the retry of a request whose response was lost has to leave one line behind rather than two,
 and a tap that moved nothing has to leave none.
+
+One more boundary is the service's rather than the rows', and it is the one this file got wrong
+first: an arrangement is *born* when an idea is in the pair's rows, and whoever reads that fact has to
+keep it. The table started empty by design — `shared_plans` fills itself from the pair's taps rather
+than from a second copy of the hour rule written in a migration — but a reader had no transaction of
+its own to commit, so the row it found was thrown away with its projection and the name it printed
+named nothing. `sync_pair(..., keep=True)` is the reader's answer: birth under the pair lock, one
+`ON CONFLICT DO NOTHING` per arrangement, and a commit before the answer goes out.
 """
 
 import uuid
 from collections import namedtuple
 from datetime import datetime
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.analytics.tracker import Event, tracker
 from app.core.exceptions import ConflictError, NotFoundError, ValidationError
@@ -256,7 +266,7 @@ class PlanService:
             return STATUS_ACCEPTED
         return STATUS_PROPOSED
 
-    async def sync_pair(self, match: Match) -> list[SharedPlan]:
+    async def sync_pair(self, match: Match, *, keep: bool = False) -> list[SharedPlan]:
         """Bring the pair's plans up to date with what the pair's rows say, and return them.
 
         One statement over `activity_preferences` for the whole pair, so a plan list across several
@@ -272,7 +282,19 @@ class PlanService:
 
         It never writes a journal line either. Lines belong to the verbs that moved the state, so a
         plan discovered here — an idea the pair arranged before this table existed — cannot be
-        re-announced to their chat every time one of them opens a screen.
+        re-announced to their conversation every time one of them opens a screen.
+
+        `keep` is the difference between a reader and a writer. A verb calls this and commits what it
+        wrote itself, so the arrangement it found is durable by the time its answer goes out. A reader
+        has no commit to lean on, and before this flag existed neither did the arrangement: the row it
+        projected was thrown away with the transaction, the screen printed a name for a plan the
+        database never held, and the next tap carrying that name was refused as `Plan not found`. So
+        a reader that has to birth a row takes the pair lock first — the same lock the page of ideas
+        takes before it writes the pair's deck, for the same reason: `shared_plans` is a child of
+        `matches`, and a dissolve committing its DELETE in this window turns the INSERT into an HTTP
+        500 on a person who only opened a screen. What the commit carries with the birth is the rest
+        of that pair's projection too, which is not a second rule but the same pass written once:
+        every field it holds was read from the pair's rows in this transaction.
         """
         rows = await self.activities.pair_decisions(match.id)
         plans = {plan.activity_id: plan for plan in await self.plans.list_for_match(match.id)}
@@ -281,12 +303,18 @@ class PlanService:
             for activity_id, lines in rows.items()
             if any(line.proposed for line in lines.values())
         }
+        if keep and taken_up - set(plans):
+            await self._lock_pair(match, match.id)
+            # Under the lock, and from the database rather than the identity map: whoever took the
+            # lock second is reading what the first one committed.
+            plans = {plan.activity_id: plan for plan in await self.plans.list_for_match(match.id)}
         # An idea that has left the catalogue gets no plan: `shared_plans.activity_id` is CASCADE, so
         # the arrangement of a card that goes leaves with it, while the conversation keeps its own
         # lines — `messages.plan_activity_id` is SET NULL — so what the pair was said is not rewritten
         # by what the catalogue did afterwards. The read is asked for the ids rather than assumed to
         # hold them because the pair's rows and this table are written in different statements.
         catalogue = await self.activities.get_by_ids(sorted(taken_up))
+        born: list[SharedPlan] = []
 
         for activity_id in sorted(taken_up):
             lines = rows[activity_id]
@@ -295,7 +323,13 @@ class PlanService:
                 activity = catalogue.get(activity_id)
                 if activity is None:
                     continue
-                plan = await self._create_plan(match, activity, lines)
+                if keep:
+                    plan = await self._birth(match, activity, lines)
+                    if plan is None:
+                        continue
+                    born.append(plan)
+                else:
+                    plan = await self._create_plan(match, activity, lines)
                 plans[activity_id] = plan
             else:
                 activity = catalogue.get(activity_id)
@@ -320,6 +354,8 @@ class PlanService:
             plan.status = self._status(plan)
 
         await self.session.flush()
+        if keep and born:
+            await self.session.commit()
         return sorted(plans.values(), key=lambda p: p.created_at, reverse=True)
 
     @staticmethod
@@ -368,6 +404,80 @@ class PlanService:
         plan.pending_by = actor_id
         plan.status = cls._status(plan)
 
+    @staticmethod
+    def _proposer(lines: dict[uuid.UUID, PreferenceLine]) -> uuid.UUID:
+        """Whose choice counts as having started the arrangement, when its row has to be born.
+
+        Read off the pair's rows rather than off whoever opened the screen: a plan the viewer never
+        proposed cannot be written in their name, and the name is what the rule "only the half that
+        called a plan off may take it back" later reads.
+        """
+        proposals = sorted(
+            (line.created_at, str(user_id), user_id)
+            for user_id, line in lines.items()
+            if line.proposed and line.created_at is not None
+        )
+        return proposals[0][2]
+
+    async def _birth(
+        self,
+        match: Match,
+        activity: Activity,
+        lines: dict[uuid.UUID, PreferenceLine],
+    ) -> SharedPlan | None:
+        """The row behind an arrangement, written so that it stays after the read answering about it.
+
+        The insert is `ON CONFLICT DO NOTHING` against the pair-and-idea key rather than an ORM object
+        added to the session, because the key is the fact this path is asserting: one arrangement per
+        pair per idea. Two halves opening their plans at the same moment, or a reader arriving while a
+        verb is still committing, must end with the row the first of them wrote — and the second then
+        reads that row back and projects onto it, rather than minting a second name for one
+        arrangement or colliding on the constraint with an HTTP 500. The lock above makes that race
+        rare; this makes it harmless.
+
+        Null when the idea is no longer in the catalogue: an arrangement of a card that left it has
+        nothing to name, and a row inserted for it would be deleted by the same CASCADE that took the
+        card away.
+        """
+        await self.session.execute(
+            pg_insert(SharedPlan)
+            .values(
+                id=uuid.uuid4(),
+                match_id=match.id,
+                activity_id=activity.id,
+                created_by=self._proposer(lines),
+                title=activity.title,
+                status=STATUS_PROPOSED,
+                created_at=utcnow(),
+                updated_at=utcnow(),
+            )
+            .on_conflict_do_nothing(constraint="uq_shared_plan_pair_activity")
+        )
+        # The durable name, whoever wrote it: an insert that lost the race reports no row of its own,
+        # and a member row keyed by a name the database does not hold would be a foreign-key crash.
+        durable = (
+            await self.session.execute(
+                select(SharedPlan.id).where(
+                    SharedPlan.match_id == match.id, SharedPlan.activity_id == activity.id
+                )
+            )
+        ).scalar_one_or_none()
+        if durable is None:
+            return None
+        for user_id in (match.user_a_id, match.user_b_id):
+            await self.session.execute(
+                pg_insert(SharedPlanMember)
+                .values(
+                    plan_id=durable,
+                    user_id=user_id,
+                    decision=DECISION_PENDING,
+                    created_at=utcnow(),
+                    updated_at=utcnow(),
+                )
+                .on_conflict_do_nothing(constraint="uq_shared_plan_member")
+            )
+        return await self.plans.for_pair(match.id, activity.id)
+
     async def _create_plan(
         self,
         match: Match,
@@ -380,12 +490,7 @@ class PlanService:
         whoever opened the screen, and a plan they never proposed would then be reported as theirs —
         including in the rule that only the person who made a plan may take it back.
         """
-        proposals = sorted(
-            (line.created_at, str(user_id), user_id)
-            for user_id, line in lines.items()
-            if line.proposed and line.created_at is not None
-        )
-        created_by = proposals[0][2]
+        proposer = self._proposer(lines)
         # The two answer rows are built through the relationship rather than inserted beside it: the
         # projection reads `plan.members` in the same statement that creates the plan, and a
         # collection the session never populated is loaded on access — which an async session
@@ -393,7 +498,7 @@ class PlanService:
         plan = SharedPlan(
             match_id=match.id,
             activity_id=activity.id,
-            created_by=created_by,
+            created_by=proposer,
             title=activity.title,
             members=[SharedPlanMember(user_id=user_id) for user_id in (match.user_a_id, match.user_b_id)],
         )
@@ -483,7 +588,7 @@ class PlanService:
 
     async def list_for_match(self, match_id: uuid.UUID, user_id: uuid.UUID) -> list[dict]:
         match = await self._require_match(match_id, user_id)
-        return await self._dto_many(await self.sync_pair(match), user_id)
+        return await self._dto_many(await self.sync_pair(match, keep=True), user_id)
 
     async def list_for_viewer(self, user_id: uuid.UUID) -> list[dict]:
         """Every plan of every pair this person is in — the «Наши планы» screen.
@@ -491,17 +596,24 @@ class PlanService:
         Synced pair by pair: the projection reads the rows, so a list that skipped it would report
         the hours the pair stood on as the rows said them at the last write and would go on offering
         an agreement one of them has since moved.
+
+        A pair that dissolved between the list of pairs and its own read is dropped rather than
+        raised: `keep` answers 404 for it under the pair lock, and a person whose screen holds four
+        other arrangements has no reason to learn about the fifth from an error that hides them all.
         """
         plans: list[SharedPlan] = []
         for match in await self.social.list_matches_for_user(user_id):
-            plans.extend(await self.sync_pair(match))
+            try:
+                plans.extend(await self.sync_pair(match, keep=True))
+            except NotFoundError:
+                continue
         dto = await self._dto_many(plans, user_id)
         dto.sort(key=lambda item: item["created_at"], reverse=True)
         return dto
 
     async def detail(self, plan_id: uuid.UUID, user_id: uuid.UUID) -> dict:
         match, plan = await self._require_plan(plan_id, user_id)
-        synced = await self.sync_pair(match)
+        synced = await self.sync_pair(match, keep=True)
         plan = next(p for p in synced if p.id == plan_id)
         items = await self._dto_many([plan], user_id)
         events = await self.plans.events(plan_id)
