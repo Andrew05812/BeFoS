@@ -27,9 +27,12 @@ from app.models import Match, Message, SharedPlan, SharedPlanMember, User
 from .conftest import answer_all_questions, auth_headers, complete_onboarding, register_and_auth
 
 # Pinned by measurement, not by wish: this row counted 8 selects and 0 writes for one read of a
-# pair (the caller's session, the pair's own row, the two profiles with their interests and answer
-# vectors, the interest titles of what they share, the two names, the pair's plans). The stand
-# publishes the same count in the `pair_profile` row, and a change here must be a change there.
+# pair that shares an interest (the caller's session, the pair's own row, the two profiles with their
+# interests and answer vectors, the interest titles of what they share, the two names, the pair's
+# plans). The stand's pair shares nothing — its profiles draw interests independently — and the
+# seventh read is exactly the title lookup, which `explain_pair` skips when there is no slug to
+# resolve; `test_the_eighth_read_buys_the_titles_of_what_the_pair_shares` measures that pair too, so
+# both numbers are published ones: 7 in the `pair_profile` row of `docs/SCALE_PLAN.md`, 8 here.
 EXPECTED_SELECTS = 8
 
 
@@ -108,6 +111,61 @@ async def test_the_profile_reads_the_pair_in_one_batched_pass(client: AsyncClien
     # A pair is one object: which half opens it must not change what the other half would read.
     assert theirs.json()["people"] == body["people"]
     assert theirs.json()["compatibility"]["overall"] == digest["overall"]
+
+
+async def _apart(client: AsyncClient, prefix: str) -> tuple[dict, dict, str]:
+    """The same pair, built with two interest sets that do not overlap.
+
+    The stand seeds exactly this: its profiles draw interests independently, so the pair it measures
+    usually shares nothing. The count below is the proof of what the eighth read of
+    [EXPECTED_SELECTS] is: the titles of the interests the pair shares, which `explain_pair` asks for
+    only when there is a slug to look up.
+    """
+    a = await register_and_auth(client, f"{prefix}_a@befos.app")
+    items = (await client.get("/api/v1/users/interests", headers=auth_headers(a["token"]))).json()
+    catalog = items if isinstance(items, list) else items.get("interests", [])
+    slugs = [i["slug"] for i in catalog]
+    assert len(slugs) >= 4, f"каталог интересов не даёт двух непересекающихся наборов: {slugs}"
+    await complete_onboarding(client, a["token"], name="Аня", gender="female", interests=slugs[:2])
+    await answer_all_questions(client, a["token"])
+    b = await register_and_auth(client, f"{prefix}_b@befos.app")
+    await complete_onboarding(
+        client, b["token"], name="Боря", gender="male", interests=slugs[2:4]
+    )
+    await answer_all_questions(client, b["token"])
+    await client.post(f"/api/v1/users/{b['user_id']}/like", headers=auth_headers(a["token"]))
+    back = await client.post(
+        f"/api/v1/users/{a['user_id']}/like", headers=auth_headers(b["token"])
+    )
+    return a, b, back.json()["match_id"]
+
+
+async def test_the_eighth_read_buys_the_titles_of_what_the_pair_shares(
+    client: AsyncClient,
+) -> None:
+    """A pair with nothing shared costs one read less — and the row in `docs/SCALE_PLAN.md` says 7.
+
+    Both numbers are published, so both are measured here: eight over a pair that shares an interest
+    ([EXPECTED_SELECTS]), seven over a pair that shares none. The gap is the one conditional read in
+    `CompatibilityService.explain_pair`, and it is not a leak or an accident — asking the catalogue
+    for titles nobody will read would be a statement paid for by a sentence the screen never prints.
+    """
+    a, _, match_id = await _apart(client, "s125_apart")
+    resp, kinds = await _counted(
+        client, client.get(f"/api/v1/matches/{match_id}/profile", headers=auth_headers(a["token"]))
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+
+    assert body["compatibility"]["shared_interests"] == [], body["compatibility"]
+    assert kinds["select"] == EXPECTED_SELECTS - 1, (
+        f"наблюдено {kinds['select']} обращений: {dict(kinds)} — разрыв между рядом прибора "
+        f"и караулом держит одна условная читка названий общих интересов"
+    )
+    assert kinds["insert"] == kinds["update"] == kinds["delete"] == 0, dict(kinds)
+    # The starter survives the empty list: it names a band instead, and the screen still has a place
+    # to begin — a pair with nothing shared is not a pair with nothing to say.
+    assert body["compatibility"]["starter"]
 
 
 async def test_a_stranger_never_sees_a_pair_they_are_not_in(client: AsyncClient) -> None:
