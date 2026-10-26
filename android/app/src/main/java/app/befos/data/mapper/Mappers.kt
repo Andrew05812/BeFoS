@@ -15,6 +15,8 @@ import app.befos.data.model.MyLikeDto
 import app.befos.data.model.OnboardingRequest
 import app.befos.data.model.OptionDto
 import app.befos.data.model.PassedUserDto
+import app.befos.data.model.PairPersonDto
+import app.befos.data.model.PairProfileDto
 import app.befos.data.model.PlanDto
 import app.befos.data.model.ProfileDto
 import app.befos.data.model.ProfileUpdateRequest
@@ -55,6 +57,9 @@ import app.befos.domain.model.OnboardingData
 import app.befos.domain.model.Option
 import app.befos.domain.model.OutgoingLike
 import app.befos.domain.model.PassedUser
+import app.befos.domain.model.PairNextPlan
+import app.befos.domain.model.PairPerson
+import app.befos.domain.model.PairProfile
 import app.befos.domain.model.Profile
 import app.befos.domain.model.ProfilePhoto
 import app.befos.domain.model.ProfileUpdateData
@@ -141,14 +146,59 @@ fun TestProfileDto.toDomain() = TestProfile(
     updatedAt = updatedAt,
 )
 
-fun ExplanationItemDto.toDomain() = Explanation(category, label, text, score)
+/**
+ * The kind of difference travels as the engine's own word and lands as [Connection]: an absent field or
+ * a word this build does not know both read as [Connection.UNKNOWN], which the screen draws as no kind
+ * at all rather than as the weakest kind it happens to hold.
+ */
+fun ExplanationItemDto.toDomain() = Explanation(
+    category = category,
+    label = label,
+    text = text,
+    score = score,
+    connection = connection?.let { Connection.fromJson(it) } ?: Connection.UNKNOWN,
+)
 
+/**
+ * Nothing on this way in is computed. [engineVersion] used to be dropped on the floor here, which left
+ * the phone holding a percent it could not say the age of, and the completeness fields did not exist in
+ * Kotlin at all — so the screen had no way to tell «62 %, и 5 из 7 полос сравнены» from «62 %, с чем —
+ * неизвестно». A null on the wire stays a null in the model: an answer from before the fields carries
+ * no completeness, and zero would be a claim about it.
+ */
 fun CompatibilityDto.toDomain() = Compatibility(
     overall = overall,
     categories = categories.map { it.toDomain() },
     strengths = strengths.map { it.toDomain() },
     differences = differences.map { it.toDomain() },
     sharedInterests = sharedInterests,
+    engineVersion = engineVersion,
+    bandsMeasured = bandsMeasured,
+    bandsTotal = bandsTotal,
+    measuredWeight = measuredWeight,
+    starter = starter,
+)
+
+fun PairPersonDto.toDomain() = PairPerson(userId = userId, name = name)
+
+/**
+ * The pair's reading, mapped field for field. The order of [PairProfile.people] is the pair's own and is
+ * kept as the server wrote it, because both halves are answered in that order and the screen labels the
+ * two people by it. `plan` stays nullable: no hour agreed is a fact about the pair, not an empty plan.
+ */
+fun PairProfileDto.toDomain() = PairProfile(
+    matchId = matchId,
+    since = since,
+    people = people.map { it.toDomain() },
+    compatibility = compatibility.toDomain(),
+    plansTotal = plansTotal,
+    plan = plan?.let {
+        PairNextPlan(
+            planId = it.planId,
+            status = it.status,
+            startsAt = it.startsAt,
+        )
+    },
 )
 
 fun UniverseNodeDto.toDomain() = UniverseNode(

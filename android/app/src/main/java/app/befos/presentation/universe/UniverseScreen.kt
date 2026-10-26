@@ -86,6 +86,7 @@ import app.befos.domain.model.Connection
 import app.befos.domain.model.Universe
 import app.befos.domain.model.UniverseLayer
 import app.befos.domain.model.UniverseNode
+import app.befos.presentation.common.connectionKindWord
 
 @Composable
 fun UniverseScreen(
@@ -791,12 +792,12 @@ private fun AssuranceRow(confidence: Int, compared: Boolean) {
 // words, derived from the values each node already carries
 // ---------------------------------------------------------------------------
 
-internal fun connectionWord(connection: Connection): String = when (connection) {
-    Connection.HARMONY -> "совпадение"
-    Connection.COMPLEMENTARITY -> "дополнение"
-    Connection.DISCUSSION -> "расхождение"
-    Connection.UNKNOWN -> "нет данных"
-}
+/**
+ * The map's word for a relation between two answers. It is the word every screen that reads this field
+ * uses — [app.befos.presentation.common.connectionKindWord] — because the pair opens the map and the
+ * compatibility page over the same engine and cannot be told the same difference two different things.
+ */
+internal fun connectionWord(connection: Connection): String = connectionKindWord(connection)
 
 /** How many quarters of its own band's width still separate this answer from the next band. */
 internal const val ASSURANCE_STEPS = 4

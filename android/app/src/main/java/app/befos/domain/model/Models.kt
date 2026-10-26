@@ -138,19 +138,85 @@ data class TestProfile(
     val updatedAt: String? = null,
 )
 
+/**
+ * One worded line of the pair's explanation.
+ *
+ * [connection] is the engine's own name for how the two answers relate, and it is not decoration: the
+ * sentence «Разное отношение: …» read without it is a difference with no kind, and the kind is what
+ * tells a person whether they are looking at agreement, at two halves of one thing, or at a
+ * conversation. [Connection.UNKNOWN] means the answer never named one — the screen then says nothing
+ * about the kind instead of choosing it.
+ */
 data class Explanation(
     val category: String,
     val label: String,
     val text: String,
     val score: Double,
+    val connection: Connection = Connection.UNKNOWN,
 )
 
+/**
+ * The pair's compatibility document, exactly as the engine wrote it.
+ *
+ * No number here is the phone's: [overall] is the engine's weighted sum, every [CategoryScore] carries
+ * the weight the engine gave it, and the four completeness fields below are the engine's own account of
+ * what that sum rests on. [engineVersion] is kept because two versions of the engine can print the same
+ * percent from different answers, and a reading that cannot say which one it is cannot be compared with
+ * the same pair's reading from last spring.
+ *
+ * [bandsMeasured] / [bandsTotal] / [measuredWeight] are null when the answer did not say them, which is
+ * not the same fact as zero: a document from before stage 125 has no completeness to report, while a
+ * document that reports `0 из 7` says the percent stands entirely on the engine's neutral half. The
+ * screen has to be able to tell the two apart, and it must not print a bar for a band nobody compared.
+ */
 data class Compatibility(
     val overall: Int,
     val categories: List<CategoryScore>,
     val strengths: List<Explanation>,
     val differences: List<Explanation>,
     val sharedInterests: List<String>,
+    val engineVersion: Int = 1,
+    val bandsMeasured: Int? = null,
+    val bandsTotal: Int? = null,
+    val measuredWeight: Double? = null,
+    val starter: String = "",
+)
+
+/** One half of the pair, in the pair's own order — the order is identical for both of them. */
+data class PairPerson(
+    val userId: String,
+    val name: String,
+)
+
+/**
+ * The nearest arrangement the pair has an hour for.
+ *
+ * [status] is the server's word for which move the plan is on and the screen quotes it rather than
+ * re-deriving what `planned` entitles the pair to do; [startsAt] stays the server's text for the same
+ * reason every other moment in this file does.
+ */
+data class PairNextPlan(
+    val planId: String,
+    val status: String,
+    val startsAt: String,
+)
+
+/**
+ * One reading of a pair, whole: the two people, their number, and what they have agreed.
+ *
+ * This is the document behind a reading surface, not an editor: everything in it is also reachable from
+ * the pair's own screens, and [compatibility] is literally the same document the compatibility page
+ * draws, so the digest and the detail cannot disagree about one pair. [plansTotal] and [plan] answer
+ * different questions — how many arrangements the pair holds, and which of them has an hour the pair
+ * is standing on right now — and neither is derivable from the other.
+ */
+data class PairProfile(
+    val matchId: String,
+    val since: String,
+    val people: List<PairPerson>,
+    val compatibility: Compatibility,
+    val plansTotal: Int,
+    val plan: PairNextPlan?,
 )
 
 /**

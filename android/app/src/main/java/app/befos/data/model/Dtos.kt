@@ -272,14 +272,36 @@ data class TestProfileDto(
 )
 
 // ---------- Compatibility ----------
+/**
+ * One worded line of the explanation, with the kind of difference the engine named.
+ *
+ * `connection` is the engine's own word for *how* the two answers relate (`harmony`,
+ * `complementarity`, `discussion`) and it arrived with stage 125: a screen that printed only the
+ * text used to call every line in `differences` a shortfall, which is exactly the claim the backend
+ * refuses to make. Null is a response from before the field, and the screen then prints the sentence
+ * with no kind attached rather than guessing one — the guess would be the app's opinion about a
+ * person's answers, not the engine's.
+ */
 @Serializable
 data class ExplanationItemDto(
     val category: String = "",
     val label: String = "",
     val text: String = "",
     val score: Double = 0.0,
+    val connection: String? = null,
 )
 
+/**
+ * The pair's compatibility document.
+ *
+ * The four fields after [sharedInterests] are what lets the screen say how much of its own number is
+ * measured: [bandsMeasured] out of [bandsTotal] bands actually compared two answers, [measuredWeight]
+ * is the share of the weight that is, and [starter] is the one place the engine suggests to begin
+ * from. All three default to absent — a response written before stage 125 carries them nowhere, and a
+ * phone that printed «сверено 0 из 0 полос» about such a document would be reporting a completeness
+ * the server never claimed. Nothing here is derived on the device: the percent, the bands and the
+ * weight all belong to the engine, and the client only repeats them.
+ */
 @Serializable
 data class CompatibilityDto(
     val overall: Int,
@@ -288,6 +310,58 @@ data class CompatibilityDto(
     val strengths: List<ExplanationItemDto> = emptyList(),
     val differences: List<ExplanationItemDto> = emptyList(),
     @SerialName("shared_interests") val sharedInterests: List<String> = emptyList(),
+    @SerialName("bands_measured") val bandsMeasured: Int? = null,
+    @SerialName("bands_total") val bandsTotal: Int? = null,
+    @SerialName("measured_weight") val measuredWeight: Double? = null,
+    val starter: String = "",
+)
+
+// ---------- Pair profile ----------
+/**
+ * One half of the pair, named by the pair's own order.
+ *
+ * The server lists the two people `user_a` first and answers the same way to both halves, so the
+ * screen keys on these ids instead of working out who is asking — and a document copied to another
+ * device still names the same two people in the same two places.
+ */
+@Serializable
+data class PairPersonDto(
+    @SerialName("user_id") val userId: String,
+    val name: String,
+)
+
+/**
+ * The nearest arrangement the pair has agreed to an hour for.
+ *
+ * `starts_at` is the server's instant kept as text: the plan's own screen is where a moment becomes a
+ * printed hour, and a value parsed and re-printed on the way here could name an evening nobody agreed
+ * to. Absent when the pair has nothing standing with an hour — the route writes null, not a placeholder.
+ */
+@Serializable
+data class PairPlanDto(
+    @SerialName("plan_id") val planId: String,
+    val status: String = "",
+    @SerialName("starts_at") val startsAt: String = "",
+)
+
+/**
+ * One reading of a pair: the two people, the same compatibility document the pair page draws, and what
+ * they have agreed.
+ *
+ * `since` is the day the pair formed, as the server's text. `plansTotal` counts every arrangement the
+ * pair holds, while [plan] names only the nearest one with an hour — the two numbers answer different
+ * questions and the screen must not read one as the other. `compatibility` rides along so the reading
+ * surface costs one request rather than two; it is the identical document `GET /matches/{id}
+ * /compatibility` answers with, so no screen can be shown a digest and a detail that disagree.
+ */
+@Serializable
+data class PairProfileDto(
+    @SerialName("match_id") val matchId: String,
+    val since: String = "",
+    val people: List<PairPersonDto> = emptyList(),
+    val compatibility: CompatibilityDto,
+    @SerialName("plans_total") val plansTotal: Int = 0,
+    val plan: PairPlanDto? = null,
 )
 
 // ---------- Compatibility Universe ----------

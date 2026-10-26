@@ -27,6 +27,7 @@ import app.befos.data.model.OnboardingRequest
 import app.befos.data.model.PassResponseDto
 import app.befos.data.model.PassedUsersDto
 import app.befos.data.model.PhotoOrderRequest
+import app.befos.data.model.PairProfileDto
 import app.befos.data.model.PlanDetailDto
 import app.befos.data.model.PlanEditRequest
 import app.befos.data.model.PlanListDto
@@ -416,6 +417,22 @@ class ApiService(private val client: HttpClient) {
         client.apiCall {
             method = HttpMethod.Get
             url(endpoint("matches/$matchId/universe"))
+        }
+
+    /**
+     * One reading of the pair whole: the two people, the compatibility document, and the nearest hour
+     * they agreed to.
+     *
+     * The route answers for either half of the pair and for nobody else — a stranger gets the same 404
+     * the other pair pages give, so the screen's «this pair is gone» branch is one state and not two.
+     * The compatibility document travels inside it because the reading surface would otherwise ask for
+     * the same fields the pair page already answers with, and could then be shown a digest that had
+     * been computed between the two calls.
+     */
+    suspend fun getPairProfile(matchId: String): ApiResult<PairProfileDto> =
+        client.apiCall {
+            method = HttpMethod.Get
+            url(endpoint("matches/$matchId/profile"))
         }
 
     suspend fun getRecommendations(matchId: String, force: Boolean = false): ApiResult<RecommendationListDto> =

@@ -21,6 +21,7 @@ import app.befos.presentation.editprofile.EditProfileScreen
 import app.befos.presentation.main.MainScreen
 import app.befos.presentation.moderation.ModerationScreen
 import app.befos.presentation.onboarding.OnboardingScreen
+import app.befos.presentation.pair.PairProfileScreen
 import app.befos.presentation.plans.PlanHistoryScreen
 import app.befos.presentation.plans.PlansScreen
 import app.befos.presentation.profile.MyProfileScreen
@@ -129,6 +130,7 @@ fun BeFosNavHost(navController: NavHostController) {
         composable(Routes.MAIN) {
             MainScreen(
                 onOpenChat = { matchId -> navController.navigate(Routes.chat(matchId)) { launchSingleTop = true } },
+                onOpenPairProfile = { matchId -> navController.navigate(Routes.pair(matchId)) { launchSingleTop = true } },
                 onOpenProfile = { userId -> navController.navigate(Routes.publicProfile(userId)) { launchSingleTop = true } },
                 onEditProfile = { navController.navigate(Routes.EDIT_PROFILE) { launchSingleTop = true } },
                 onOpenSettings = { navController.navigate(Routes.SETTINGS) { launchSingleTop = true } },
@@ -229,6 +231,7 @@ fun BeFosNavHost(navController: NavHostController) {
                 onOpenCompatibility = { navController.navigate(Routes.compatibility(matchId)) { launchSingleTop = true } },
                 onOpenRecommendations = { navController.navigate(Routes.recommendations(matchId)) { launchSingleTop = true } },
                 onOpenPlans = { navController.navigate(Routes.plans(matchId)) { launchSingleTop = true } },
+                onOpenPairProfile = { navController.navigate(Routes.pair(matchId)) { launchSingleTop = true } },
                 // A plan line names the plan it was written about, and the pair tapping it wants that
                 // row on the page that holds the pair's plans. A line that carries no plan id — one
                 // the server wrote before the id existed — still leads somewhere: the pair's ideas.
@@ -286,6 +289,32 @@ fun BeFosNavHost(navController: NavHostController) {
                 // else's; the reading that belongs to her alone is the one screen the caption points
                 // at, and it is already on this graph under its own route.
                 onOpenMyProfile = { navController.navigate(Routes.MY_PROFILE) { launchSingleTop = true } },
+                // The starter the engine offered travels to the composer as a draft, encoded: it is a whole
+                // sentence and a route is a URI. The map hands its questions over the same way.
+                onAskInChat = { draft ->
+                    navController.navigate(Routes.chat(matchId, Uri.encode(draft))) {
+                        launchSingleTop = true
+                    }
+                },
+            )
+        }
+
+        composable(
+            route = Routes.PAIR,
+            arguments = NavArguments.pair(),
+        ) { entry ->
+            val matchId = entry.arguments?.getString(Routes.CHAT_ARG).orEmpty()
+            PairProfileScreen(
+                matchId = matchId,
+                onBack = { navController.popBackStack() },
+                // The reading surface leads to the analysis it digests, and to the plans it names an hour
+                // for — with that hour's plan brought into view, the way a chat line brings it.
+                onOpenCompatibility = {
+                    navController.navigate(Routes.compatibility(matchId)) { launchSingleTop = true }
+                },
+                onOpenPlans = { planId ->
+                    navController.navigate(Routes.plans(matchId, planId)) { launchSingleTop = true }
+                },
             )
         }
 

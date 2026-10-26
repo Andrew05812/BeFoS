@@ -37,6 +37,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.SupervisorAccount
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.ButtonDefaults
@@ -1517,6 +1518,11 @@ fun MatchCard(
     unread: Int,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    // The pair's own reading, opened beside the thread the card leads to by default. A second door on the
+    // row has to be worth the space it costs on a 320dp screen, so it is an icon with a named description
+    // rather than another word — and it stays null wherever the product has no pair page to open, because
+    // a control that leads nowhere is worse than the gap it would fill.
+    onOpenPairProfile: (() -> Unit)? = null,
     // The card is a tap into the pair's chat; ending a pair is a different act and needs its own
     // tap. Left null the card stays what it was on every other screen: one clickable, no second
     // door. The word rather than an icon, following the «Разблокировать» row of the blocked list —
@@ -1579,6 +1585,20 @@ fun MatchCard(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
+                }
+            }
+            onOpenPairProfile?.let { action ->
+                IconButton(
+                    onClick = action,
+                    // The card's own tap goes to the thread, so this door has to say which of the two it
+                    // opens and for whom — a bare icon in a row about a person would read as decoration.
+                    modifier = Modifier.semantics { contentDescription = "Профиль пары $name" },
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.SupervisorAccount,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
         }
