@@ -842,7 +842,9 @@ internal fun sectionHint(connection: Connection): String = when (connection) {
     Connection.HARMONY -> "Оба ответили в одной полосе."
     Connection.COMPLEMENTARITY -> "Ответы разные, но не противоположные."
     Connection.DISCUSSION -> "Ответы из противоположных полос."
-    Connection.UNKNOWN -> "Здесь сравнивать было не с чем: это не совпадение и не спор."
+    // «Сверять» — то же слово, что у подписи пустой полосы на экране пары и у её строки: отсутствие
+    // сравнения на одном экране не может называться тремя способами.
+    Connection.UNKNOWN -> "Здесь нечего сверять: это не совпадение и не спор."
 }
 
 internal fun legendHint(connection: Connection): String = when (connection) {

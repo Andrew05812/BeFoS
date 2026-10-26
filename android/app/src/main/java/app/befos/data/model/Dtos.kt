@@ -122,6 +122,9 @@ data class ProfileDto(
     @SerialName("city_preference") val cityPreference: String? = null,
     @SerialName("is_hidden") val isHidden: Boolean = false,
     @SerialName("is_moderator") val isModerator: Boolean = false,
+    // The server's own stamp that onboarding ran through. Default false: an answer from an older
+    // backend says nothing, and silence must not read as «прошёл».
+    @SerialName("onboarding_completed") val onboardingCompleted: Boolean = false,
 )
 
 @Serializable

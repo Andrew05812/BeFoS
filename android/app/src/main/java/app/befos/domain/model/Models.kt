@@ -43,6 +43,16 @@ data class Profile(
      * off the row per request, so an account that draws its way in is stopped by the server.
      */
     val isModerator: Boolean = false,
+    /**
+     * Whether the server holds the stamp that onboarding ran through.
+     *
+     * The start screen asks this instead of guessing from the fields, because the guess cannot
+     * work: registration leaves a shell already holding a name taken from the email and the
+     * default goal, while a person who deliberately named no interests — an answer onboarding
+     * accepts and names aloud — looks unfinished to any field rule. Reading that person back into
+     * the form would cut them off from their own pair.
+     */
+    val onboardingCompleted: Boolean = false,
 ) {
     /** The row the way every screen reads it: urls, in the order the owner's writes left them. */
     val photoUrls: List<String> get() = photos.map { it.url }

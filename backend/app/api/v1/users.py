@@ -47,6 +47,7 @@ def _profile_to_out(profile, photos: list, is_moderator: bool) -> ProfileOut:
         gender_preference=profile.gender_preference or [],
         city_preference=profile.city_preference,
         is_hidden=bool(profile.is_hidden),
+        onboarding_completed=profile.onboarding_completed_at is not None,
     )
 
 

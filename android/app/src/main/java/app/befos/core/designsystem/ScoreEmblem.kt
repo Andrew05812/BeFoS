@@ -164,12 +164,17 @@ object ScoreEmblemGeometry {
      */
     fun spokenDescription(percent: Int, caption: String?, quietLabels: List<String>): String =
         buildString {
-            append("Итог $percent%.")
-            if (!caption.isNullOrBlank()) append(" $caption.")
+            append("Итог $percent%")
+            // Запятая, а не точка: подпись под полосами начинается со строчной, и отдельным
+            // предложением она звучала бы как оборванная фраза.
+            if (!caption.isNullOrBlank()) append(", $caption")
+            append(".")
             if (quietLabels.isNotEmpty()) {
-                val word = if (quietLabels.size == 1) "полоса" else "полосы"
-                val short = if (quietLabels.size == 1) "сверена" else "сверены"
-                append(" Не $short $word: ${quietLabels.joinToString(", ")} — они показаны пустыми.")
+                val one = quietLabels.size == 1
+                val word = if (one) "полоса" else "полосы"
+                val short = if (one) "сверена" else "сверены"
+                val shown = if (one) "на экране она пустая" else "на экране они пустые"
+                append(" Не $short $word: ${quietLabels.joinToString(", ")} — $shown.")
             }
         }
 }

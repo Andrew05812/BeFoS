@@ -420,8 +420,12 @@ internal fun kindLine(item: Explanation): String =
 internal fun quietBandsHint(categories: List<CategoryScore>): String? {
     val quiet = categories.count { !it.hasData }
     if (quiet == 0) return null
-    val word = if (quiet == 1) "полоса" else "полосы"
-    return "Не сверено полос: $quiet — они показаны пустыми. Нажмите на такую $word, чтобы увидеть, чем она заполняется."
+    return if (quiet == 1) {
+        "Не сверена одна полоса — она показана пустой. Нажмите на неё, чтобы увидеть, чем она заполняется."
+    } else {
+        "Не сверено полос: $quiet — они показаны пустыми. " +
+            "Нажмите на такую полосу, чтобы увидеть, чем она заполняется."
+    }
 }
 
 internal fun prettifySlug(slug: String): String =

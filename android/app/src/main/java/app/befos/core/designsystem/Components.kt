@@ -1270,6 +1270,11 @@ fun AppTopBar(
                 title,
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
+                // Имя собеседника длиннее, чем место за пятью кнопками: без этой пары строк экран
+                // резал «Максимилиан» на три строки и поднимал шапку над лентой. Узел при этом
+                // несёт полное имя, и TalkBack называет его целиком.
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         },
         modifier = modifier,

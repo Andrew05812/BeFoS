@@ -106,6 +106,7 @@ fun ProfileDto.toDomain() = Profile(
     cityPreference = cityPreference,
     isHidden = isHidden,
     isModerator = isModerator,
+    onboardingCompleted = onboardingCompleted,
 )
 
 fun OptionDto.toDomain() = Option(id, text)

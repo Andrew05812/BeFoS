@@ -182,13 +182,29 @@ class CompatibilityCompletenessTest {
     @Test
     fun `the hint about holes appears only while there are holes`() {
         assertNull(quietBandsHint(listOf(CategoryScore("values", "Ценности", 88, 0.25))))
-        val hint = quietBandsHint(
+    }
+
+    @Test
+    fun `the hint about holes agrees in number with the holes it counts`() {
+        val one = quietBandsHint(
             listOf(
                 CategoryScore("values", "Ценности", 88, 0.25),
                 CategoryScore("interests", "Интересы", 50, 0.05, hasData = false),
             ),
-        )
-        assertTrue(hint!!.contains("1"))
-        assertTrue(hint.contains("полоса"))
+        )!!
+        // Одна дыра не может называться «они показаны пустыми»: экран говорит об одной полосе.
+        assertTrue(one.contains("полоса"))
+        assertTrue(one.contains("она показана пустой"))
+        assertTrue("единственная полоса не считается списком", !one.contains("полос:"))
+        assertTrue(!one.contains("они"))
+
+        val two = quietBandsHint(
+            listOf(
+                CategoryScore("interests", "Интересы", 50, 0.05, hasData = false),
+                CategoryScore("leisure", "Досуг", 50, 0.05, hasData = false),
+            ),
+        )!!
+        assertTrue(two.contains("Не сверено полос: 2"))
+        assertTrue(two.contains("они показаны пустыми"))
     }
 }

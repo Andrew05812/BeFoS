@@ -132,6 +132,12 @@ class ProfileOut(BaseModel):
     # learning where somebody searches.
     city_preference: str | None = None
     is_hidden: bool = False
+    # The stamp `users.onboarding_completed_at` says once and never takes back. The client needs it
+    # because its own guess from the fields cannot work: registration leaves a shell holding a name
+    # taken from the email and the default goal, while a person who named no interests — an answer
+    # onboarding accepts and names aloud — looks unfinished to any field rule. Without this the
+    # start screen sends that person back to the form and away from their own pair.
+    onboarding_completed: bool = False
     # Every route answering with this schema is a `/users/me*` route, so the role a reader sees here
     # is the reader's own. It tells the client where to put a door, and opens nothing: the
     # moderation routes read the flag off the account row per request (`app/auth/deps.py:56`).

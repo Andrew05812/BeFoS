@@ -174,11 +174,21 @@ class ScoreEmblemGeometryTest {
             caption = "сверено 5 из 7 полос",
             quietLabels = listOf("Интересы"),
         )
-        assertTrue(spoken.startsWith("Итог 62%."))
-        assertTrue(spoken.contains("сверено 5 из 7 полос"))
+        // Одна фраза, а не два предложения: подпись под полосами начинается со строчной, и поставленная
+        // перед ней точка диктовала TalkBack «Итог 62%» и новое предложение с маленькой буквы.
+        assertEquals(
+            "Итог 62%, сверено 5 из 7 полос. Не сверена полоса: Интересы — на экране она пустая.",
+            spoken,
+        )
         assertTrue("the quiet band has to be named, not only drawn", spoken.contains("Интересы"))
-        assertTrue("a hole must be announced as a hole", spoken.contains("показаны пустыми"))
         assertEquals(1, spoken.lines().size)
+
+        // Мнесественное число держит свою форму согласования, а не копирует единственную.
+        assertEquals(
+            "Итог 62%, сверено 5 из 7 полос. Не сверены полосы: Интересы, Цели — " +
+                "на экране они пустые.",
+            ScoreEmblemGeometry.spokenDescription(62, "сверено 5 из 7 полос", listOf("Интересы", "Цели")),
+        )
 
         // Nothing to apologise for when every band was compared, and no caption when the answer had none.
         val plain = ScoreEmblemGeometry.spokenDescription(70, null, emptyList())

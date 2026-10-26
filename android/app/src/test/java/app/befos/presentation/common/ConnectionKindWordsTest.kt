@@ -1,12 +1,15 @@
 package app.befos.presentation.common
 
 import app.befos.domain.model.Connection
+import app.befos.presentation.compatibility.completenessCaption
 import app.befos.presentation.compatibility.explanationKindHint
 import app.befos.presentation.compatibility.explanationKindWord
 import app.befos.presentation.universe.connectionWord
+import app.befos.presentation.universe.sectionHint
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -92,5 +95,16 @@ class ConnectionKindWordsTest {
             "ответы из противоположных полос — это разговор, а не ошибка",
             explanationKindHint(Connection.DISCUSSION),
         )
+    }
+
+    @Test
+    fun `the absence of a comparison is named by one family of words`() {
+        // «Движку было не с чем сравнивать» — один факт, и экранов у него три: строка полосы,
+        // подпись под эмблемой и узел карты пары. Три разных слова об одном факте читаются парой
+        // как три разных факта, и начинается поиск отличий там, где их нет.
+        assertTrue(bandUnmeasuredWord(), bandUnmeasuredWord().contains("сверен"))
+        val caption = completenessCaption(5, 7)!!
+        assertTrue(caption, caption.contains("сверено"))
+        assertTrue(sectionHint(Connection.UNKNOWN), sectionHint(Connection.UNKNOWN).contains("свер"))
     }
 }
