@@ -10,7 +10,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics.tracker import Event, tracker
-from app.compatibility.engine import CompatibilityInput, CompatibilityResult, compute_compatibility
+from app.compatibility.engine import (
+    CompatibilityInput,
+    CompatibilityResult,
+    compute_compatibility,
+    to_percent,
+)
 from app.core.exceptions import NotFoundError, ValidationError
 from app.models import PHOTO_DISPLAY_ORDER, Photo, Profile
 from app.models.base import age_years, utc_today
@@ -413,7 +418,7 @@ class DiscoveryService:
                     "age": age_years(profile.birth_date, today),
                     "city": profile.city,
                     "photo_url": photos.get(tapper_id),
-                    "compatibility": None if score is None else int(round(score * 100)),
+                    "compatibility": None if score is None else to_percent(score),
                     "liked_at": tapped_at,
                 }
             )
@@ -463,7 +468,7 @@ class DiscoveryService:
                     "age": age_years(profile.birth_date, today),
                     "city": profile.city,
                     "photo_url": photos.get(tapped_id),
-                    "compatibility": None if score is None else int(round(score * 100)),
+                    "compatibility": None if score is None else to_percent(score),
                     "liked_at": tapped_at,
                 }
             )

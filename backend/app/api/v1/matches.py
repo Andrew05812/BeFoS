@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.deps import get_current_user
+from app.compatibility.engine import to_percent
 from app.compatibility.universe import build_universe
 from app.core.database import get_session
 from app.core.exceptions import NotFoundError
@@ -67,7 +68,7 @@ async def get_match(
     )
     return {
         "match_id": str(match.id),
-        "compatibility": int(round(match.compatibility_score * 100)),
+        "compatibility": to_percent(match.compatibility_score),
         "created_at": match.created_at,
         "other_user": profile,
     }

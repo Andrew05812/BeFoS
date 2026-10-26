@@ -5,6 +5,7 @@ import uuid
 from sqlalchemy import case, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.compatibility.engine import to_percent
 from app.core.exceptions import NotFoundError
 from app.models import Match
 from app.models.base import age_years, utc_today
@@ -58,7 +59,7 @@ class MatchesService:
                     "age": age_years(profile.birth_date, today),
                     "city": profile.city,
                     "photo_url": photos.get(pair.other_id),
-                    "compatibility": int(round(pair.compatibility_score * 100)),
+                    "compatibility": to_percent(pair.compatibility_score),
                     "last_message": body,
                     "last_message_at": at,
                     "unread": unread,

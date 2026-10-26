@@ -8,6 +8,11 @@ band could read 12 % on the compatibility screen and 13 % in the sentence undern
 
 This row pins the single rule down: half always goes up, on every surface, and the phone's own
 rounding site stays the rule the backend matches instead of drifting away from it.
+
+The same drift had a second copy outside the engine. ``matches_service`` and the like response
+printed the stored score with ``int(round(score * 100))``, which sent 0.925 to 92 while the pair
+page sent it to 93 — one pair, two numbers, on the list and on the page it opens. The last check
+here keeps those surfaces from writing the arithmetic by hand again.
 """
 
 from __future__ import annotations
@@ -21,6 +26,14 @@ from app.compatibility.universe import _percent
 
 _ROOT = pathlib.Path(__file__).resolve().parents[2]
 _PHONE_SCORE = _ROOT / "android/app/src/main/java/app/befos/core/designsystem/Components.kt"
+
+# Every place that turns a stored compatibility score into the number a person reads.
+_COMPATIBILITY_PRINTERS = (
+    "backend/app/services/match_service.py",
+    "backend/app/services/matches_service.py",
+    "backend/app/api/v1/matches.py",
+    "backend/app/services/discovery_service.py",
+)
 
 
 @pytest.mark.parametrize("value", [0.0, 0.125, 0.375, 0.5, 0.625, 0.875, 1.0])
@@ -56,3 +69,12 @@ def test_the_phone_still_rounds_the_way_the_backend_now_does() -> None:
     line = next((row for row in _PHONE_SCORE.read_text(encoding="utf-8").splitlines()
                  if "roundToInt()" in row and "* 100" in row), "")
     assert line.strip().startswith("val shown ="), f"the phone's print moved: {line!r}"
+
+
+def test_no_compatibility_surface_rounds_the_pair_number_by_hand() -> None:
+    """Список пар, карточка колоды и ответ «нравится» печатают тот же процент, что и экран пары."""
+    for rel in _COMPATIBILITY_PRINTERS:
+        source = (_ROOT / rel).read_text(encoding="utf-8")
+        assert "int(round(" not in source, (
+            f"{rel} снова округляет процент совместимости сам — правило живёт в engine.to_percent"
+        )
