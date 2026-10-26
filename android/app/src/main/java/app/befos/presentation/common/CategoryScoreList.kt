@@ -45,6 +45,16 @@ internal fun categoryReadout(hasData: Boolean, score: Int): String =
     if (hasData) "$score%" else "нет данных"
 
 /**
+ * The one phrase this app uses for a band the engine did not compare.
+ *
+ * «Сверено N из M» has been the coverage word since the pair's map grew it, and the completeness line
+ * under the emblem counts bands in the same verb. A second spelling of the same absence — on the row, in
+ * the panel under it, in the caption over them — hands the reader two words for one fact and lets them
+ * wonder which of the two the engine reported, so every screen that names the absence quotes this.
+ */
+internal fun bandUnmeasuredWord(): String = "полоса не сверена"
+
+/**
  * The weight as its row prints it, or null when the answer carries none — the personal test profile has
  * none, and «важность 0%» over a band that was never weighted would be a lie about the engine.
  *
@@ -73,7 +83,7 @@ internal fun categorySpoken(
     val reading = if (score.hasData) {
         "сходство ${score.score}%"
     } else {
-        "${categoryReadout(hasData = false, score = score.score)}, полоса не сверялась"
+        "${categoryReadout(hasData = false, score = score.score)}, ${bandUnmeasuredWord()}"
     }
     val door = when {
         !expandable -> ""

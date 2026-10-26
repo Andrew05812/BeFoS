@@ -421,7 +421,7 @@ internal fun quietBandsHint(categories: List<CategoryScore>): String? {
     val quiet = categories.count { !it.hasData }
     if (quiet == 0) return null
     val word = if (quiet == 1) "полоса" else "полосы"
-    return "Полос без сравнения: $quiet — они показаны пустыми. Нажмите на такую $word, чтобы увидеть, чем она заполняется."
+    return "Не сверено полос: $quiet — они показаны пустыми. Нажмите на такую $word, чтобы увидеть, чем она заполняется."
 }
 
 internal fun prettifySlug(slug: String): String =

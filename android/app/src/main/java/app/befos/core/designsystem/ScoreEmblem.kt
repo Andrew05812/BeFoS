@@ -168,7 +168,8 @@ object ScoreEmblemGeometry {
             if (!caption.isNullOrBlank()) append(" $caption.")
             if (quietLabels.isNotEmpty()) {
                 val word = if (quietLabels.size == 1) "полоса" else "полосы"
-                append(" Без сравнения $word: ${quietLabels.joinToString(", ")} — они показаны пустыми.")
+                val short = if (quietLabels.size == 1) "сверена" else "сверены"
+                append(" Не $short $word: ${quietLabels.joinToString(", ")} — они показаны пустыми.")
             }
         }
 }

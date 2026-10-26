@@ -5,7 +5,9 @@ import app.befos.domain.model.CategoryScore
 import app.befos.domain.model.Compatibility
 import app.befos.domain.model.Connection
 import app.befos.domain.model.Explanation
+import app.befos.presentation.common.bandUnmeasuredWord
 import app.befos.presentation.common.categoryReadout
+import app.befos.presentation.common.categorySpoken
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -150,12 +152,16 @@ class CompatibilityCompletenessTest {
     fun `an unmeasured band is told as unmeasured, in the words its own row prints`() {
         val quiet = CategoryScore("interests", "Интересы", 50, 0.05, hasData = false)
         val measured = CategoryScore("values", "Ценности", 88, 0.25)
+        val spoken = categorySpoken(quiet, expandable = true)
 
-        // One spelling of the same absence, quoted from the row rather than paraphrased under it.
+        // One spelling of the same absence, quoted from the row rather than paraphrased under it: the
+        // panel has to say what the row above it says, in the same words.
+        assertTrue(bandMeasuredWord(quiet).contains(categoryReadout(hasData = false, score = 50)))
+        assertTrue(bandMeasuredWord(quiet).contains(bandUnmeasuredWord()))
         assertTrue(
-            bandMeasuredWord(quiet).contains(categoryReadout(hasData = false, score = 50)),
+            "the row and the panel told the same band two different things: «$spoken» / «${bandMeasuredWord(quiet)}»",
+            spoken.contains(bandUnmeasuredWord()),
         )
-        assertTrue(bandMeasuredWord(quiet).contains("не сверялась"))
         assertTrue(bandMeasuredWord(measured).contains("сверена"))
     }
 

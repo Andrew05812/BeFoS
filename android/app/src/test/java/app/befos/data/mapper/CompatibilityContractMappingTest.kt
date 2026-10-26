@@ -56,7 +56,9 @@ class CompatibilityContractMappingTest {
         assertEquals(3, data.engineVersion)
         assertEquals(5, data.bandsMeasured)
         assertEquals(7, data.bandsTotal)
-        assertEquals(0.85, data.measuredWeight, 1e-9)
+        val weight = data.measuredWeight
+        assertTrue("the share of weight the engine named did not reach the model", weight != null)
+        assertEquals(0.85, weight!!, 1e-9)
         assertEquals("Начните с общего интереса: «jazz»", data.starter)
         // The percent and the bands are the answer's, untouched: no re-summing on the way in.
         assertEquals(62, data.overall)

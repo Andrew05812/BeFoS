@@ -111,15 +111,16 @@ internal fun explanationKindHint(connection: Connection): String = when (connect
 /**
  * Whether this band was compared, in the words the rest of the app already uses for an unmeasured band.
  *
- * The screen quotes [categoryReadout] rather than spelling its own variant: «нет данных» is the one
- * absence a person sees in the row, in the list, and in the caption under it, and a second wording of the
- * same fact is how a pair starts doubting which absence they are looking at.
+ * The screen quotes [categoryReadout] for the reading and [bandUnmeasuredWord] for the absence, because
+ * «нет данных» and «полоса не сверена» are the two words a person sees in the row, in the caption under
+ * the emblem, and here — and a third spelling of the same fact is how a pair starts doubting which
+ * absence they are looking at.
  */
 internal fun bandMeasuredWord(band: CategoryScore): String =
     if (band.hasData) {
         "полоса сверена — ${band.score}% близости ваших ответов"
     } else {
-        "${categoryReadout(hasData = false, score = band.score)}: сравнивать было не с чем"
+        "${categoryReadout(hasData = false, score = band.score)}: ${bandUnmeasuredWord()}"
     }
 
 /**

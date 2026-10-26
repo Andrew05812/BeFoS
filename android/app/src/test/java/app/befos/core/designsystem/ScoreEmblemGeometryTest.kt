@@ -61,7 +61,7 @@ class ScoreEmblemGeometryTest {
         // interests and lifestyle both carry 0.05 and 0.15: the ratio between them is the engine's.
         val lifestyle = slices.first { it.band.category == "lifestyle" }.width
         val interests = slices.first { it.band.category == "interests" }.width
-        assertEquals(3.0, lifestyle / interests, 0.01)
+        assertEquals(3.0, (lifestyle / interests).toDouble(), 0.01)
         assertTrue("the heaviest band is five times the lightest", lightest.width * 5.0 <= heaviest.width + 0.5)
     }
 
@@ -85,10 +85,10 @@ class ScoreEmblemGeometryTest {
         val quiet = band("interests", 0.2, score = 50, measured = false)
         val slices = ScoreEmblemGeometry.place(listOf(band("values", 0.8), quiet), 400f, 1f)
 
-        assertEquals(0f, slices[1].fillWidth, 1e-6)
-        assertEquals(0f, ScoreEmblemGeometry.fillOf(quiet), 1e-6)
+        assertEquals(0f, slices[1].fillWidth, 1e-6f)
+        assertEquals(0f, ScoreEmblemGeometry.fillOf(quiet), 1e-6f)
         assertTrue("the quiet band keeps its full width: the hole is the point", slices[1].width > 0f)
-        assertEquals(0.5f, ScoreEmblemGeometry.fillOf(band("values", 0.2, score = 50)), 1e-6)
+        assertEquals(0.5f, ScoreEmblemGeometry.fillOf(band("values", 0.2, score = 50)), 1e-6f)
     }
 
     @Test
@@ -125,7 +125,7 @@ class ScoreEmblemGeometryTest {
         // because losing a band from the graphic would lose a piece of the pair's completeness.
         val slices = ScoreEmblemGeometry.place(seven, widthDp = 12f, textScale = 1f)
         assertEquals(7, slices.size)
-        assertEquals(0f, slices.first().gap, 1e-6)
+        assertEquals(0f, slices.first().gap, 1e-6f)
         slices.forEach { assertTrue(it.width > 0f) }
         assertEquals(12.0, slices.sumOf { it.width.toDouble() }, 0.01)
     }
@@ -157,13 +157,13 @@ class ScoreEmblemGeometryTest {
         assertEquals(
             ScoreEmblemGeometry.BASE_GAP_DP * 1.3f,
             ScoreEmblemGeometry.place(seven, 411f, 1.3f).first().gap,
-            1e-4,
+            1e-4f,
         )
         // Capped: the emblem is one graphic on a page, not a table that grows with every reading setting.
         assertEquals(
             ScoreEmblemGeometry.BASE_HEIGHT_DP * ScoreEmblemGeometry.MAX_SCALE,
             ScoreEmblemGeometry.heightForDp(9f),
-            1e-4,
+            1e-4f,
         )
     }
 
@@ -187,9 +187,9 @@ class ScoreEmblemGeometryTest {
 
     @Test
     fun `percentages outside the range cannot push a fill past its own band`() {
-        assertEquals(1f, ScoreEmblemGeometry.fillOf(band("a", 0.5, score = 140)), 1e-6)
-        assertEquals(0f, ScoreEmblemGeometry.fillOf(band("a", 0.5, score = -20)), 1e-6)
+        assertEquals(1f, ScoreEmblemGeometry.fillOf(band("a", 0.5, score = 140)), 1e-6f)
+        assertEquals(0f, ScoreEmblemGeometry.fillOf(band("a", 0.5, score = -20)), 1e-6f)
         val slices = ScoreEmblemGeometry.place(listOf(band("a", 1.0, score = 140)), 200f, 1f)
-        assertEquals(200f, slices.single().fillWidth, 0.01)
+        assertEquals(200f, slices.single().fillWidth, 0.01f)
     }
 }

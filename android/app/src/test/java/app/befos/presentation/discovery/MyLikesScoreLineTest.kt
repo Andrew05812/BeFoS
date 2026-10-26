@@ -1,6 +1,7 @@
 package app.befos.presentation.discovery
 
 import app.befos.domain.model.OutgoingLike
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -32,8 +33,8 @@ class MyLikesScoreLineTest {
 
     @Test
     fun `the line is drawn on the card's whole interior rather than in the column beside the button`() {
-        assertEquals(248f, myLikesScoreSlotDp(320f), 0.01)
-        assertEquals(288f, myLikesScoreSlotDp(360f), 0.01)
+        assertDpClose(248f, myLikesScoreSlotDp(320f), 0.01)
+        assertDpClose(288f, myLikesScoreSlotDp(360f), 0.01)
         // The slot the row used to give it: the same interior minus the avatar, the row's two gaps and the
         // withdraw button. One word of the phrase does not fit in it, and that is the whole defect.
         val squeezed = myLikesScoreSlotDp(320f) - 44f - 2f * 12f - 104f
@@ -75,6 +76,6 @@ class MyLikesScoreLineTest {
         assertEquals("Процент не записан", myLikesScoreWord(like(null)))
     }
 
-    private fun assertEquals(expected: Float, actual: Float, delta: Double) =
-        org.junit.Assert.assertEquals(expected.toDouble(), actual.toDouble(), delta)
+    private fun assertDpClose(expected: Float, actual: Float, delta: Double) =
+        assertEquals(expected.toDouble(), actual.toDouble(), delta)
 }
