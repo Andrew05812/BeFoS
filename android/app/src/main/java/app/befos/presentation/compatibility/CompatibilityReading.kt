@@ -6,6 +6,7 @@ import app.befos.domain.model.CategoryScore
 import app.befos.domain.model.Compatibility
 import app.befos.domain.model.Connection
 import app.befos.domain.model.Explanation
+import app.befos.presentation.common.bandUnmeasuredWord
 import app.befos.presentation.common.categoryReadout
 import app.befos.presentation.common.connectionKindWord
 import kotlin.math.roundToInt
