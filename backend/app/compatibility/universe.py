@@ -52,7 +52,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
-from app.compatibility.engine import CompatibilityInput, CompatibilityResult, _clamp01
+from app.compatibility.engine import CompatibilityInput, CompatibilityResult, _clamp01, to_percent
 from app.compatibility.explanation import DIFFERENCE_THRESHOLD, STRENGTH_THRESHOLD
 from app.compatibility.traits import (
     ALL_CATEGORIES,
@@ -136,10 +136,11 @@ def _percent(value: float) -> str:
     """The number the mark under this node prints, not the engine's 0..1 scale value.
 
     Half always rounds away from zero because that is what the client does
-    (``(value * 100f).roundToInt()``); Python's own rounding sends 0.125 to 12 while the mark
-    next to this sentence shows 13.
+    (``(value * 100f).roundToInt()``) — and now what the engine does too, through the one rule in
+    ``engine.to_percent``. Keeping a second copy of the arithmetic here is how the sentence and
+    the mark it sits under started disagreeing.
     """
-    return str(int(math.floor(_clamp01(float(value)) * 100 + 0.5)))
+    return str(to_percent(value))
 
 
 def _confidence(sim: float, connection: str) -> int:

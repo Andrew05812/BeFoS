@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 
 from app.compatibility.traits import (
@@ -40,7 +41,7 @@ class CategoryScore:
 
     @property
     def percent(self) -> int:
-        return int(round(self.score * 100))
+        return to_percent(self.score)
 
     @property
     def contributed(self) -> float:
@@ -55,7 +56,7 @@ class CompatibilityResult:
 
     @property
     def overall_percent(self) -> int:
-        return int(round(self.overall * 100))
+        return to_percent(self.overall)
 
     def category(self, key: str) -> CategoryScore | None:
         return next((c for c in self.categories if c.key == key), None)
@@ -65,6 +66,16 @@ def _clamp01(value: float) -> float:
     if value != value:  # NaN guard
         return 0.0
     return max(0.0, min(1.0, value))
+
+
+def to_percent(value: float) -> int:
+    """The one rule that turns a 0..1 score into the number a person reads.
+
+    Half always goes up. Python's built-in ``round`` sends a tie to the even neighbour, so 0.125
+    printed 12 here while the sentence beside it and the phone both printed 13 — the same band
+    wearing two numbers on one screen. This is now the only way a score becomes a percent.
+    """
+    return int(math.floor(_clamp01(float(value)) * 100 + 0.5))
 
 
 def _trait_similarity(a: dict[str, float], b: dict[str, float]) -> tuple[float, bool]:
