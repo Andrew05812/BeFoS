@@ -18,6 +18,9 @@ from app.schemas.schemas import (
     MatchListResponse,
     MatchSummary,
     MeetingTimeIn,
+    PairPersonOut,
+    PairPlanOut,
+    PairProfileOut,
     RecommendationListResponse,
     RecommendationOut,
     UniverseLayerOut,
@@ -26,6 +29,7 @@ from app.schemas.schemas import (
 )
 from app.services.compatibility_service import CompatibilityService
 from app.services.matches_service import MatchesService
+from app.services.pair_profile_service import PairProfileService
 from app.services.chat_service import message_frame
 from app.services.recommendation_service import RecommendationService
 from app.websocket.manager import manager
@@ -82,6 +86,15 @@ async def match_compatibility(
 
     service = CompatibilityService(session)
     result, explanation = await service.explain_pair(current_user.id, other_id)
+    return _compatibility_payload(result, explanation)
+
+
+def _compatibility_payload(result, explanation) -> CompatibilityOut:
+    """The pair's number, its parts and what the parts rest on — assembled once.
+
+    The compatibility screen and the pair's profile show the same digest; keeping two copies of
+    this construction is how the two would start disagreeing about the same pair.
+    """
     return CompatibilityOut(
         overall=result.overall_percent,
         engine_version=result.version,
@@ -104,6 +117,31 @@ async def match_compatibility(
         bands_total=explanation.bands_total,
         measured_weight=explanation.measured_weight,
         starter=explanation.starter,
+    )
+
+
+@router.get("/{match_id}/profile", response_model=PairProfileOut)
+async def match_profile(
+    match_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    profile = await PairProfileService(session).read(match_id, current_user.id)
+    return PairProfileOut(
+        match_id=str(profile.match_id),
+        since=profile.since,
+        people=[PairPersonOut(user_id=str(p.user_id), name=p.name) for p in profile.people],
+        compatibility=_compatibility_payload(profile.result, profile.explanation),
+        plans_total=profile.plans_total,
+        plan=(
+            PairPlanOut(
+                plan_id=str(profile.next_plan.plan_id),
+                status=profile.next_plan.status,
+                starts_at=profile.next_plan.starts_at,
+            )
+            if profile.next_plan is not None
+            else None
+        ),
     )
 
 

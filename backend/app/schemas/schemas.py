@@ -336,6 +336,34 @@ class CompatibilityOut(BaseModel):
     starter: str = ""
 
 
+class PairPersonOut(BaseModel):
+    user_id: str
+    name: str
+
+
+class PairPlanOut(BaseModel):
+    plan_id: str
+    status: str
+    starts_at: datetime
+
+
+class PairProfileOut(BaseModel):
+    """One reading of a pair: the two people, their number, and what they have agreed.
+
+    `people` comes in the pair's own order (`user_a` first), so both halves receive the same
+    document and a screen can key on ids instead of on who is asking. Nothing private travels here
+    beyond what the pair's compatibility screen already shows: the digest carries the same worded
+    lines, and the plan carries only the hour and the status the plan itself already names.
+    """
+
+    match_id: str
+    since: datetime
+    people: list[PairPersonOut]
+    compatibility: CompatibilityOut
+    plans_total: int = Field(ge=0)
+    plan: PairPlanOut | None = None
+
+
 class UniverseNodeOut(BaseModel):
     key: str
     label: str
