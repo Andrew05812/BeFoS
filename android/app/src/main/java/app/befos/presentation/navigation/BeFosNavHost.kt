@@ -307,13 +307,21 @@ fun BeFosNavHost(navController: NavHostController) {
             PairProfileScreen(
                 matchId = matchId,
                 onBack = { navController.popBackStack() },
-                // The reading surface leads to the analysis it digests, and to the plans it names an hour
-                // for — with that hour's plan brought into view, the way a chat line brings it.
+                // The reading surface leads to the analysis it digests, to the plans it names an hour
+                // for — with that hour's plan brought into view, the way a chat line brings it — and to
+                // the thread where the pair can say what it just read.
                 onOpenCompatibility = {
                     navController.navigate(Routes.compatibility(matchId)) { launchSingleTop = true }
                 },
                 onOpenPlans = { planId ->
                     navController.navigate(Routes.plans(matchId, planId)) { launchSingleTop = true }
+                },
+                // The starter sentence travels as text, encoded: it is a whole sentence, and a route
+                // is a URI — the same hand-off the map of the pair uses to put a question in the field.
+                onOpenChat = { draft ->
+                    navController.navigate(
+                        Routes.chat(matchId, draft?.let { Uri.encode(it) })
+                    ) { launchSingleTop = true }
                 },
             )
         }

@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -65,6 +66,9 @@ fun PairProfileScreen(
     onOpenCompatibility: () -> Unit,
     // The pair's plans, brought to the arrangement this page is naming when there is one.
     onOpenPlans: (String?) -> Unit,
+    // The thread itself, with the engine's own starter sentence already in the composer when the
+    // starter named something the two of them can talk about.
+    onOpenChat: (String?) -> Unit,
 ) {
     val vm: PairProfileViewModel =
         beFosViewModel { PairProfileViewModel(it.matchRepository, matchId) }
@@ -95,6 +99,7 @@ fun PairProfileScreen(
                 modifier = Modifier.padding(padding),
                 onOpenCompatibility = onOpenCompatibility,
                 onOpenPlans = onOpenPlans,
+                onOpenChat = onOpenChat,
             )
         }
     }
@@ -107,8 +112,10 @@ private fun PairProfileContent(
     modifier: Modifier,
     onOpenCompatibility: () -> Unit,
     onOpenPlans: (String?) -> Unit,
+    onOpenChat: (String?) -> Unit,
 ) {
     val compatibility = profile.compatibility
+    val chatDoor = pairChatDoor(compatibility.starter)
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -152,6 +159,15 @@ private fun PairProfileContent(
                     plansTotalWord(profile.plansTotal),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                // The third door of this page, and the only one that writes nothing: a pair reading
+                // itself for the first time usually wants to say something, not to edit something.
+                AppButton(
+                    text = chatDoor.label,
+                    onClick = { onOpenChat(chatDoor.draft) },
+                    secondary = true,
+                    leadingIcon = Icons.Filled.Forum,
+                    modifier = Modifier.fillMaxWidth(),
                 )
             }
         }

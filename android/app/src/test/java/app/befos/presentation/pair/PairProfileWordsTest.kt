@@ -99,4 +99,29 @@ class PairProfileWordsTest {
         assertTrue(withPlans.contains("3 плана"))
         assertTrue(withPlans.contains("не стоит на часе"))
     }
+
+    @Test
+    fun `the chat door carries a sentence only when the engine named one`() {
+        // Старик с кавычками — это про то, что человек может набрать; дверь несёт это в поле ввода и
+        // называется глаголом начала, а не глаголом просмотра.
+        val named = pairChatDoor("Начните с общего интереса: «Велосипед»")
+        assertEquals("Начать разговор", named.label)
+        assertEquals("Хочу начать с «Велосипед»", named.draft)
+
+        // Старик, который отправляет в анкету, — это инструкция приложения, а не слова пары. Такую
+        // дверь нельзя наполнить фразой, которую никто не писал: она просто открывает переписку.
+        for (starter in listOf("Начните с того, где вы уже совпадаете: цели знакомства", "", "   ")) {
+            val quiet = pairChatDoor(starter)
+            assertEquals("Открыть переписку", quiet.label)
+            assertNull(quiet.draft)
+        }
+    }
+
+    @Test
+    fun `the chat door names the same place the rest of the app calls it`() {
+        // Ни один вариант двери не обещает «чат», «диалог» и не выдумывает имя собеседника: страница
+        // читает пару целиком, а не одного из двоих, и `people` не говорит, кто из них читает.
+        assertTrue(pairChatDoor("").label.contains("переписк"))
+        assertTrue(pairChatDoor("Начните с общего интереса: «Джаз»").label.contains("разговор"))
+    }
 }

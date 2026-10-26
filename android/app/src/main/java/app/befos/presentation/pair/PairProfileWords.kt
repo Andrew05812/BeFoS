@@ -3,6 +3,7 @@ package app.befos.presentation.pair
 import app.befos.domain.model.PairNextPlan
 import app.befos.domain.model.PairPerson
 import app.befos.presentation.recommendations.planChipText
+import app.befos.presentation.universe.starterDraftFor
 import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.time.ZonedDateTime
@@ -75,3 +76,20 @@ internal fun noPlanWord(plansTotal: Int): String =
     } else {
         "${plansTotalWord(plansTotal)} есть, но ни один ещё не стоит на часе"
     }
+
+/** The door into the pair's own thread: what it is called, and what the tap leaves in the composer. */
+internal data class PairChatDoor(val label: String, val draft: String?)
+
+/**
+ * The chat door, named after what it actually carries.
+ *
+ * A starter that quotes something the two of them can talk about becomes a first-person sentence the
+ * reader might really have typed, so the door says it starts a conversation and hands that sentence
+ * over. A starter that sends the reader back to the questionnaire is the app's own instruction, and a
+ * thread should not open holding a sentence nobody wrote — the door then only opens the thread.
+ * Neither wording names a partner: this page reads the pair, and the order of `people` says which of
+ * the two came first in the document, not which one is holding the phone.
+ */
+internal fun pairChatDoor(starter: String): PairChatDoor =
+    starterDraftFor(starter)?.let { PairChatDoor("Начать разговор", it) }
+        ?: PairChatDoor("Открыть переписку", null)
