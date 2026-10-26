@@ -75,8 +75,11 @@ def _trait_label(category_key: str, trait_key: str) -> tuple[str, str, str]:
 def _one_per_category(items: list[ExplanationItem]) -> list[ExplanationItem]:
     """Keep only the strongest item of each category, in the given order.
 
-    A category holds several traits, so the same label could repeat — "Досуг" twice
-    in one list reads as a glitch and pushes other categories out of the top six.
+    A category holds several traits, so the same label could repeat — "Досуг" twice in one list
+    reads as a glitch. This is the whole limit: seven bands, at most seven lines. A slice on top
+    of it cut the list below the number of bands, and the victim was whichever category's Latin
+    key sorted last among equal scores — the pair's screen then refused to explain a band it had
+    just printed a percent for.
     """
     seen: set[str] = set()
     kept: list[ExplanationItem] = []
@@ -208,8 +211,8 @@ def build_explanation(
     shared = sorted(a.interests & b.interests)
     names = interest_names or {}
     shared_titles = [names.get(slug, slug) for slug in shared]
-    kept_strengths = _one_per_category(strengths)[:6]
-    kept_differences = _one_per_category(differences)[:4]
+    kept_strengths = _one_per_category(strengths)
+    kept_differences = _one_per_category(differences)
 
     return CompatibilityExplanation(
         overall_percent=result.overall_percent,
