@@ -82,12 +82,6 @@ async def match_compatibility(
 
     service = CompatibilityService(session)
     result, explanation = await service.explain_pair(current_user.id, other_id)
-    shared_titles: dict[str, str] = {}
-    if explanation.shared_interests:
-        rows = (
-            await session.execute(select(Interest).where(Interest.slug.in_(explanation.shared_interests)))
-        ).scalars().all()
-        shared_titles = {i.slug: i.name for i in rows}
     return CompatibilityOut(
         overall=result.overall_percent,
         engine_version=result.version,
@@ -103,7 +97,13 @@ async def match_compatibility(
         ],
         strengths=[ExplanationItemOut(**vars(i)) for i in explanation.strengths],
         differences=[ExplanationItemOut(**vars(i)) for i in explanation.differences],
-        shared_interests=[shared_titles.get(s, s) for s in explanation.shared_interests],
+        # Titles, not slugs: this is the list a person reads. The service that already held both
+        # halves of the pair looks them up, which is also where the starter sentence gets its word.
+        shared_interests=explanation.shared_interest_titles,
+        bands_measured=explanation.bands_measured,
+        bands_total=explanation.bands_total,
+        measured_weight=explanation.measured_weight,
+        starter=explanation.starter,
     )
 
 

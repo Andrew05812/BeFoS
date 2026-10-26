@@ -58,6 +58,24 @@ class CompatibilityResult:
     def overall_percent(self) -> int:
         return to_percent(self.overall)
 
+    @property
+    def bands_total(self) -> int:
+        return len(self.categories)
+
+    @property
+    def bands_measured(self) -> int:
+        """How many bands compared answers instead of falling back to the neutral half.
+
+        A band nobody answered still carries its weight in ``overall``; hiding that is what let a
+        pair read 62 % as if 62 % had been measured.
+        """
+        return sum(1 for category in self.categories if category.has_data)
+
+    @property
+    def measured_weight(self) -> float:
+        """The share of the score that rests on compared answers, in weights, not in bands."""
+        return round(sum(c.weight for c in self.categories if c.has_data), 4)
+
     def category(self, key: str) -> CategoryScore | None:
         return next((c for c in self.categories if c.key == key), None)
 

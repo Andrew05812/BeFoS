@@ -317,6 +317,7 @@ class ExplanationItemOut(BaseModel):
     label: str
     text: str
     score: float
+    connection: str = ""
 
 
 class CompatibilityOut(BaseModel):
@@ -326,6 +327,13 @@ class CompatibilityOut(BaseModel):
     strengths: list[ExplanationItemOut] = []
     differences: list[ExplanationItemOut] = []
     shared_interests: list[str] = []
+    # What the number rests on: how many of the seven bands compared answers at all, and how much
+    # of the weight that is. A screen that prints 62 % without this cannot say whether 62 % was
+    # measured or defaulted to the engine's neutral half.
+    bands_measured: int = Field(ge=0)
+    bands_total: int = Field(ge=0)
+    measured_weight: float = Field(ge=0, le=1)
+    starter: str = ""
 
 
 class UniverseNodeOut(BaseModel):

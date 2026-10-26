@@ -53,19 +53,21 @@ import math
 from dataclasses import dataclass, field
 
 from app.compatibility.engine import CompatibilityInput, CompatibilityResult, _clamp01, to_percent
-from app.compatibility.explanation import DIFFERENCE_THRESHOLD, STRENGTH_THRESHOLD
 from app.compatibility.traits import (
     ALL_CATEGORIES,
+    COMPLEMENTARITY,
+    DIFFERENCE_THRESHOLD,
+    DISCUSSION,
+    HARMONY,
+    STRENGTH_THRESHOLD,
     TRAIT_CATEGORIES_BY_KEY,
     Trait,
+    connection_for,
     describe_side,
     goal_compatibility,
 )
 from app.seed_data.questions_catalog import QUESTIONS
 
-HARMONY = "harmony"
-COMPLEMENTARITY = "complementarity"
-DISCUSSION = "discussion"
 UNKNOWN = "unknown"
 
 # Which questionnaire measures which axis. The catalogue is imported rather than queried: the map
@@ -125,11 +127,7 @@ class Universe:
 
 
 def _band(sim: float) -> str:
-    if sim >= STRENGTH_THRESHOLD:
-        return HARMONY
-    if sim <= DIFFERENCE_THRESHOLD:
-        return DISCUSSION
-    return COMPLEMENTARITY
+    return connection_for(sim)
 
 
 def _percent(value: float) -> str:
