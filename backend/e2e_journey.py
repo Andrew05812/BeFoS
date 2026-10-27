@@ -402,6 +402,17 @@ def agreed_hour_reaches_the_chat(match_id: str, tok_a: str, tok_b: str, activity
                   and "21:00" in str(plans[0]["starts_at"]),
                   "the arrangement the chat names is the arrangement the plan list carries",
                   str(plans)[:160])
+
+            # The pair's profile is the fourth screen over this one arrangement, and it is the one
+            # a person opens to remember what they agreed. Naming a different plan, or none, is a
+            # pair told they have nothing planned while their own list says otherwise.
+            prof_after = (await asyncio.to_thread(
+                c.get, f"{BASE}/matches/{match_id}/profile", headers=ha)).json()
+            check(prof_after["plans_total"] == 1
+                  and prof_after["plan"] is not None
+                  and prof_after["plan"]["plan_id"] == newest[0]["plan"]["plan_id"]
+                  and prof_after["plan"]["status"] == "planned",
+                  "the pair's profile names the hour they agreed", str(prof_after.get("plan"))[:140])
             mine = await asyncio.to_thread(c.get, f"{BASE}/plans", headers=hb)
             check(mine.status_code == 200
                   and [p["id"] for p in mine.json().get("plans", [])] == [plans[0]["id"]],
@@ -1603,6 +1614,37 @@ def main() -> int:
                  if not 0.0 <= l["coverage"] <= 1.0
                  or abs(l["coverage"] - (sum(1 for n in l["nodes"] if n["has_data"]) / max(1, len(l["nodes"])))) > 1e-6]
     check(not cov_wrong, "coverage counts the compared nodes and sits beside the percent", str(cov_wrong[:3]))
+
+    # 10b. The pair reads itself once. Compatibility, the two people and the count of plans come
+    # from one document instead of three screens each asking for the same rows, so the checks here
+    # are all about agreement between the two doors: same people in the same order for both halves,
+    # the same percent and the same completeness as the compatibility screen just printed, and a
+    # plan count that matches what the pair's own plan list carries at that moment.
+    prof_a = c.get(f"{BASE}/matches/{match_id}/profile", headers=ha).json()
+    prof_b = c.get(f"{BASE}/matches/{match_id}/profile", headers=hb).json()
+    check(str(prof_a["match_id"]) == str(match_id),
+          "the profile answers about the pair it was asked about", str(prof_a["match_id"]))
+    order_a = [p["user_id"] for p in prof_a["people"]]
+    order_b = [p["user_id"] for p in prof_b["people"]]
+    check(order_a == order_b and len(set(order_a)) == 2,
+          "a pair is one object: both halves read the same people in the same order",
+          f"{order_a} vs {order_b}")
+    digest = prof_a["compatibility"]
+    check(digest["overall"] == comp["overall"],
+          "the profile's number is the number the compatibility screen prints",
+          f"{digest['overall']} vs {comp['overall']}")
+    check(digest["engine_version"] == comp["engine_version"],
+          "both readings come from one engine version", str(digest.get("engine_version")))
+    check(digest["bands_measured"] == comp["bands_measured"]
+          and digest["measured_weight"] == comp["measured_weight"],
+          "completeness travels identically through both doors",
+          f"{digest['bands_measured']}/{comp['bands_measured']}")
+    plans_now = c.get(f"{BASE}/matches/{match_id}/plans", headers=ha).json().get("plans", [])
+    check(prof_a["plans_total"] == len(plans_now),
+          "the profile counts the plans the pair's own list carries",
+          f"{prof_a['plans_total']} vs {len(plans_now)}")
+    check(bool(digest["starter"]) and any(ch.isalpha() for ch in digest["starter"]),
+          "the pair is offered a place to start", digest["starter"][:60])
 
     # 11. chat: A sends, B reads, B replies
     m1 = c.post(f"{BASE}/matches/{match_id}/messages", headers=ha, json={"body": "Привет! Это E2E сообщение."})

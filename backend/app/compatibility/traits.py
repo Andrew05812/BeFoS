@@ -29,6 +29,31 @@ LOW_SIDE = 0.33
 # from the absence of one without repeating the wording it is quoting.
 NEUTRAL_SIDE = "умеренно"
 
+# One rule for what a gap between two answers means, shared by the map and by the explanation a
+# pair reads. Both surfaces used to decide it separately (the map by name, the explanation not at
+# all), which let the same 0.5 difference be a "complementarity" under a node and an unlabelled
+# line on the screen above it. Thresholds moved here from ``explanation`` for the same reason: a
+# caller that asks "what kind of difference is this" must not have to know which module answered.
+STRENGTH_THRESHOLD = 0.75
+DIFFERENCE_THRESHOLD = 0.40
+HARMONY = "harmony"
+COMPLEMENTARITY = "complementarity"
+DISCUSSION = "discussion"
+
+
+def connection_for(similarity: float) -> str:
+    """Harmony, complementarity or discussion — decided once, from the similarity alone.
+
+    A difference between the two named sides is not automatically a conflict: below the strength
+    line but above the discussion line the pair simply covers different halves of the same axis,
+    and saying so is what keeps the third category from being dressed up as a problem.
+    """
+    if similarity >= STRENGTH_THRESHOLD:
+        return HARMONY
+    if similarity <= DIFFERENCE_THRESHOLD:
+        return DISCUSSION
+    return COMPLEMENTARITY
+
 
 def describe_side(value: float, low_label: str, high_label: str) -> str:
     """The word a person's own answer maps to on this axis.

@@ -132,6 +132,12 @@ class ProfileOut(BaseModel):
     # learning where somebody searches.
     city_preference: str | None = None
     is_hidden: bool = False
+    # The stamp `users.onboarding_completed_at` says once and never takes back. The client needs it
+    # because its own guess from the fields cannot work: registration leaves a shell holding a name
+    # taken from the email and the default goal, while a person who named no interests — an answer
+    # onboarding accepts and names aloud — looks unfinished to any field rule. Without this the
+    # start screen sends that person back to the form and away from their own pair.
+    onboarding_completed: bool = False
     # Every route answering with this schema is a `/users/me*` route, so the role a reader sees here
     # is the reader's own. It tells the client where to put a door, and opens nothing: the
     # moderation routes read the flag off the account row per request (`app/auth/deps.py:56`).
@@ -317,6 +323,7 @@ class ExplanationItemOut(BaseModel):
     label: str
     text: str
     score: float
+    connection: str = ""
 
 
 class CompatibilityOut(BaseModel):
@@ -326,6 +333,41 @@ class CompatibilityOut(BaseModel):
     strengths: list[ExplanationItemOut] = []
     differences: list[ExplanationItemOut] = []
     shared_interests: list[str] = []
+    # What the number rests on: how many of the seven bands compared answers at all, and how much
+    # of the weight that is. A screen that prints 62 % without this cannot say whether 62 % was
+    # measured or defaulted to the engine's neutral half.
+    bands_measured: int = Field(ge=0)
+    bands_total: int = Field(ge=0)
+    measured_weight: float = Field(ge=0, le=1)
+    starter: str = ""
+
+
+class PairPersonOut(BaseModel):
+    user_id: str
+    name: str
+
+
+class PairPlanOut(BaseModel):
+    plan_id: str
+    status: str
+    starts_at: datetime
+
+
+class PairProfileOut(BaseModel):
+    """One reading of a pair: the two people, their number, and what they have agreed.
+
+    `people` comes in the pair's own order (`user_a` first), so both halves receive the same
+    document and a screen can key on ids instead of on who is asking. Nothing private travels here
+    beyond what the pair's compatibility screen already shows: the digest carries the same worded
+    lines, and the plan carries only the hour and the status the plan itself already names.
+    """
+
+    match_id: str
+    since: datetime
+    people: list[PairPersonOut]
+    compatibility: CompatibilityOut
+    plans_total: int = Field(ge=0)
+    plan: PairPlanOut | None = None
 
 
 class UniverseNodeOut(BaseModel):

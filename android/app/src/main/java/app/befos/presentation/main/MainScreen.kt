@@ -55,6 +55,7 @@ private enum class Tab(val label: String, val icon: ImageVector) {
 @Composable
 fun MainScreen(
     onOpenChat: (String) -> Unit,
+    onOpenPairProfile: (String) -> Unit,
     onOpenProfile: (String) -> Unit,
     onEditProfile: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -107,7 +108,11 @@ fun MainScreen(
                 )
             }
             1 -> androidx.compose.foundation.layout.Box(contentModifier) {
-                MatchListScreen(onOpenChat = onOpenChat, onGoDiscover = { tab = 0 })
+                MatchListScreen(
+                    onOpenChat = onOpenChat,
+                    onOpenPairProfile = onOpenPairProfile,
+                    onGoDiscover = { tab = 0 },
+                )
             }
             else -> androidx.compose.foundation.layout.Box(contentModifier) {
                 ProfileScreen(

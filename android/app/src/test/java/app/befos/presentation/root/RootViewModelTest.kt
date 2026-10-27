@@ -25,7 +25,12 @@ class RootViewModelTest {
     private val auth: AuthRepository = mockk(relaxed = true)
     private val profiles: ProfileRepository = mockk()
 
-    private fun profile(name: String = "Иван", goal: String = "relationship", interests: Int = 2) = Profile(
+    private fun profile(
+        name: String = "Иван",
+        goal: String = "relationship",
+        interests: Int = 2,
+        onboarded: Boolean = true,
+    ) = Profile(
         userId = "u1",
         name = name,
         age = 25,
@@ -39,6 +44,7 @@ class RootViewModelTest {
         ageMin = 18,
         ageMax = 40,
         genderPreference = emptyList(),
+        onboardingCompleted = onboarded,
     )
 
     private fun viewModel() = RootViewModel(auth, profiles).also {
@@ -61,8 +67,26 @@ class RootViewModelTest {
     @Test
     fun `incomplete profile routes to onboarding`() = runTest {
         coEvery { auth.current() } returns StoredAuth("a", "r", "u1")
-        coEvery { profiles.me() } returns ApiResult.Success(profile(name = "", interests = 0))
+        // Так выглядит скорлупа, которую оставляет регистрация: имя взято из почты, цель стоит
+        // дефолтная. По полям её от прошедшего онбординг не отличить — отличает только штамп сервера.
+        coEvery { profiles.me() } returns ApiResult.Success(
+            profile(name = "ivan", interests = 0, onboarded = false)
+        )
         assertEquals(RootDestination.ONBOARDING, viewModel().destination.value)
+    }
+
+    @Test
+    fun `a person who named no interests is not sent back to the form`() = runTest {
+        coEvery { auth.current() } returns StoredAuth("a", "r", "u1")
+        coEvery { profiles.me() } returns ApiResult.Success(
+            profile(name = "Аня", interests = 0)
+        )
+        assertEquals(
+            "онбординг принимает человека без интересов; правило, угадывающее по полям, " +
+                "отправляет его в форму и отрезает от его же пары",
+            RootDestination.MAIN,
+            viewModel().destination.value,
+        )
     }
 
     @Test

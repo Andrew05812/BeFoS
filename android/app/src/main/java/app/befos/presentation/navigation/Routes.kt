@@ -37,6 +37,16 @@ object Routes {
     const val COMPATIBILITY = "compatibility/{$CHAT_ARG}"
     fun compatibility(matchId: String) = "compatibility/$matchId"
 
+    /**
+     * The pair's own reading of itself: who they are, what the engine compared, and the hour they stand on.
+     *
+     * A surface for reading rather than a second editor — everything reachable from here is also on the
+     * pair's own screens — and keyed by the pair, not by a person, because the answer is the same document
+     * for both halves.
+     */
+    const val PAIR = "pair/{$CHAT_ARG}"
+    fun pair(matchId: String) = "pair/$matchId"
+
     // The same pair's answers, opened as a map instead of a percent: the compatibility screen
     // sums the seven bands, this one shows the two answers each sum was built from.
     const val UNIVERSE = "universe/{$CHAT_ARG}"

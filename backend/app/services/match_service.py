@@ -5,6 +5,7 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics.tracker import Event, tracker
+from app.compatibility.engine import to_percent
 from app.core.exceptions import NotFoundError, ValidationError
 from app.models import Profile
 from app.repositories.social_repo import SocialRepository
@@ -102,7 +103,7 @@ class MatchService:
             # tap cannot fire the «это взаимно» moment twice.
             "match": created_match,
             "match_id": str(match_id) if match_id else None,
-            "compatibility": int(round(score * 100)),
+            "compatibility": to_percent(score),
         }
 
     async def pass_user(self, viewer_id: uuid.UUID, target_id: uuid.UUID) -> dict:
