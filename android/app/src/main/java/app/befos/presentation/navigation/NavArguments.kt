@@ -23,6 +23,7 @@ internal object NavArguments {
         Routes.PUBLIC_PROFILE to publicProfile(),
         Routes.CHAT to chat(),
         Routes.COMPATIBILITY to compatibility(),
+        Routes.PAIR to pair(),
         Routes.UNIVERSE to universe(),
         Routes.PARTNER to partner(),
         Routes.RECOMMENDATIONS to recommendations(),
@@ -60,6 +61,15 @@ internal object NavArguments {
     )
 
     fun compatibility(): List<NamedNavArgument> = listOf(
+        navArgument(Routes.CHAT_ARG) { type = NavType.StringType },
+    )
+
+    /**
+     * The pair whose reading this is. One placeholder, one string, no optional value: the session on the
+     * server says whose pair it is, and a route copied to another device reaches a 404 rather than
+     * somebody else's reading.
+     */
+    fun pair(): List<NamedNavArgument> = listOf(
         navArgument(Routes.CHAT_ARG) { type = NavType.StringType },
     )
 

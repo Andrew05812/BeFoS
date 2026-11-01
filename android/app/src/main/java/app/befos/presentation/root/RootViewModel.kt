@@ -42,10 +42,11 @@ class RootViewModel(
         return when (val result = profileRepository.me()) {
             is ApiResult.Success -> {
                 val profile = result.data
-                val onboarded = profile.name.isNotBlank() &&
-                    profile.interests.isNotEmpty() &&
-                    profile.datingGoal.isNotBlank()
-                if (onboarded) RootDestination.MAIN else RootDestination.ONBOARDING
+                // The server's own stamp, not a guess from the fields: registration leaves a shell
+                // already holding a name and a goal, and a person who named no interests is a
+                // person who finished onboarding. Both read as «unfinished» to any field rule,
+                // and the second one loses their pair over it.
+                if (profile.onboardingCompleted) RootDestination.MAIN else RootDestination.ONBOARDING
             }
             is ApiResult.Error -> {
                 // The session is over only when the client itself gave up on it: a refresh

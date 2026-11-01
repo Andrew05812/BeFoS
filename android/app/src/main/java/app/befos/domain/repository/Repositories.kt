@@ -14,6 +14,7 @@ import app.befos.domain.model.Message
 import app.befos.domain.model.OnboardingData
 import app.befos.domain.model.OutgoingLikesPage
 import app.befos.domain.model.PassedPage
+import app.befos.domain.model.PairProfile
 import app.befos.domain.model.Plan
 import app.befos.domain.model.PlanHistory
 import app.befos.domain.model.Profile
@@ -173,6 +174,16 @@ interface MatchRepository {
     suspend fun matches(): ApiResult<List<MatchSummary>>
     suspend fun partner(matchId: String): ApiResult<PublicProfile>
     suspend fun compatibility(matchId: String): ApiResult<Compatibility>
+
+    /**
+     * One reading of the pair whole — the two people, their number with its completeness, and the
+     * nearest hour they agreed to.
+     *
+     * Answered for either half of the pair and for nobody else: a stranger, and a pair that is gone,
+     * both get the same 404 the other pair pages give, so the screen has one «the pair is gone» state
+     * to draw rather than a fourth.
+     */
+    suspend fun pairProfile(matchId: String): ApiResult<PairProfile>
     suspend fun universe(matchId: String): ApiResult<Universe>
     suspend fun recommendations(matchId: String): ApiResult<List<Recommendation>>
     suspend fun selectRecommendation(matchId: String, activityId: Int): ApiResult<Unit>

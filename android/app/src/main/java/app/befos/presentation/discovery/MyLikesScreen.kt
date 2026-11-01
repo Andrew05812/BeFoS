@@ -27,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.befos.core.designsystem.AppCard
 import app.befos.core.designsystem.AppTopBar
@@ -279,48 +280,65 @@ private fun MyLikeRow(
         modifier = Modifier.fillMaxWidth(),
         onClick = onOpenProfile,
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(Spacing.lg),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(Spacing.md),
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(Spacing.lg),
+            verticalArrangement = Arrangement.spacedBy(Spacing.xs),
         ) {
-            Avatar(url = like.photoUrl, size = 44.dp, initials = like.name)
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(Spacing.md),
             ) {
-                Text(
-                    like.name,
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    myLikesRowWord(like),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    myLikesScoreWord(like),
-                    style = MaterialTheme.typography.labelMedium.tabularDigits(),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Avatar(url = like.photoUrl, size = 44.dp, initials = like.name)
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    Text(
+                        like.name,
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        myLikesRowWord(like),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                TextButton(
+                    onClick = onWithdraw,
+                    enabled = !blocked,
+                    // The name sits in the sibling column, so the tap alone would read as
+                    // «Забрать лайк» with nobody it belongs to. While the write is out the word says so —
+                    // a button that stays lit and answers nothing looks like a tap the app refused.
+                    modifier = Modifier.semantics {
+                        contentDescription = if (inFlight) {
+                            "Отзываю лайк для ${like.name}"
+                        } else {
+                            "Забрать лайк для ${like.name}"
+                        }
+                    },
+                ) {
+                    Text(if (inFlight) "Отзываю…" else "Забрать лайк")
+                }
             }
-            TextButton(
-                onClick = onWithdraw,
-                enabled = !blocked,
-                // The name sits in the sibling column, so the tap alone would read as
-                // «Забрать лайк» with nobody it belongs to. While the write is out the word says so —
-                // a button that stays lit and answers nothing looks like a tap the app refused.
-                modifier = Modifier.semantics {
-                    contentDescription = if (inFlight) {
-                        "Отзываю лайк для ${like.name}"
-                    } else {
-                        "Забрать лайк для ${like.name}"
-                    }
-                },
-            ) {
-                Text(if (inFlight) "Отзываю…" else "Забрать лайк")
-            }
+            // The percent the tap carried, on the card's own full measure rather than squeezed between the
+            // avatar and the withdraw button. In the narrow slot the phrase was longer than the line and
+            // the text system had only one way out: it broke inside the word «Совместимость», which is a
+            // thing a person has to be able to read. Here the line is never wrapped — [softWrap] off and one
+            // line — so there is no break inside a word to read, and the measure is wide enough that the
+            // whole phrase sits on it at the smallest phone and the largest text (see [myLikesScoreFits]).
+            Text(
+                myLikesScoreWord(like),
+                style = MaterialTheme.typography.labelMedium.tabularDigits(),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
     }
 }
@@ -432,3 +450,33 @@ internal fun myLikesRowWord(like: OutgoingLike, zone: ZoneId = ZoneId.systemDefa
  */
 internal fun myLikesScoreWord(like: OutgoingLike): String =
     like.compatibility?.let { "Совместимость $it%" } ?: "Процент не записан"
+
+/**
+ * The measure the score line is drawn at: the card's interior, undivided.
+ *
+ * `Spacing.gutter` on both sides of the screen and `Spacing.lg` on both sides of the card — the same two
+ * numbers the row itself is padded with, written out because a JVM test cannot ask a layout pass. What the
+ * line used to get instead was this measure minus the avatar, the row's two gaps and the withdraw button:
+ * narrower than one word of the phrase, which is why that word was broken in half.
+ */
+internal fun myLikesScoreSlotDp(screenWidthDp: Float): Float =
+    (screenWidthDp - 2f * 20f - 2f * 16f).coerceAtLeast(0f)
+
+/**
+ * How wide the widest thing in [text] has to be, in dp, at [textScale].
+ *
+ * Measured on the longest word rather than on the whole phrase, because a word is the unit the text system
+ * cannot move to the next line: given a slot narrower than one word it breaks inside it, and that is
+ * precisely what happened here. The estimate is deliberately generous — `labelMedium` is the Overline style
+ * ([app.befos.core.designsystem.BeFosTypography]), 11sp carried by 1.4sp of letter spacing, and Cyrillic
+ * advance is taken at 0.62em, above what the font actually needs for these letters — so a line this says
+ * fits has room left, and one it says does not was never going to.
+ */
+internal fun myLikesWordWidthDp(text: String, textScale: Float, sizeSp: Float = 11f): Float {
+    val longest = text.split(' ').maxOfOrNull { it.length } ?: 0
+    return longest * (0.62f * sizeSp + 1.4f) * textScale
+}
+
+/** Whether the score line is drawn on one unbroken line at this screen width and text scale. */
+internal fun myLikesScoreFits(like: OutgoingLike, screenWidthDp: Float, textScale: Float): Boolean =
+    myLikesWordWidthDp(myLikesScoreWord(like), textScale) <= myLikesScoreSlotDp(screenWidthDp)

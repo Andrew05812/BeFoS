@@ -29,7 +29,13 @@ import app.befos.core.designsystem.tabularDigits
 import app.befos.core.di.beFosViewModel
 
 @Composable
-fun MatchListScreen(onOpenChat: (String) -> Unit, onGoDiscover: () -> Unit) {
+fun MatchListScreen(
+    onOpenChat: (String) -> Unit,
+    // The pair's own reading, opened from the row that already names the pair. The card's tap stays the
+    // thread it always was: a list a person has learned to tap cannot silently change what a tap means.
+    onOpenPairProfile: (String) -> Unit,
+    onGoDiscover: () -> Unit,
+) {
     val vm: MatchesViewModel = beFosViewModel { MatchesViewModel(it.matchRepository) }
     val state by vm.uiState.collectAsState()
 
@@ -123,6 +129,7 @@ fun MatchListScreen(onOpenChat: (String) -> Unit, onGoDiscover: () -> Unit) {
                     compatibility = match.compatibility,
                     unread = match.unread,
                     onClick = { onOpenChat(match.matchId) },
+                    onOpenPairProfile = { onOpenPairProfile(match.matchId) },
                     onDissolve = { vm.askDissolve(match) },
                 )
             }

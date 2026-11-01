@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.deps import get_current_user
+from app.compatibility.engine import to_percent
 from app.compatibility.universe import build_universe
 from app.core.database import get_session
 from app.core.exceptions import NotFoundError
@@ -18,6 +19,9 @@ from app.schemas.schemas import (
     MatchListResponse,
     MatchSummary,
     MeetingTimeIn,
+    PairPersonOut,
+    PairPlanOut,
+    PairProfileOut,
     RecommendationListResponse,
     RecommendationOut,
     UniverseLayerOut,
@@ -26,6 +30,7 @@ from app.schemas.schemas import (
 )
 from app.services.compatibility_service import CompatibilityService
 from app.services.matches_service import MatchesService
+from app.services.pair_profile_service import PairProfileService
 from app.services.chat_service import message_frame
 from app.services.recommendation_service import RecommendationService
 from app.websocket.manager import manager
@@ -63,7 +68,7 @@ async def get_match(
     )
     return {
         "match_id": str(match.id),
-        "compatibility": int(round(match.compatibility_score * 100)),
+        "compatibility": to_percent(match.compatibility_score),
         "created_at": match.created_at,
         "other_user": profile,
     }
@@ -82,12 +87,15 @@ async def match_compatibility(
 
     service = CompatibilityService(session)
     result, explanation = await service.explain_pair(current_user.id, other_id)
-    shared_titles: dict[str, str] = {}
-    if explanation.shared_interests:
-        rows = (
-            await session.execute(select(Interest).where(Interest.slug.in_(explanation.shared_interests)))
-        ).scalars().all()
-        shared_titles = {i.slug: i.name for i in rows}
+    return _compatibility_payload(result, explanation)
+
+
+def _compatibility_payload(result, explanation) -> CompatibilityOut:
+    """The pair's number, its parts and what the parts rest on — assembled once.
+
+    The compatibility screen and the pair's profile show the same digest; keeping two copies of
+    this construction is how the two would start disagreeing about the same pair.
+    """
     return CompatibilityOut(
         overall=result.overall_percent,
         engine_version=result.version,
@@ -103,7 +111,38 @@ async def match_compatibility(
         ],
         strengths=[ExplanationItemOut(**vars(i)) for i in explanation.strengths],
         differences=[ExplanationItemOut(**vars(i)) for i in explanation.differences],
-        shared_interests=[shared_titles.get(s, s) for s in explanation.shared_interests],
+        # Titles, not slugs: this is the list a person reads. The service that already held both
+        # halves of the pair looks them up, which is also where the starter sentence gets its word.
+        shared_interests=explanation.shared_interest_titles,
+        bands_measured=explanation.bands_measured,
+        bands_total=explanation.bands_total,
+        measured_weight=explanation.measured_weight,
+        starter=explanation.starter,
+    )
+
+
+@router.get("/{match_id}/profile", response_model=PairProfileOut)
+async def match_profile(
+    match_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    profile = await PairProfileService(session).read(match_id, current_user.id)
+    return PairProfileOut(
+        match_id=str(profile.match_id),
+        since=profile.since,
+        people=[PairPersonOut(user_id=str(p.user_id), name=p.name) for p in profile.people],
+        compatibility=_compatibility_payload(profile.result, profile.explanation),
+        plans_total=profile.plans_total,
+        plan=(
+            PairPlanOut(
+                plan_id=str(profile.next_plan.plan_id),
+                status=profile.next_plan.status,
+                starts_at=profile.next_plan.starts_at,
+            )
+            if profile.next_plan is not None
+            else None
+        ),
     )
 
 

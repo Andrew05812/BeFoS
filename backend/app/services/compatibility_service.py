@@ -3,13 +3,14 @@ from __future__ import annotations
 import uuid
 from typing import Sequence
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.compatibility.engine import CompatibilityInput, CompatibilityResult, compute_compatibility
 from app.compatibility.explanation import CompatibilityExplanation, build_explanation
 from app.compatibility.weights import DEFAULT_WEIGHT_CONFIG, WeightConfig
 from app.core.exceptions import NotFoundError
-from app.models import CompatibilityProfile, Profile
+from app.models import CompatibilityProfile, Interest, Profile
 from app.repositories.social_repo import SocialRepository
 from app.repositories.test_repo import TestRepository
 from app.repositories.user_repo import UserRepository
@@ -120,5 +121,16 @@ class CompatibilityService:
     async def explain_pair(self, a_id: uuid.UUID, b_id: uuid.UUID) -> tuple[CompatibilityResult, CompatibilityExplanation]:
         a, b = await self.pair_inputs(a_id, b_id)
         result = self.score_inputs(a, b)
-        explanation = build_explanation(a, b, result)
+        # A shared interest is the one thing this screen can name out loud, and the engine holds
+        # only its slug: the pair's compatibility read used to look the title up in the route, so
+        # the sentence about starting a conversation and the list it came from were assembled a
+        # layer apart. One select here, for the slugs the pair actually shares.
+        shared = a.interests & b.interests
+        names: dict[str, str] = {}
+        if shared:
+            rows = (
+                await self.session.execute(select(Interest).where(Interest.slug.in_(shared)))
+            ).scalars().all()
+            names = {i.slug: i.name for i in rows}
+        explanation = build_explanation(a, b, result, names)
         return result, explanation

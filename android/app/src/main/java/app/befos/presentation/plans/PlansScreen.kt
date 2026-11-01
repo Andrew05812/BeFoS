@@ -36,6 +36,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -70,7 +71,6 @@ import app.befos.presentation.recommendations.meetingHourLabel
 import app.befos.presentation.recommendations.meetingHours
 import app.befos.presentation.recommendations.meetingInstant
 import app.befos.presentation.recommendations.offerButtonLabel
-import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZonedDateTime
 
@@ -507,15 +507,19 @@ private fun HourEditor(
     if (!canOfferHour(plan)) return
     val agreed = plan.startsAt
 
-    var editing by remember { mutableStateOf(false) }
-    var chosenDay by remember { mutableStateOf<LocalDate?>(null) }
-    var chosenHour by remember { mutableStateOf<Int?>(null) }
+    // Saveable, and the day saved as a number: a person who opened the row, chose an evening and turned
+    // the phone over came back to a closed editor standing on the first chip, with nothing on the screen
+    // to say their choice had ever existed. `LocalDate` itself cannot go into the saved-state bundle, so
+    // [HourChoiceRestore] carries it as days since the epoch and reads it back.
+    var editing by rememberSaveable { mutableStateOf(false) }
+    var savedDay by rememberSaveable { mutableStateOf(HourChoiceRestore.NO_EPOCH_DAY) }
+    var savedHour by rememberSaveable { mutableStateOf(HourChoiceRestore.NO_HOUR) }
 
     val days = remember(now) { meetingDays(now) }
     if (days.isEmpty()) return
-    val day = chosenDay?.takeIf { it in days } ?: days.first()
+    val day = HourChoiceRestore.pickDay(savedDay, days) ?: return
     val hours = remember(day, now) { meetingHours(day, now) }
-    val hour = chosenHour?.takeIf { it in hours } ?: hours.first()
+    val hour = HourChoiceRestore.pickHour(savedHour, hours) ?: return
 
     if (!editing) {
         AppButton(
@@ -538,7 +542,11 @@ private fun HourEditor(
             verticalArrangement = Arrangement.spacedBy(Spacing.sm),
         ) {
             days.forEach { date ->
-                InterestChip(label = meetingDayLabel(date, now), selected = date == day, onClick = { chosenDay = date })
+                InterestChip(
+                    label = meetingDayLabel(date, now),
+                    selected = date == day,
+                    onClick = { savedDay = HourChoiceRestore.encodeDay(date) },
+                )
             }
         }
         FlowRow(
@@ -546,7 +554,11 @@ private fun HourEditor(
             verticalArrangement = Arrangement.spacedBy(Spacing.sm),
         ) {
             hours.forEach { candidate ->
-                InterestChip(label = meetingHourLabel(candidate), selected = candidate == hour, onClick = { chosenHour = candidate })
+                InterestChip(
+                    label = meetingHourLabel(candidate),
+                    selected = candidate == hour,
+                    onClick = { savedHour = candidate },
+                )
             }
         }
         AppButton(
@@ -578,10 +590,15 @@ private fun WordsEditor(
     busy: Boolean,
     onSaveWords: (String, String) -> Unit,
 ) {
-    var open by remember { mutableStateOf(false) }
-    var placeText by remember { mutableStateOf(plan.place.orEmpty()) }
-    var noteText by remember { mutableStateOf(plan.note.orEmpty()) }
-    var sent by remember { mutableStateOf(false) }
+    // Saveable rather than remembered: what a person typed here is a sentence about their own evening, and
+    // a rotation used to throw it away along with the reason they had opened the field. The pair's stored
+    // words are still what the fields start from when the editor is opened (below), so restoring the draft
+    // cannot strand a person on a stale version of the row — the save closes on the reloaded plan, exactly
+    // as it did when nothing was kept.
+    var open by rememberSaveable { mutableStateOf(false) }
+    var placeText by rememberSaveable { mutableStateOf(plan.place.orEmpty()) }
+    var noteText by rememberSaveable { mutableStateOf(plan.note.orEmpty()) }
+    var sent by rememberSaveable { mutableStateOf(false) }
 
     val storedPlace = plan.place.orEmpty().trim()
     val storedNote = plan.note.orEmpty().trim()

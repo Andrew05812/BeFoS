@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.SupervisorAccount
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -97,6 +98,10 @@ fun ChatScreen(
     onOpenCompatibility: () -> Unit,
     onOpenRecommendations: () -> Unit,
     onOpenPlans: () -> Unit,
+    // The pair's own reading of itself — who they are, what the engine compared, the hour they stand on.
+    // The thread is where a pair lives, so it is where the door to that page belongs; the page adds no
+    // editor, so opening it from here cannot put the pair anywhere they did not ask to be.
+    onOpenPairProfile: () -> Unit,
     // Where a plan line leads: the plan id the line names, and the idea it was about as the way out
     // for a line written before the id existed.
     onOpenPlan: (String?, Int?) -> Unit,
@@ -200,6 +205,11 @@ fun ChatScreen(
                     }
                     IconButton(onClick = onOpenCompatibility) {
                         Icon(Icons.Filled.Insights, contentDescription = "Совместимость")
+                    }
+                    // The two of them as one reading, next to the two readings of each of them: the person
+                    // card above answers one half, this answers the pair.
+                    IconButton(onClick = onOpenPairProfile) {
+                        Icon(Icons.Filled.SupervisorAccount, contentDescription = "Профиль пары")
                     }
                     IconButton(onClick = onOpenRecommendations) {
                         Icon(Icons.Filled.AutoAwesome, contentDescription = "Идеи для встречи")

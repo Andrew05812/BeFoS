@@ -590,6 +590,17 @@ def _build_paths():
             ctx["match_id"], current_user=ctx["viewer_user"], session=session
         )
 
+    async def pair_profile(session, ctx):
+        # `GET /matches/{id}/profile`: one document for the pair — its row, both people with their
+        # answers and shared interest names, and the pair's plans. Timed beside `compatibility`
+        # because the two answers have to stay two readings of one pair, not one reading that
+        # became three requests the moment a screen grew a second section.
+        from app.api.v1.matches import match_profile
+
+        return await match_profile(
+            ctx["match_id"], current_user=ctx["viewer_user"], session=session
+        )
+
     async def chat_history(session, ctx):
         await ChatService(session).history(ctx["match_id"], ctx["viewer_id"], limit=50)
 
@@ -833,6 +844,7 @@ def _build_paths():
         "matches_list": matches_list,
         "match_detail": match_detail,
         "compatibility": compatibility,
+        "pair_profile": pair_profile,
         "chat_history": chat_history,
         "recommendations": recommendations,
         "answers_submit": answers_submit,

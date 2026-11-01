@@ -6,6 +6,7 @@ import app.befos.data.mapper.toDomain
 import app.befos.data.remote.ApiService
 import app.befos.domain.model.Compatibility
 import app.befos.domain.model.MatchSummary
+import app.befos.domain.model.PairProfile
 import app.befos.domain.model.PublicProfile
 import app.befos.domain.model.Recommendation
 import app.befos.domain.model.Universe
@@ -21,6 +22,9 @@ class MatchRepositoryImpl(private val api: ApiService) : MatchRepository {
 
     override suspend fun compatibility(matchId: String): ApiResult<Compatibility> =
         api.getCompatibility(matchId).map { it.toDomain() }
+
+    override suspend fun pairProfile(matchId: String): ApiResult<PairProfile> =
+        api.getPairProfile(matchId).map { it.toDomain() }
 
     override suspend fun universe(matchId: String): ApiResult<Universe> =
         api.getUniverse(matchId).map { it.toDomain() }

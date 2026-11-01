@@ -37,6 +37,7 @@ Seven checks, in the order the risk sits:
 
 from __future__ import annotations
 
+import ast
 import importlib.util
 import inspect
 import pathlib
@@ -338,6 +339,23 @@ def test_the_seed_names_its_denominator_before_the_exclusions() -> None:
     )
 
 
+def _priced_paths() -> list[str]:
+    """Имена путей, которые прибор цены ставит себе в реестр, — из самого прибора.
+
+    Ряд сверяет таблицу документа с реестром, а не с записанной числом: стадия 125 добавила
+    двадцать седьмую дверь (чтение профиля пары), и проверка на «26» покраснела бы не из-за
+    потерянного замера, а из-за того, что кто-то перестал читать документ. Число живёт в
+    `ops/scale_probe.py`, и пусть оно остаётся там.
+    """
+    source = _PROBE_PATH.read_text(encoding="utf-8")
+    registry = max(
+        (node.value for node in ast.walk(ast.parse(source))
+         if isinstance(node, ast.Return) and isinstance(node.value, ast.Dict)),
+        key=lambda value: len(value.keys),
+    )
+    return [key.value for key in registry.keys if isinstance(key, ast.Constant)]
+
+
 def test_the_scale_document_carries_the_pair_of_runs_the_open_end_asked_for() -> None:
     doc = _SCALE_DOC.read_text(encoding="utf-8")
     assert re.search(r"^### Стадия 118[^\n]*$", doc, re.MULTILINE), (
@@ -348,10 +366,11 @@ def test_the_scale_document_carries_the_pair_of_runs_the_open_end_asked_for() ->
     )
     live = doc.split("## Задержки горячих путей", 1)[1].split("\n### ", 1)[0]
     rows = re.findall(r"^\|\s*`([a-z_]+)`\s*\|(.+)$", live, re.MULTILINE)
-    assert len(rows) == 26, (
-        f"the live table carries {len(rows)} rows; the harness prices 26 paths since stage 122 put "
-        "the export door into the registry, and a table re-shot for a new row owes a fresh number to "
-        "every one of them"
+    priced = _priced_paths()
+    assert [name for name, _ in rows] == priced, (
+        f"живая таблица несёт {len(rows)} строк, прибор цены считает {len(priced)} путей; "
+        "новый ряд в реестре обязан дождаться своего замера в документе, а снятый ряд — уйти "
+        "и оттуда, и отсюда"
     )
     for name, cells in rows:
         if name in ("liked", "unlike"):
