@@ -11,7 +11,7 @@ needed its own answer about who told it that number.
 What a link carries now, sealed:
 
 ```
-base64url("v1|<kid>|<door>|<reader hex>|<issued micros>|<place>") + "." + base64url(hmac_sha256)
+base64url("v1|<kid>|<door>|<reader hex>|<window>|<place>") + "." + base64url(hmac_sha256)
 ```
 
 The ``door`` half is why two lists of the same shape cannot read each other's links: the deck, the

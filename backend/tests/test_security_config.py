@@ -8,6 +8,10 @@ from app.core.config import Settings
 
 _STRONG_A = "prod-access-secret-value-that-is-long-enough-1234567890"
 _STRONG_B = "prod-refresh-secret-value-that-is-long-enough-0987654321"
+# Stage 126 gave the page links their own key, so a "correctly configured production stand" here
+# has to carry three secrets and not two. A stand without it would refuse for the cursor guard and
+# every test below would be about that instead of the one mistake it names.
+_STRONG_C = "prod-cursor-secret-value-that-is-long-enough-1234567890"
 
 
 def _settings(**overrides) -> Settings:
@@ -17,6 +21,7 @@ def _settings(**overrides) -> Settings:
         "ENVIRONMENT": "production",
         "JWT_SECRET": _STRONG_A,
         "JWT_REFRESH_SECRET": _STRONG_B,
+        "CURSOR_SECRET": _STRONG_C,
         "DATABASE_URL": "postgresql+asyncpg://u:p@localhost:5432/db",
         "CORS_ORIGINS": "https://befos.example.com",
         "DEBUG": "false",
