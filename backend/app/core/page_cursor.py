@@ -37,7 +37,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 from app.core.config import settings
-from app.core.exceptions import ValidationError
+from app.core.exceptions import BrokenPageLinkError
 
 BAD_CURSOR = "The link to the next page is broken."
 
@@ -151,7 +151,7 @@ def open_link(
     second of a window is read in the next one, so a link lives between one and two windows, and the
     documents name that span rather than pretending the setting is exact.
     """
-    refused = ValidationError(BAD_CURSOR)
+    refused = BrokenPageLinkError(BAD_CURSOR)
     body, _, signature = token.partition(".")
     if not body or not signature:
         raise refused
@@ -195,10 +195,10 @@ def open_rank(reader_id: uuid.UUID, cursor: str | None) -> int:
     place = open_link(cursor, door=DECK, reader_id=reader_id)
     prefix, _, digits = place.partition(":")
     if prefix != RANK_PREFIX:
-        raise ValidationError(BAD_CURSOR)
+        raise BrokenPageLinkError(BAD_CURSOR)
     rank = _plain_digits(digits, MAX_RANK)
     if rank is None:
-        raise ValidationError(BAD_CURSOR)
+        raise BrokenPageLinkError(BAD_CURSOR)
     return rank
 
 
@@ -217,12 +217,12 @@ def open_moment(
     place = open_link(cursor, door=door, reader_id=reader_id)
     parts = place.split(":")
     if len(parts) != 3 or parts[0] != MOMENT_PREFIX:
-        raise ValidationError(BAD_CURSOR)
+        raise BrokenPageLinkError(BAD_CURSOR)
     micros = _plain_digits(parts[1], _MAX_MICROS)
     if micros is None:
-        raise ValidationError(BAD_CURSOR)
+        raise BrokenPageLinkError(BAD_CURSOR)
     try:
         row_id = uuid.UUID(hex=parts[2])
     except ValueError:
-        raise ValidationError(BAD_CURSOR)
+        raise BrokenPageLinkError(BAD_CURSOR)
     return _EPOCH + timedelta(microseconds=micros), row_id

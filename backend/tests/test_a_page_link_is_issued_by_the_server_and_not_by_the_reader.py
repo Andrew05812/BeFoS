@@ -344,7 +344,11 @@ def test_every_refusal_is_the_same_answer_and_names_no_mechanism(monkeypatch) ->
     answers = {name: refusal(name) for name in names}
 
     assert {answer.message for answer in answers.values()} == {BAD_CURSOR}
-    assert {answer.code for answer in answers.values()} == {"validation_error"}
+    # One machine code for all ten, and it names the object — a page link — not the check that failed.
+    # The client needs this one thing to tell a broken frontier from an ordinary bad input: on hearing
+    # it the screen drops its link and re-reads the newest page, while `validation_error` would say
+    # "something you typed is wrong" about a string the server itself handed out.
+    assert {answer.code for answer in answers.values()} == {"broken_page_link"}
     assert {answer.status_code for answer in answers.values()} == {422}
     for name, answer in answers.items():
         lowered = answer.message.lower()
@@ -492,6 +496,10 @@ async def test_the_doors_still_answer_pages_through_the_seal(
         refused = await client.get(url, headers=auth_headers(creds["token"]), params={"cursor": forged})
         assert refused.status_code == 422, f"{url} read a link it never issued: {refused.text[:160]}"
         assert refused.json()["error"]["message"] == BAD_CURSOR
+        # The code is the part the client reads. A screen holding a link the server will not open has
+        # to drop it and re-read the newest page; `validation_error` would tell it that something it
+        # typed is wrong, and the retry would ask for the same dead frontier again.
+        assert refused.json()["error"]["code"] == "broken_page_link", refused.text[:200]
 
     from app.core.page_cursor import seal as _seal
 

@@ -63,6 +63,21 @@ class ValidationError(AppError):
     message = "Invalid input."
 
 
+class BrokenPageLinkError(ValidationError):
+    """The link that said where a page stopped no longer opens one.
+
+    A subclass of the validation error rather than a new status: it is the same 422, the same handler
+    and the same one sentence, and every caller that catches a bad input still catches this. What it
+    adds is a code the client can act on. "The link to the next page is broken" is the right words for
+    a person and the wrong ones for a program: told only that an input was invalid, a screen holding a
+    stale frontier asks for the same page again, and again, and never learns to re-read the newest one.
+    The name says which object failed, not which check refused it — the seal, the key and the age stay
+    where they belong, in the server's own documents.
+    """
+
+    code = "broken_page_link"
+
+
 class RateLimitedError(AppError):
     status_code = status.HTTP_429_TOO_MANY_REQUESTS
     code = "rate_limited"
