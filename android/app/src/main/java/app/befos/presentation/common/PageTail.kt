@@ -156,3 +156,22 @@ fun PageTailRow(
         PageTail.Nothing -> Unit
     }
 }
+
+/**
+ * The count line above a paged list, in the grammatical case the number itself asks for.
+ *
+ * A screen reader says this sentence before the walk starts, and «показано 1 лайков» is not a rounding
+ * difference but a number the account cannot believe — the device pass of stage 126 met it over an
+ * inbox holding exactly one tap. The three forms come from the caller, because only the screen knows
+ * which noun it counts, and a rule that guesses a noun's gender from a stem is how the next list gets
+ * it wrong again.
+ */
+internal fun shownWord(shown: Int, truncated: Boolean, one: String, few: String, many: String): String {
+    val word = when {
+        shown % 100 in 11..14 -> many
+        shown % 10 == 1 -> one
+        shown % 10 in 2..4 -> few
+        else -> many
+    }
+    return if (truncated) "Показано $shown $word, и список идёт дальше" else "Показано $shown $word — весь список"
+}

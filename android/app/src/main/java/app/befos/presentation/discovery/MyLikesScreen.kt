@@ -47,6 +47,7 @@ import app.befos.presentation.common.PageTailRow
 import app.befos.presentation.common.PageTailWords
 import app.befos.presentation.common.myLikesEntryWord
 import app.befos.presentation.common.pageTail
+import app.befos.presentation.common.shownWord
 import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -379,7 +380,7 @@ internal fun myLikesTail(state: MyLikesUiState): MyLikesTail = pageTail(state.wa
  * nothing.
  */
 internal fun myLikesShownWord(shown: Int, truncated: Boolean): String =
-    if (truncated) "Показано $shown касаний, и список идёт дальше" else "Показано $shown касаний — весь список"
+    shownWord(shown, truncated, "касание", "касания", "касаний")
 
 /**
  * The row's second line: who this person is, and the day this account reached for them.

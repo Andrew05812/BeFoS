@@ -33,6 +33,7 @@ import app.befos.core.di.beFosViewModel
 import app.befos.presentation.common.PageTailRow
 import app.befos.presentation.common.PageTailWords
 import app.befos.presentation.common.pageTail
+import app.befos.presentation.common.shownWord
 
 @Composable
 fun MatchListScreen(
@@ -184,4 +185,4 @@ private val MATCHES_TAIL_WORDS = PageTailWords(
 
 /** How far the walk has come: the rows on the screen, and whether the list goes on past them. */
 internal fun matchesShownWord(shown: Int, truncated: Boolean): String =
-    if (truncated) "Показано $shown пар, и список идёт дальше" else "Показано $shown пар — весь список"
+    shownWord(shown, truncated, "пара", "пары", "пар")

@@ -40,6 +40,7 @@ import app.befos.presentation.common.PageTailRow
 import app.befos.presentation.common.PageTailWords
 import app.befos.presentation.common.pageTail
 import app.befos.presentation.common.passedEntryWord
+import app.befos.presentation.common.shownWord
 import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -198,7 +199,7 @@ private val PASSED_TAIL_WORDS = PageTailWords(
  * How far the walk has come: the rows on the screen, and whether the list goes on past them.
  */
 internal fun passedShownWord(shown: Int, truncated: Boolean): String =
-    if (truncated) "Показано $shown пропусков, и список идёт дальше" else "Показано $shown пропусков — весь список"
+    shownWord(shown, truncated, "пропуск", "пропуска", "пропусков")
 
 /**
  * The row's second line: who this person is, and the day the card was swiped past.

@@ -42,6 +42,7 @@ import app.befos.presentation.common.PageTailRow
 import app.befos.presentation.common.PageTailWords
 import app.befos.presentation.common.likedMeEntryWord
 import app.befos.presentation.common.pageTail
+import app.befos.presentation.common.shownWord
 import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -211,7 +212,7 @@ private val LIKED_ME_TAIL_WORDS = PageTailWords(
  * How far the walk has come: the rows on the screen, and whether the list goes on past them.
  */
 internal fun likedMeShownWord(shown: Int, truncated: Boolean): String =
-    if (truncated) "Показано $shown лайков, и список идёт дальше" else "Показано $shown лайков — весь список"
+    shownWord(shown, truncated, "лайк", "лайка", "лайков")
 
 /**
  * The row's second line: who this person is, and the day their tap was written.
