@@ -30,7 +30,10 @@ class Like(TimestampMixin, Base):
         ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     to_user_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+        # Stage 126's inbox key starts here, so the column keeps no index of its own: a btree over
+        # (`to_user_id`, …) answers a lookup on `to_user_id` alone, and the narrower one would be
+        # written on every tap for nothing — the rule `test_schema_index_redundancy.py` holds.
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     compatibility_score: Mapped[float | None] = mapped_column(Float, nullable=True)
 

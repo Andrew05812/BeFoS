@@ -35,11 +35,21 @@ already decided by `uq_pass_pair` / `uq_like_pair` and a second unique key would
 first one permits. `created_at` comes from `TimestampMixin` and `id` is the primary key, both NOT NULL,
 so the direction bit in `pg_index.indoption` is the only choice these keys make.
 
-The two older single-column indexes stay. `ix_likes_to_user_id` is a left prefix of the new inbox key
-and could be dropped, but the reads that filter `to_user_id` alone — the account's own export, the
-purge that walks `or_(from_user_id, to_user_id)` — were not re-planned by this stage's measurement,
-and dropping an index the stand has never been timed without is a decision for its own shoot rather
-than a bonus attached to this one.
+The narrow `ix_likes_to_user_id` goes with this change rather than staying beside it, and the reason is
+the repository's own rule: a btree over one column is a left prefix of a btree that starts with the
+same column, so it is written on every tap and never needed for a read — the rule
+`test_schema_index_redundancy.py` holds, with the 100 000-row insert measurement behind it (4 047 мс
+against 3 514 мс) recorded in `docs/SCALE_PLAN.md`. The two reads that could have cared were timed on
+this stand before the drop and after it (`s126_drop_narrow_index.json`): the inbox page answered
+0.76 мс with the narrow key present and 0.75 мс without it, planning on the new key both times; and the
+account's own export, which orders the same rows `created_at, id` ASC, answered 4.93 against 4.90 мс.
+With sequential scans switched off — the state a real account's handful of taps against a much larger
+table produces — the export moved from the narrow index to `ix_likes_target_inbox_order`, 4.773 against
+4.894 мс, which is the backward-scan claim made as a number instead of an assertion.
+
+`ix_passes_to_user_id` stays: it is not a prefix of anything. The new pass key starts on the other half
+of the pair, and the reader who is *being* passed is still a lookup this product makes (the purge of a
+deleted account walks `or_(from_user_id, to_user_id)`).
 """
 from typing import Sequence, Union
 
@@ -67,8 +77,10 @@ def upgrade() -> None:
         ["from_user_id", sa.text("created_at DESC"), sa.text("id DESC")],
         unique=False,
     )
+    op.drop_index("ix_likes_to_user_id", table_name="likes")
 
 
 def downgrade() -> None:
+    op.create_index("ix_likes_to_user_id", "likes", ["to_user_id"], unique=False)
     op.drop_index("ix_passes_tapper_order", table_name="passes")
     op.drop_index("ix_likes_target_inbox_order", table_name="likes")
