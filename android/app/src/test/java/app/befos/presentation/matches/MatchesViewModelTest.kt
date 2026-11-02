@@ -3,6 +3,7 @@ package app.befos.presentation.matches
 import app.befos.MainDispatcherRule
 import app.befos.core.network.ApiResult
 import app.befos.domain.model.MatchSummary
+import app.befos.domain.model.MatchesPage
 import app.befos.domain.repository.MatchRepository
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -30,10 +31,14 @@ class MatchesViewModelTest {
         unread = unread,
     )
 
+    /** The door answers a page now, so a test that hands it rows hands it the page they sit on. */
+    private fun page(vararg rows: MatchSummary) =
+        ApiResult.Success(MatchesPage(rows.toList(), truncated = false))
+
     @Test
     fun `a refresh that fails over a loaded list keeps it and says it may be old`() = runTest {
-        coEvery { repo.matches() } returnsMany listOf(
-            ApiResult.Success(listOf(match("m1"))),
+        coEvery { repo.matches(null) } returnsMany listOf(
+            page(match("m1")),
             ApiResult.Error(-1, "Сервер недоступен. Проверьте соединение и попробуйте ещё раз."),
         )
 
@@ -53,8 +58,8 @@ class MatchesViewModelTest {
 
     @Test
     fun `a failed refresh does not flash the skeleton`() = runTest {
-        coEvery { repo.matches() } returnsMany listOf(
-            ApiResult.Success(listOf(match("m1"))),
+        coEvery { repo.matches(null) } returnsMany listOf(
+            page(match("m1")),
             ApiResult.Error(-1, "Нет подключения к интернету."),
         )
 
@@ -69,8 +74,8 @@ class MatchesViewModelTest {
 
     @Test
     fun `a refresh that fails with nothing to show is the screen error`() = runTest {
-        coEvery { repo.matches() } returnsMany listOf(
-            ApiResult.Success(emptyList()),
+        coEvery { repo.matches(null) } returnsMany listOf(
+            page(),
             ApiResult.Error(-1, "Сервер недоступен. Проверьте соединение и попробуйте ещё раз."),
         )
 
@@ -89,10 +94,10 @@ class MatchesViewModelTest {
 
     @Test
     fun `a refresh that lands clears the warning`() = runTest {
-        coEvery { repo.matches() } returnsMany listOf(
-            ApiResult.Success(listOf(match("m1"))),
+        coEvery { repo.matches(null) } returnsMany listOf(
+            page(match("m1")),
             ApiResult.Error(-1, "Сервер недоступен. Проверьте соединение и попробуйте ещё раз."),
-            ApiResult.Success(listOf(match("m1", unread = 2), match("m2"))),
+            page(match("m1", unread = 2), match("m2")),
         )
 
         val vm = MatchesViewModel(repo)
@@ -111,10 +116,10 @@ class MatchesViewModelTest {
 
     @Test
     fun `a retry from the warning asks the server again`() = runTest {
-        coEvery { repo.matches() } returnsMany listOf(
-            ApiResult.Success(listOf(match("m1"))),
+        coEvery { repo.matches(null) } returnsMany listOf(
+            page(match("m1")),
             ApiResult.Error(-1, "Сервер недоступен. Проверьте соединение и попробуйте ещё раз."),
-            ApiResult.Success(listOf(match("m1"), match("m2"))),
+            page(match("m1"), match("m2")),
         )
 
         val vm = MatchesViewModel(repo)
@@ -125,13 +130,13 @@ class MatchesViewModelTest {
         vm.refreshSilently()
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
 
-        coVerify(exactly = 3) { repo.matches() }
+        coVerify(exactly = 3) { repo.matches(null) }
         assertEquals(2, vm.uiState.value.matches.size)
     }
 
     @Test
     fun `a row tap arms the dialog and cancelling writes nothing`() = runTest {
-        coEvery { repo.matches() } returns ApiResult.Success(listOf(match("m1"), match("m2")))
+        coEvery { repo.matches(null) } returns page(match("m1"), match("m2"))
 
         val vm = MatchesViewModel(repo)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
@@ -151,7 +156,7 @@ class MatchesViewModelTest {
 
     @Test
     fun `the row leaves only once the server says the pair is ended`() = runTest {
-        coEvery { repo.matches() } returns ApiResult.Success(listOf(match("m1"), match("m2")))
+        coEvery { repo.matches(null) } returns page(match("m1"), match("m2"))
         coEvery { repo.dissolve("m1") } returns ApiResult.Success(Unit)
 
         val vm = MatchesViewModel(repo)
@@ -173,7 +178,7 @@ class MatchesViewModelTest {
 
     @Test
     fun `a refused dissolve keeps the row and says the server's words`() = runTest {
-        coEvery { repo.matches() } returns ApiResult.Success(listOf(match("m1"), match("m2")))
+        coEvery { repo.matches(null) } returns page(match("m1"), match("m2"))
         coEvery { repo.dissolve("m1") } returns ApiResult.Error(404, "Пара не найдена.")
 
         val vm = MatchesViewModel(repo)
@@ -193,7 +198,7 @@ class MatchesViewModelTest {
 
     @Test
     fun `a row tap while a dissolve is out is dropped`() = runTest {
-        coEvery { repo.matches() } returns ApiResult.Success(listOf(match("m1"), match("m2")))
+        coEvery { repo.matches(null) } returns page(match("m1"), match("m2"))
         coEvery { repo.dissolve("m1") } returns ApiResult.Success(Unit)
 
         val vm = MatchesViewModel(repo)
@@ -212,7 +217,7 @@ class MatchesViewModelTest {
 
     @Test
     fun `a confirm with no dialog open asks the server nothing`() = runTest {
-        coEvery { repo.matches() } returns ApiResult.Success(listOf(match("m1")))
+        coEvery { repo.matches(null) } returns page(match("m1"))
 
         val vm = MatchesViewModel(repo)
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
@@ -229,7 +234,7 @@ class MatchesViewModelTest {
 
     @Test
     fun `the notice is taken back when the screen is done showing it`() = runTest {
-        coEvery { repo.matches() } returns ApiResult.Success(listOf(match("m1"), match("m2")))
+        coEvery { repo.matches(null) } returns page(match("m1"), match("m2"))
         coEvery { repo.dissolve("m1") } returns ApiResult.Success(Unit)
 
         val vm = MatchesViewModel(repo)

@@ -24,11 +24,12 @@ class DiscoveryRepositoryImpl(private val api: ApiService) : DiscoveryRepository
             )
         }
 
-    override suspend fun likedMe(): ApiResult<LikedMePage> =
-        api.likedMe().map { page ->
+    override suspend fun likedMe(cursor: String?): ApiResult<LikedMePage> =
+        api.likedMe(cursor).map { page ->
             LikedMePage(
                 likes = page.likes.map { it.toDomain() },
                 truncated = page.hasMore,
+                nextCursor = page.nextCursor,
             )
         }
 
@@ -38,8 +39,8 @@ class DiscoveryRepositoryImpl(private val api: ApiService) : DiscoveryRepository
     override suspend fun pass(userId: String): ApiResult<Unit> =
         api.pass(userId).map { Unit }
 
-    override suspend fun passed(): ApiResult<PassedPage> =
-        api.passedUsers().map { it.toPage() }
+    override suspend fun passed(cursor: String?): ApiResult<PassedPage> =
+        api.passedUsers(cursor).map { it.toPage() }
 
     /**
      * The list the screen paints, built from the server's rows rather than from the deck left in
@@ -52,6 +53,7 @@ class DiscoveryRepositoryImpl(private val api: ApiService) : DiscoveryRepository
     private fun PassedUsersDto.toPage() = PassedPage(
         passed = passed.map { it.toDomain() },
         truncated = hasMore,
+        nextCursor = nextCursor,
     )
 
     /**

@@ -38,6 +38,20 @@ val PHOTO_UPLOAD_CONTENT_TYPES = setOf("image/jpeg", "image/png", "image/webp")
 const val CHAT_CLOSED_DETAIL = "Пара распущена, и её строки не перечитываются: новое обращение " +
     "получит тот же отказ."
 
+/**
+ * What a refused link to the next page says to the person who was scrolling.
+ *
+ * The server's own sentence names the object («the link is broken») and nothing else, which is right
+ * for an API and wrong for a screen: the reader cannot mend a link, and the words must say what the
+ * screen is going to do instead. It re-reads the newest page — which is the only honest repair, since
+ * a frontier the server will not open has nothing behind it to ask for again. Nothing here claims the
+ * link expired or was forged: the refusal does not say, and neither should the app.
+ */
+const val BROKEN_PAGE_LINK = "Продолжить список не удалось. Показываем самые свежие записи."
+
+/** The envelope's machine code for that refusal — the part a screen acts on, not the part it reads. */
+const val BROKEN_PAGE_LINK_CODE = "broken_page_link"
+
 /** Lowercased backend message -> UI copy. Keys mirror the raise sites in the API. */
 private val translated: Map<String, String> = mapOf(
     // auth
@@ -223,6 +237,8 @@ private val translatedPrefixes: List<Pair<String, String>> = listOf(
     "A complaint cannot move from " to "Жалоба уже не переходит в этот статус. Обновите очередь.",
     "Invalid report status. Allowed:" to "Такого статуса жалоба не принимает.",
     "That comment is longer than " to "Запись слишком длинная. Сократите её.",
+    // The four paged doors answer this for a link they handed out themselves and will no longer open.
+    "The link to the next page is broken." to BROKEN_PAGE_LINK,
 )
 
 /** Second layer: the envelope's machine code covers messages this file has never seen. */
@@ -237,6 +253,10 @@ private fun fallback(code: String, status: Int): String = when (code) {
     "conflict" -> "Это уже сделано."
     "rate_limited" -> "Слишком много запросов. Подождите немного."
     "database_unavailable" -> "Сервис временно недоступен. Попробуйте ещё раз через несколько секунд."
+    // One sentence per object, not per check: the server's refusal is deliberately silent about which
+    // half of the seal failed, so this branch stays right for an aged link, a borrowed one and a
+    // hand-typed one alike.
+    "broken_page_link" -> BROKEN_PAGE_LINK
     else -> defaultHttpMessage(status)
 }
 

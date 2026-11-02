@@ -451,6 +451,9 @@ data class IncomingLikeDto(
 data class LikedMeDto(
     val likes: List<IncomingLikeDto> = emptyList(),
     @SerialName("has_more") val hasMore: Boolean = false,
+    // Stage 126 put a link on this door: the server names where its own page stopped, and carrying
+    // that string back is the only way to read the taps behind it. Null says the walk is over.
+    @SerialName("next_cursor") val nextCursor: String? = null,
 )
 
 /**
@@ -474,6 +477,10 @@ data class PassedUserDto(
 data class PassedUsersDto(
     val passed: List<PassedUserDto> = emptyList(),
     @SerialName("has_more") val hasMore: Boolean = false,
+    // The same link the inbox hands out, for the same reason: the pass list is longer than a page on
+    // any account that has been swiping for a while, and without this string `has_more` names a rest
+    // no request can reach.
+    @SerialName("next_cursor") val nextCursor: String? = null,
 )
 
 /**
@@ -555,9 +562,19 @@ data class MatchSummaryDto(
     @SerialName("created_at") val createdAt: String = "",
 )
 
+/**
+ * One page of the account's pairs.
+ *
+ * Until stage 126 this document was the whole list: the route read every pair the account had ever
+ * formed, and the screen painted all of them, so an account with four hundred pairs cost four hundred
+ * rows on one open. The door now answers a page and says what stands behind it — and `has_more` with
+ * no link to follow would be a promise the client cannot keep, which is why both halves travel.
+ */
 @Serializable
 data class MatchListDto(
     val matches: List<MatchSummaryDto> = emptyList(),
+    @SerialName("has_more") val hasMore: Boolean = false,
+    @SerialName("next_cursor") val nextCursor: String? = null,
 )
 
 @Serializable

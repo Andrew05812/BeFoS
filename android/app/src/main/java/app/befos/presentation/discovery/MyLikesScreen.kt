@@ -42,7 +42,11 @@ import app.befos.core.designsystem.rememberHaptics
 import app.befos.core.designsystem.tabularDigits
 import app.befos.core.di.beFosViewModel
 import app.befos.domain.model.OutgoingLike
+import app.befos.presentation.common.PageTail
+import app.befos.presentation.common.PageTailRow
+import app.befos.presentation.common.PageTailWords
 import app.befos.presentation.common.myLikesEntryWord
+import app.befos.presentation.common.pageTail
 import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -213,51 +217,13 @@ fun MyLikesScreen(onBack: () -> Unit, onOpenProfile: (String) -> Unit) {
                     // it. Nothing here is a button the reader has to notice to keep reading — the list
                     // comes by itself — but a page that failed has to be repeatable by a tap.
                     item(key = "tail") {
-                        when (myLikesTail(state)) {
-                            MyLikesTail.Loading -> Row(
-                                modifier = Modifier.fillMaxWidth().padding(vertical = Spacing.sm),
-                                horizontalArrangement = Arrangement.spacedBy(Spacing.md, Alignment.CenterHorizontally),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.5.dp)
-                                Text(
-                                    "Догружаю ваши касания…",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-
-                            MyLikesTail.PageRefused -> InlineNotice(
-                                text = "Следующая страница не дошла. ${state.moreError}",
-                                actionLabel = "Повторить",
-                                onAction = vm::loadMore,
-                            )
-
-                            MyLikesTail.MoreAvailable -> InlineNotice(
-                                text = "Ваших касаний больше, чем стоит на этом списке. " +
-                                    "Догружается само, когда вы доходите до конца.",
-                                isError = false,
-                                actionLabel = "Показать ещё",
-                                onAction = vm::loadMore,
-                            )
-
-                            MyLikesTail.WaitingForReread -> InlineNotice(
-                                text = "Ваших касаний больше, чем стоит на этом списке. Перечитайте его, " +
-                                    "и обход пойдёт дальше.",
-                                isError = false,
-                                actionLabel = "Повторить",
-                                onAction = vm::load,
-                            )
-
-                            MyLikesTail.End -> Text(
-                                "Дальше ваших касаний нет.",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-
-                            MyLikesTail.Nothing -> Unit
-                        }
-                    }
+                        PageTailRow(
+                            tail = myLikesTail(state),
+                            moreError = state.moreError,
+                            words = MY_LIKES_TAIL_WORDS,
+                            onRepeat = vm::retryMore,
+                            onReread = vm::load,
+                        )                    }
                 }
             }
         }
@@ -383,36 +349,26 @@ internal fun myLikesBody(state: MyLikesUiState): MyLikesBody = when {
 internal fun myLikesWriteRetryTarget(state: MyLikesUiState): String? =
     if (state.writeError == null) null else state.withdrawFailed
 
-/** Which of the sentences below the list the tail of the walk draws. */
-internal enum class MyLikesTail {
-    Loading, PageRefused, MoreAvailable, WaitingForReread, End, Nothing,
-}
-
 /**
- * The tail is this screen's claim about what stands beyond the rows it holds, so its branches resolve in
- * one place and are tested there rather than in the order a `when` happens to be written in.
+ * Which of the sentences below the list the tail of the walk draws.
  *
- * Two rules hold it together. A verb appears only where the key it needs is on the screen: «Повторить»
- * over a refused page and «Показать ещё» over a list that goes on both go through [loadMore], and
- * [MyLikesUiState.nextCursor] is the only thing that verb can ask with. And the sentence that ends the
- * walk belongs to the server, not to an absent key: it is drawn once the last answer said nothing stands
- * beyond these rows.
- *
- * [WaitingForReread] is the branch this screen did not have. A reload that failed drops the key to the
- * rest of the list — the rows above are the earlier read and they stay — while the last answer that did
- * come said more taps stand behind them. Without the branch the tail fell through to [End] and promised
- * a reader the end of a history they had not finished reading, and with a page refusal still in the state
- * it offered «Повторить» pointed at a page whose link had just been thrown away. Its verb is the reload
- * itself, which is the one thing that can hand the walk a key again.
+ * The branch lives in [app.befos.presentation.common.pageTail] now, because three more lists grew the
+ * same walk in stage 126 and four copies of one decision is how one screen's tail starts saying
+ * something the others do not. This name stays as the screen's own word for it.
  */
-internal fun myLikesTail(state: MyLikesUiState): MyLikesTail = when {
-    state.loadingMore -> MyLikesTail.Loading
-    state.moreError != null && state.nextCursor != null -> MyLikesTail.PageRefused
-    state.truncated && state.nextCursor != null -> MyLikesTail.MoreAvailable
-    state.truncated -> MyLikesTail.WaitingForReread
-    state.pages > 1 -> MyLikesTail.End
-    else -> MyLikesTail.Nothing
-}
+internal typealias MyLikesTail = PageTail
+
+private val MY_LIKES_TAIL_WORDS = PageTailWords(
+    loading = "Догружаю ваши касания…",
+    moreAvailable = "Ваших касаний больше, чем стоит на этом списке. " +
+        "Догружается само, когда вы доходите до конца.",
+    waitingForReread = "Ваших касаний больше, чем стоит на этом списке. Перечитайте его, " +
+        "и обход пойдёт дальше.",
+    end = "Дальше ваших касаний нет.",
+)
+
+internal fun myLikesTail(state: MyLikesUiState): MyLikesTail = pageTail(state.walk())
+
 
 /**
  * How far the walk has come, in the reader's own words: the rows on the screen, and whether the list

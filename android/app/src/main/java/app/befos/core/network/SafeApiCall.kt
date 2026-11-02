@@ -12,7 +12,15 @@ import kotlinx.serialization.Serializable
 
 sealed interface ApiResult<out T> {
     data class Success<T>(val data: T) : ApiResult<T>
-    data class Error(val code: Int, val message: String) : ApiResult<Nothing>
+
+    /**
+     * [code] is the HTTP status, or the negative number this file invents for a failure that never
+     * reached the server. [errorCode] is the machine word from the envelope — empty when the response
+     * carried none — and it exists because a repair cannot be guessed from a status: 422 covers both
+     * «you typed a value we refuse» and «a link we ourselves handed you has aged out», and only the
+     * second one is repaired by re-reading the newest page.
+     */
+    data class Error(val code: Int, val message: String, val errorCode: String = "") : ApiResult<Nothing>
 }
 
 inline fun <T, R> ApiResult<T>.map(transform: (T) -> R): ApiResult<R> = when (this) {
@@ -38,22 +46,31 @@ private data class ErrorEnvelopeDto(
     val error: ErrorDetailDto? = null,
 )
 
-/** Product-copy message for a failed response; the English envelope text never reaches the UI. */
-suspend fun parseErrorMessage(response: HttpResponse): String {
+/**
+ * A failed response, read as the words the person gets and the code the server meant for a program.
+ *
+ * The English envelope text never reaches the UI — [localizeBackendError] turns it into product copy —
+ * and the envelope's machine code travels beside those words rather than being folded into them. A
+ * screen decides what it can *do* by the code: a broken link to the next page is re-read from the
+ * newest page, while a rejected input is still the input the person has to fix. Two failures that
+ * share a status are not two failures that share a repair.
+ */
+suspend fun parseError(response: HttpResponse): ApiResult.Error {
     val status = response.status.value
-    return try {
+    val (code, message) = try {
         val detail = response.body<ErrorEnvelopeDto>().error
-        localizeBackendError(detail?.message.orEmpty(), detail?.code.orEmpty(), status)
+        Pair(detail?.code.orEmpty(), localizeBackendError(detail?.message.orEmpty(), detail?.code.orEmpty(), status))
     } catch (_: Exception) {
         try {
             val text = response.bodyAsText()
             val detail = Regex("\"message\"\\s*:\\s*\"([^\"]+)\"").find(text)?.groupValues?.getOrNull(1).orEmpty()
             val code = Regex("\"code\"\\s*:\\s*\"([^\"]+)\"").find(text)?.groupValues?.getOrNull(1).orEmpty()
-            localizeBackendError(detail, code, status)
+            Pair(code, localizeBackendError(detail, code, status))
         } catch (_: Exception) {
-            defaultHttpMessage(status)
+            Pair("", defaultHttpMessage(status))
         }
     }
+    return ApiResult.Error(status, message, code)
 }
 
 /** Never leak raw exception text (English stack-trace messages) into the UI. */
@@ -102,7 +119,7 @@ suspend inline fun <reified T> HttpClient.apiCall(
             ApiResult.Error(-2, "Не удалось получить данные. Попробуйте ещё раз.")
         }
     } else {
-        ApiResult.Error(response.status.value, parseErrorMessage(response))
+        parseError(response)
     }
 }
 
@@ -118,7 +135,7 @@ suspend inline fun HttpClient.apiCallUnit(
     return if (response.status.isSuccess()) {
         ApiResult.Success(Unit)
     } else {
-        ApiResult.Error(response.status.value, parseErrorMessage(response))
+        parseError(response)
     }
 }
 
@@ -145,6 +162,6 @@ suspend inline fun HttpClient.apiCallBytes(
             ApiResult.Error(-2, "Не удалось получить данные. Попробуйте ещё раз.")
         }
     } else {
-        ApiResult.Error(response.status.value, parseErrorMessage(response))
+        parseError(response)
     }
 }

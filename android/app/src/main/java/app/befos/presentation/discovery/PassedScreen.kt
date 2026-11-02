@@ -8,6 +8,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -32,6 +36,9 @@ import app.befos.core.designsystem.SectionHeader
 import app.befos.core.designsystem.Spacing
 import app.befos.core.di.beFosViewModel
 import app.befos.domain.model.PassedUser
+import app.befos.presentation.common.PageTailRow
+import app.befos.presentation.common.PageTailWords
+import app.befos.presentation.common.pageTail
 import app.befos.presentation.common.passedEntryWord
 import java.time.OffsetDateTime
 import java.time.ZoneId
@@ -50,13 +57,28 @@ import java.util.Locale
 fun PassedScreen(onBack: () -> Unit, onOpenProfile: (String) -> Unit) {
     val vm: PassedViewModel = beFosViewModel { PassedViewModel(it.discoveryRepository) }
     val state by vm.uiState.collectAsState()
+    val scrollState = rememberScrollState()
+
+    // Reaching the end of what the screen holds is the reader asking for the rest; the gate closes
+    // while a page is on the wire, so the ask cannot fire twice. A list short enough not to overflow
+    // has already reached its end, so it asks too, and stops once the rows are taller than the screen.
+    val prefetchPx = with(LocalDensity.current) { 160.dp.toPx() }.toInt()
+    val shouldAskForMore by remember(prefetchPx) {
+        derivedStateOf {
+            state.canLoadMore &&
+                (scrollState.maxValue - scrollState.value <= prefetchPx || scrollState.maxValue == 0)
+        }
+    }
+    LaunchedEffect(shouldAskForMore) {
+        if (shouldAskForMore) vm.loadMore()
+    }
 
     Scaffold(topBar = { AppTopBar(title = passedEntryWord(), onBack = onBack) }) { padding ->
         Column(
             modifier = Modifier
                 .padding(padding)
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(scrollState)
                 .padding(horizontal = Spacing.gutter, vertical = Spacing.lg),
             verticalArrangement = Arrangement.spacedBy(Spacing.lg),
         ) {
@@ -77,15 +99,13 @@ fun PassedScreen(onBack: () -> Unit, onOpenProfile: (String) -> Unit) {
                     onAction = vm::dismissReleased,
                 )
             }
-            // A page that stopped at fifty says so. Without this line the list would claim it named
-            // everybody the account ever passed, which is the one sentence it cannot know.
-            if (state.truncated && !state.loading) {
-                InlineNotice(
-                    text = "Показаны пятьдесят самых свежих пропусков, за ними ждут другие. " +
-                        "Эта страница не следит за списком сама — обновите её.",
-                    isError = false,
-                    actionLabel = "Обновить",
-                    onAction = vm::load,
+            // How far the walk has come, in the reader's own words: the rows the device actually holds,
+            // and never a total the server did not name.
+            if (!state.loading && state.passed.isNotEmpty()) {
+                Text(
+                    passedShownWord(state.passed.size, state.truncated),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             if (state.error != null && state.passed.isNotEmpty()) {
@@ -150,9 +170,35 @@ fun PassedScreen(onBack: () -> Unit, onOpenProfile: (String) -> Unit) {
                     }
                 }
             }
+
+            // What stands beyond these rows, and the one verb that reaches it.
+            if (!state.loading && state.error == null) {
+                PageTailRow(
+                    tail = pageTail(state.walk()),
+                    moreError = state.moreError,
+                    words = PASSED_TAIL_WORDS,
+                    onRepeat = vm::retryMore,
+                    onReread = vm::load,
+                )
+            }
         }
     }
 }
+
+private val PASSED_TAIL_WORDS = PageTailWords(
+    loading = "Догружаю ваши пропуски…",
+    moreAvailable = "Пропущенных больше, чем стоит на этом списке. " +
+        "Догружается само, когда вы доходите до конца.",
+    waitingForReread = "Пропущенных больше, чем стоит на этом списке. Перечитайте его, " +
+        "и обход пойдёт дальше.",
+    end = "Дальше ваших пропусков нет.",
+)
+
+/**
+ * How far the walk has come: the rows on the screen, and whether the list goes on past them.
+ */
+internal fun passedShownWord(shown: Int, truncated: Boolean): String =
+    if (truncated) "Показано $shown пропусков, и список идёт дальше" else "Показано $shown пропусков — весь список"
 
 /**
  * The row's second line: who this person is, and the day the card was swiped past.

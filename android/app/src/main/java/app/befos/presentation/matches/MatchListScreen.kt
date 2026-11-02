@@ -6,7 +6,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -27,6 +30,9 @@ import app.befos.core.designsystem.Motion
 import app.befos.core.designsystem.Spacing
 import app.befos.core.designsystem.tabularDigits
 import app.befos.core.di.beFosViewModel
+import app.befos.presentation.common.PageTailRow
+import app.befos.presentation.common.PageTailWords
+import app.befos.presentation.common.pageTail
 
 @Composable
 fun MatchListScreen(
@@ -38,6 +44,21 @@ fun MatchListScreen(
 ) {
     val vm: MatchesViewModel = beFosViewModel { MatchesViewModel(it.matchRepository) }
     val state by vm.uiState.collectAsState()
+    val listState = rememberLazyListState()
+
+    // Three rows from the bottom is the reader asking for the rest of the list. The gate is closed
+    // while a page is on the wire, so the ask cannot fire twice, and a page that was refused by the
+    // door itself is not asked for again on its own — the notice under the rows carries that verb.
+    val shouldAskForMore by remember {
+        derivedStateOf {
+            val info = listState.layoutInfo
+            val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: -1
+            state.canLoadMore && info.totalItemsCount > 0 && lastVisible >= info.totalItemsCount - 3
+        }
+    }
+    LaunchedEffect(shouldAskForMore) {
+        if (shouldAskForMore) vm.loadMore()
+    }
 
     LifecycleResumeEffect(Unit) {
         vm.refreshSilently()
@@ -91,6 +112,7 @@ fun MatchListScreen(
             onAction = onGoDiscover,
         )
         else -> LazyColumn(
+            state = listState,
             modifier = Modifier.fillMaxSize().padding(horizontal = Spacing.gutter),
             verticalArrangement = Arrangement.spacedBy(Spacing.md),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(top = Spacing.lg, bottom = 96.dp),
@@ -119,6 +141,13 @@ fun MatchListScreen(
                         style = MaterialTheme.typography.headlineMedium.tabularDigits(),
                         color = MaterialTheme.colorScheme.onBackground,
                     )
+                    // The number above counts the rows this device holds. Without this line it reads
+                    // as the size of the account's whole list, which is the one thing a page cannot say.
+                    Text(
+                        matchesShownWord(state.matches.size, state.truncated),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
             items(state.matches, key = { it.matchId }) { match ->
@@ -133,6 +162,26 @@ fun MatchListScreen(
                     onDissolve = { vm.askDissolve(match) },
                 )
             }
+            item(key = "tail") {
+                PageTailRow(
+                    tail = pageTail(state.walk()),
+                    moreError = state.moreError,
+                    words = MATCHES_TAIL_WORDS,
+                    onRepeat = vm::retryMore,
+                    onReread = vm::load,
+                )
+            }
         }
     }
 }
+
+private val MATCHES_TAIL_WORDS = PageTailWords(
+    loading = "Догружаем ваши пары…",
+    moreAvailable = "Пар больше, чем стоит на этом списке. Догружается само, когда вы доходите до конца.",
+    waitingForReread = "Пар больше, чем стоит на этом списке. Перечитайте его, и обход пойдёт дальше.",
+    end = "Дальше ваших пар нет.",
+)
+
+/** How far the walk has come: the rows on the screen, and whether the list goes on past them. */
+internal fun matchesShownWord(shown: Int, truncated: Boolean): String =
+    if (truncated) "Показано $shown пар, и список идёт дальше" else "Показано $shown пар — весь список"

@@ -5,7 +5,7 @@ import app.befos.core.network.map
 import app.befos.data.mapper.toDomain
 import app.befos.data.remote.ApiService
 import app.befos.domain.model.Compatibility
-import app.befos.domain.model.MatchSummary
+import app.befos.domain.model.MatchesPage
 import app.befos.domain.model.PairProfile
 import app.befos.domain.model.PublicProfile
 import app.befos.domain.model.Recommendation
@@ -14,8 +14,14 @@ import app.befos.domain.repository.MatchRepository
 
 class MatchRepositoryImpl(private val api: ApiService) : MatchRepository {
 
-    override suspend fun matches(): ApiResult<List<MatchSummary>> =
-        api.getMatches().map { dto -> dto.matches.map { it.toDomain() } }
+    override suspend fun matches(cursor: String?): ApiResult<MatchesPage> =
+        api.getMatches(cursor).map { page ->
+            MatchesPage(
+                matches = page.matches.map { it.toDomain() },
+                truncated = page.hasMore,
+                nextCursor = page.nextCursor,
+            )
+        }
 
     override suspend fun partner(matchId: String): ApiResult<PublicProfile> =
         api.getMatch(matchId).map { it.otherUser.toDomain() }

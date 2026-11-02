@@ -9,7 +9,7 @@ import app.befos.domain.model.DiscoveryPage
 import app.befos.domain.model.Interest
 import app.befos.domain.model.LikeOutcome
 import app.befos.domain.model.LikedMePage
-import app.befos.domain.model.MatchSummary
+import app.befos.domain.model.MatchesPage
 import app.befos.domain.model.Message
 import app.befos.domain.model.OnboardingData
 import app.befos.domain.model.OutgoingLikesPage
@@ -131,19 +131,24 @@ interface DiscoveryRepository {
     suspend fun feed(limit: Int, cursor: String?): ApiResult<DiscoveryPage>
 
     /**
-     * The account's own inbox of taps. Read-only, and it carries no cursor: a tap stays in the
-     * list while it is being read, unlike a card leaving the deck, so the page that answered is
-     * the page the screen shows, and [LikedMePage.truncated] is the only cut it can hide.
+     * The account's own inbox of taps, read a page at a time.
+     *
+     * [cursor] is the link the previous page answered with and null asks for the newest one. Stage 126
+     * put it here: the door answered fifty taps and stopped, while the stand holds 98 / 994 / 4 994 of
+     * them for one reader at its three scales — so `truncated` used to name a rest no request could
+     * reach. [LikedMePage.nextCursor] is what turns that word into a walk.
      */
-    suspend fun likedMe(): ApiResult<LikedMePage>
+    suspend fun likedMe(cursor: String? = null): ApiResult<LikedMePage>
     suspend fun like(userId: String): ApiResult<LikeOutcome>
     suspend fun pass(userId: String): ApiResult<Unit>
 
     /**
-     * The account's own list of the cards it passed, read the same way the inbox is: no cursor, and
-     * the newest fifty rows are the whole answer the screen gets.
+     * The account's own list of the cards it passed, one page of them.
+     *
+     * The same link and the same reason as the inbox, with the numbers of this door beside it: 315 /
+     * 3 109 / 15 509 passes of one reader at the stand's three scales.
      */
-    suspend fun passed(): ApiResult<PassedPage>
+    suspend fun passed(cursor: String? = null): ApiResult<PassedPage>
 
     /**
      * Takes one of this account's own passes back. The answer is the list that stands after the
@@ -171,7 +176,13 @@ interface DiscoveryRepository {
 }
 
 interface MatchRepository {
-    suspend fun matches(): ApiResult<List<MatchSummary>>
+    /**
+     * One page of the account's pairs, with the link to the next one.
+     *
+     * [cursor] is the server's own key to where its previous page stopped; null asks for the newest
+     * page, which is the call the screen made before the door could page at all.
+     */
+    suspend fun matches(cursor: String? = null): ApiResult<MatchesPage>
     suspend fun partner(matchId: String): ApiResult<PublicProfile>
     suspend fun compatibility(matchId: String): ApiResult<Compatibility>
 
