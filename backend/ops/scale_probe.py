@@ -579,6 +579,24 @@ def _build_paths():
             limit=MATCHES_SHOWN, cursor=None, current_user=ctx["viewer_user"], session=session
         )
 
+    async def matches_tail(session, ctx):
+        # The second page of the same door, because a screen that pages is measured by the page the
+        # reader reaches by scrolling, not only by the one that paints when they open it. The frontier
+        # is the link the first page handed over, taken outside the window by `_page_pairs_frontier`;
+        # this row is what a sealed keyset costs to resume, seal and all.
+        from app.api.v1.matches import list_matches as list_matches_route
+        from app.services.matches_service import MATCHES_SHOWN
+
+        cursor = ctx.get("pairs_cursor")
+        if not cursor:
+            raise RuntimeError(
+                "no frontier after the first pair page: the viewer holds one page of pairs, "
+                f"and the door answers at most {MATCHES_SHOWN}, so there is no second page to price"
+            )
+        return await list_matches_route(
+            limit=MATCHES_SHOWN, cursor=cursor, current_user=ctx["viewer_user"], session=session
+        )
+
     async def match_detail(session, ctx):
         # The pair's own page, priced by the handler the route dispatches rather than by the two
         # service calls somebody believed it takes: `GET /matches/{id}` proves membership against
@@ -681,6 +699,23 @@ def _build_paths():
             limit=LIKED_ME_SHOWN, cursor=None, current_user=ctx["viewer_user"], session=session
         )
 
+    async def liked_me_tail(session, ctx):
+        # The inbox walked one page past its first. `_seed_incoming_taps` puts 98 / 994 / 4 994 taps
+        # under the viewer at the three sizes, so a page of `LIKED_ME_SHOWN` is not the whole list at
+        # any of them and the frontier the first page handed is a real place to resume from.
+        from app.api.v1.discover import liked_me as liked_me_route
+        from app.services.discovery_service import LIKED_ME_SHOWN
+
+        cursor = ctx.get("inbox_cursor")
+        if not cursor:
+            raise RuntimeError(
+                "no frontier after the first inbox page: the reader holds one page of taps, "
+                "so there is no second page to price"
+            )
+        return await liked_me_route(
+            limit=LIKED_ME_SHOWN, cursor=cursor, current_user=ctx["viewer_user"], session=session
+        )
+
     async def passed_list(session, ctx):
         # The list stage 114 opened, priced by the handler the route dispatches: the route hands
         # the work to `DiscoveryService.passed` and assembles the answer into
@@ -694,6 +729,41 @@ def _build_paths():
 
         return await passed_users_route(
             limit=PASSED_SHOWN, cursor=None, current_user=ctx["viewer_user"], session=session
+        )
+
+    async def passed_tail(session, ctx):
+        # The pass list one page deeper. `_seed_activity` has been passing 40 % of the crowd off the
+        # viewer since stage 20 — 315 / 3 109 / 15 509 rows at the three sizes — so this door needs no
+        # seed of its own, only the frontier its first page handed over.
+        from app.api.v1.discover import passed_users as passed_users_route
+        from app.services.discovery_service import PASSED_SHOWN
+
+        cursor = ctx.get("passes_cursor")
+        if not cursor:
+            raise RuntimeError(
+                "no frontier after the first pass page: the reader holds one page of passes, "
+                "so there is no second page to price"
+            )
+        return await passed_users_route(
+            limit=PASSED_SHOWN, cursor=cursor, current_user=ctx["viewer_user"], session=session
+        )
+
+    async def liked_tail(session, ctx):
+        # The walk stage 123 opened, priced one page in: its row above is the page the screen paints
+        # when it opens, and this is the page the reader reaches by scrolling. Both stand on the same
+        # `LIKED_SHOWN` and the same key, so the pair of them is the answer to «does a later page cost
+        # what the first costs» for the door that already had an index for it.
+        from app.api.v1.discover import liked_users as liked_users_route
+        from app.services.discovery_service import LIKED_SHOWN
+
+        cursor = ctx.get("taps_cursor")
+        if not cursor:
+            raise RuntimeError(
+                "no frontier after the first tap page: `_seed_own_taps` left the reader one page of "
+                "their own taps, so there is no second page to price"
+            )
+        return await liked_users_route(
+            current_user=ctx["viewer_user"], session=session, limit=LIKED_SHOWN, cursor=cursor
         )
 
     async def undo_pass(session, ctx):
@@ -857,6 +927,9 @@ def _build_paths():
         "discovery_rebuild": discovery_rebuild,
         "discovery_page": discovery_page,
         "matches_list": matches_list,
+        # Beside its own first page on purpose: the two rows are one screen read twice, and the pair
+        # is what the published table has to say about the cost of a deeper page.
+        "matches_tail": matches_tail,
         "match_detail": match_detail,
         "compatibility": compatibility,
         "pair_profile": pair_profile,
@@ -868,9 +941,12 @@ def _build_paths():
         "deck_exhausted": deck_exhausted,
         "universe_map": universe_map,
         "liked_me": liked_me,
+        "liked_me_tail": liked_me_tail,
         "liked": liked_list,
+        "liked_tail": liked_tail,
         "unlike": undo_tap,
         "passed": passed_list,
+        "passed_tail": passed_tail,
         "unpass": undo_pass,
         "session_refresh": session_refresh,
         "session_logout": session_logout,
@@ -943,6 +1019,14 @@ def _build_setups():
         "session_logout": _prime_sessions,
         "liked_me": _seed_incoming_taps,
         "liked": _seed_own_taps,
+        # The four deeper pages stand on the frontier their own first page handed over. Read outside
+        # the window rather than minted here: a hand-sealed link would name a boundary the door never
+        # answered, and the row would price a walk no reader is on. Nothing below writes a row, so
+        # these setups cannot move the state an older path is planned against.
+        "liked_me_tail": _page_inbox_frontier,
+        "liked_tail": _page_taps_frontier,
+        "passed_tail": _page_passes_frontier,
+        "matches_tail": _page_pairs_frontier,
         "unlike": _seed_taps_for_return,
         # The withdrawal of a pass reads no seed of its own — `_seed_activity` has been passing 40 % of
         # the crowd off the viewer since stage 20 — but its rotation pool has to be named at this path's
@@ -969,6 +1053,55 @@ def _build_setups():
         # the last row of the registry.
         "account_export": _seed_own_rows,
     }
+
+
+async def _page_inbox_frontier(session, ctx) -> None:
+    """Where the inbox's first page stopped — the frontier its second page is read from."""
+    from app.api.v1.discover import liked_me as liked_me_route
+    from app.services.discovery_service import LIKED_ME_SHOWN
+
+    page = await liked_me_route(
+        limit=LIKED_ME_SHOWN, cursor=None, current_user=ctx["viewer_user"], session=session
+    )
+    ctx["inbox_cursor"] = page.next_cursor
+
+
+async def _page_taps_frontier(session, ctx) -> None:
+    """The tap list's own frontier, read the way the screen read it on the row above."""
+    from app.api.v1.discover import liked_users as liked_users_route
+    from app.services.discovery_service import LIKED_SHOWN
+
+    page = await liked_users_route(
+        current_user=ctx["viewer_user"], session=session, limit=LIKED_SHOWN, cursor=None
+    )
+    ctx["taps_cursor"] = page.next_cursor
+
+
+async def _page_passes_frontier(session, ctx) -> None:
+    """The pass list's frontier. Its own page is already the whole stand's worth of passes."""
+    from app.api.v1.discover import passed_users as passed_users_route
+    from app.services.discovery_service import PASSED_SHOWN
+
+    page = await passed_users_route(
+        limit=PASSED_SHOWN, cursor=None, current_user=ctx["viewer_user"], session=session
+    )
+    ctx["passes_cursor"] = page.next_cursor
+
+
+async def _page_pairs_frontier(session, ctx) -> None:
+    """The pairs frontier, which is the one a scroll can only reach on an account with two pages.
+
+    Worth naming because the stand is not that account at its smallest size: `_viewer_matches` gives
+    the viewer 20 / 60 / 60 pairs, and the ceiling of the door is 50, so at 1 000 анкет the first page
+    is the whole list and the row below answers with its refusal rather than with a borrowed number.
+    """
+    from app.api.v1.matches import list_matches as list_matches_route
+    from app.services.matches_service import MATCHES_SHOWN
+
+    page = await list_matches_route(
+        limit=MATCHES_SHOWN, cursor=None, current_user=ctx["viewer_user"], session=session
+    )
+    ctx["pairs_cursor"] = page.next_cursor
 
 
 async def _seed_own_rows(session, ctx) -> None:
