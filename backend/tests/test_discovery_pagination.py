@@ -19,6 +19,7 @@ from httpx import AsyncClient
 from sqlalchemy import insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.page_cursor import DECK, seal
 from app.models import Interest, Profile, User, UserInterest
 from app.models.base import utcnow
 from app.models.discovery import DiscoveryQueue
@@ -428,6 +429,20 @@ async def test_two_requests_at_once_get_different_cards(
     assert ids_a & ids_b == set()
 
 
+def _deck_link(reader_id: str, place: str) -> str:
+    """A deck cursor carrying ``place`` — sealed when a seal can carry it, raw when it cannot.
+
+    Since stage 126 the server prints links only for places it has actually read, and `seal` refuses a
+    place longer than its own field limit, so the four-thousand-digit case cannot be sealed at all and
+    reaches the door as client text. Both halves answer the same refusal; the sealed half is what proves
+    the bound runs on the place rather than only on the signature.
+    """
+    try:
+        return seal(DECK, uuid.UUID(reader_id), place)
+    except ValueError:
+        return base64.urlsafe_b64encode(place.encode()).decode().rstrip("=")
+
+
 async def test_tampered_cursor_is_refused_as_input(client: AsyncClient, session: AsyncSession):
     viewer = await _viewer(client, "tamper")
     await _seed_candidates(session, 3, tag="tamper")
@@ -440,7 +455,7 @@ async def test_tampered_cursor_is_refused_as_input(client: AsyncClient, session:
             headers=auth_headers(viewer["token"]),
         )
         assert resp.status_code == 422, (forged, resp.text)
-        assert resp.json()["error"]["code"] == "validation_error"
+        assert resp.json()["error"]["code"] == "broken_page_link"
 
 
 async def test_cursor_beyond_the_rank_column_is_refused_as_input(
@@ -451,21 +466,20 @@ async def test_cursor_beyond_the_rank_column_is_refused_as_input(
     `DiscoveryQueue.rank` is a PostgreSQL `integer`, so `rank:2147483648` is not a place in
     anybody's deck. Untreated it reaches `WHERE discovery_queue.rank > $1` and asyncpg
     refuses it as out of range — a broken URL answered with a 500 and a server traceback.
+    The forgeries here are sealed, so what refuses them is that bound and not the missing
+    signature: a link the server would have printed for a rank nobody has.
     """
     viewer = await _viewer(client, "wide")
     await _seed_candidates(session, 3, tag="wide")
 
-    def forge(rank: str) -> str:
-        return base64.urlsafe_b64encode(f"rank:{rank}".encode()).decode().rstrip("=")
-
     for rank in ("2147483648", "9" * 30, "-1"):
         resp = await client.get(
             "/api/v1/discover",
-            params={"cursor": forge(rank)},
+            params={"cursor": _deck_link(viewer["user_id"], f"rank:{rank}")},
             headers=auth_headers(viewer["token"]),
         )
         assert resp.status_code == 422, (rank, resp.text)
-        assert resp.json()["error"]["code"] == "validation_error"
+        assert resp.json()["error"]["code"] == "broken_page_link"
 
 
 async def test_a_cursor_of_digits_the_language_does_not_share_is_refused(
@@ -482,17 +496,14 @@ async def test_a_cursor_of_digits_the_language_does_not_share_is_refused(
     viewer = await _viewer(client, "digits")
     await _seed_candidates(session, 3, tag="digits")
 
-    def forge(rank: str) -> str:
-        return base64.urlsafe_b64encode(f"rank:{rank}".encode()).decode().rstrip("=")
-
     for rank in ("²", "١٢٣", "１２３", "9" * 5000, "1٢3"):
         resp = await client.get(
             "/api/v1/discover",
-            params={"cursor": forge(rank)},
+            params={"cursor": _deck_link(viewer["user_id"], f"rank:{rank}")},
             headers=auth_headers(viewer["token"]),
         )
         assert resp.status_code == 422, (rank[:12], resp.text[:200])
-        assert resp.json()["error"]["code"] == "validation_error", rank[:12]
+        assert resp.json()["error"]["code"] == "broken_page_link", rank[:12]
 
 
 async def test_a_rebuilt_deck_survives_the_request_that_rebuilt_it(

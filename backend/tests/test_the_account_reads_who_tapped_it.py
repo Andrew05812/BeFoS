@@ -48,6 +48,9 @@ async def _account(client: AsyncClient, tag: str, *, name: str = "Вера") -> 
 
 
 async def _inbox(client: AsyncClient, token: str) -> dict:
+    """The page as the door answers it, envelope included: since stage 126 an empty inbox still
+    carries `next_cursor`, and it is None there — a reader with nothing behind the edge is told so
+    by the same field a reader with a second page is told by."""
     resp = await client.get(INBOX, headers=auth_headers(token))
     assert resp.status_code == 200, resp.text
     return resp.json()
@@ -164,7 +167,9 @@ async def test_an_account_nobody_tapped_gets_an_empty_page(
 ) -> None:
     """Empty answers with the same shape as a full one, and promises no second page."""
     viewer = await _account(client, "empty")
-    assert await _inbox(client, viewer["token"]) == {"likes": [], "has_more": False}
+    assert await _inbox(client, viewer["token"]) == {
+        "likes": [], "has_more": False, "next_cursor": None
+    }
 
 
 async def test_a_tap_arrives_with_the_person_and_the_number_their_card_carried(
@@ -229,7 +234,9 @@ async def test_the_viewers_own_tap_does_not_land_in_their_own_inbox(
         f"/api/v1/users/{peer['user_id']}/like", headers=auth_headers(viewer["token"])
     )
 
-    assert await _inbox(client, viewer["token"]) == {"likes": [], "has_more": False}
+    assert await _inbox(client, viewer["token"]) == {
+        "likes": [], "has_more": False, "next_cursor": None
+    }
 
 
 async def test_the_newest_tap_is_answered_first(client: AsyncClient, session: AsyncSession) -> None:
@@ -306,7 +313,9 @@ async def test_a_pair_already_formed_is_read_as_a_pair_and_not_as_a_tap(
     back = await _tap(client, viewer, tapper["user_id"])
     assert back["match"] is True, back
 
-    assert await _inbox(client, viewer["token"]) == {"likes": [], "has_more": False}
+    assert await _inbox(client, viewer["token"]) == {
+        "likes": [], "has_more": False, "next_cursor": None
+    }
 
     matches = await client.get("/api/v1/matches", headers=auth_headers(viewer["token"]))
     assert matches.status_code == 200, matches.text
@@ -331,7 +340,9 @@ async def test_a_person_who_hid_their_profile_stops_being_named_by_the_inbox(
     )
     await session.commit()
 
-    assert await _inbox(client, viewer["token"]) == {"likes": [], "has_more": False}
+    assert await _inbox(client, viewer["token"]) == {
+        "likes": [], "has_more": False, "next_cursor": None
+    }
 
 
 async def test_a_tapper_whose_account_stopped_being_shown_is_not_named(
@@ -349,7 +360,9 @@ async def test_a_tapper_whose_account_stopped_being_shown_is_not_named(
     )
     await session.commit()
 
-    assert await _inbox(client, viewer["token"]) == {"likes": [], "has_more": False}
+    assert await _inbox(client, viewer["token"]) == {
+        "likes": [], "has_more": False, "next_cursor": None
+    }
 
 
 async def test_a_block_in_either_direction_takes_the_tap_out_of_the_list(
