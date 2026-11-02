@@ -29,7 +29,7 @@ from app.schemas.schemas import (
     UniverseOut,
 )
 from app.services.compatibility_service import CompatibilityService
-from app.services.matches_service import MatchesService
+from app.services.matches_service import MATCHES_SHOWN, MatchesService
 from app.services.pair_profile_service import PairProfileService
 from app.services.chat_service import message_frame
 from app.services.recommendation_service import RecommendationService
@@ -40,12 +40,21 @@ router = APIRouter(prefix="/matches", tags=["matches"])
 
 @router.get("", response_model=MatchListResponse)
 async def list_matches(
+    limit: int = Query(default=MATCHES_SHOWN, ge=1, le=MATCHES_SHOWN),
+    cursor: str | None = Query(default=None),
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
+    """One page of the account's pairs, in the order the screen paints them, and the link to the next.
+
+    Paging is a keyset over the pair's own sort value — its newest line, or the moment it was made if
+    it never spoke — with the row id deciding a tie. The order used to be computed in Python after
+    every pair had been read, which is why no page could be stated: a boundary drawn under a value the
+    query never produced is a boundary nobody can resume below.
+    """
     service = MatchesService(session)
-    matches = await service.list_matches(current_user.id)
-    return MatchListResponse(matches=[MatchSummary(**m) for m in matches])
+    data = await service.page(current_user.id, cursor=cursor, limit=limit)
+    return MatchListResponse(**data)
 
 
 @router.get("/{match_id}")

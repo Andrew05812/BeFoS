@@ -466,10 +466,16 @@ class IncomingLikeCard(BaseModel):
 
 
 class LikedMeResponse(BaseModel):
-    """The newest ``LIKED_ME_SHOWN`` taps, and whether the account holds more than those."""
+    """One page of the taps that pointed at the account, and the link to the page behind it.
+
+    ``next_cursor`` is opaque and belongs to this reader and this list: it names where the page
+    stopped, and it is null exactly when ``has_more`` is false. The seal is what makes the second half
+    of that sentence the server's own — stage 126 — rather than a shape a person at the URL could pick.
+    """
 
     likes: list[IncomingLikeCard]
     has_more: bool
+    next_cursor: str | None = None
 
 
 class LikedUsersResponse(BaseModel):
@@ -479,10 +485,11 @@ class LikedUsersResponse(BaseModel):
     shown when they tapped, read off the like row, and null stays null. The undo route answers with
     this same shape, so the screen that withdrew a tap paints the list the server actually holds.
 
-    ``next_cursor`` is opaque and carries no account: it names where this reader stood in their own
-    history, and it is null exactly when ``has_more`` is false. The inbox and the pass list still have
-    no such field, which is the difference stage 123 left standing as an open end rather than closed by
-    a door nobody asked to open.
+    ``next_cursor`` is opaque to the client and names three things the server sealed together: the door
+    it came from, the account it was issued to, and the place this reader stood in their own history. It
+    is null exactly when ``has_more`` is false. Stage 126 sealed it and put the same field behind the
+    inbox and the pass list, so all three doors of the gesture family now answer a place the server
+    issued rather than one the client asserted.
     """
 
     likes: list[IncomingLikeCard]
@@ -507,14 +514,16 @@ class PassedUserSummary(BaseModel):
 
 
 class PassedUsersResponse(BaseModel):
-    """The newest ``PASSED_SHOWN`` answers of the account's own, and whether more stand behind them.
+    """One page of the ``PASSED_SHOWN`` answers of the account's own, and the link to the page behind it.
 
     The undo route answers with this same shape: the screen that asked has to paint the list the
-    server actually holds after the row went, the way unblocking paints the blocked list.
+    server actually holds after the row went, the way unblocking paints the blocked list — and since
+    stage 126 the page it paints is one the reader can leave, because the answer carries the link too.
     """
 
     passed: list[PassedUserSummary]
     has_more: bool
+    next_cursor: str | None = None
 
 
 # ---------- Matches ----------
@@ -533,7 +542,17 @@ class MatchSummary(BaseModel):
 
 
 class MatchListResponse(BaseModel):
+    """One page of the account's pairs, and the link to the pairs behind it.
+
+    The list used to carry no page at all: every pair of the account was read, dressed and sorted in
+    memory before the answer was made, so the price grew with the pairs a person had collected and
+    there was no way to ask for the tail. ``next_cursor`` resumes below the pair the page stopped at, in
+    the order the screen paints by — a pair's newest line, or the moment it was made if it never spoke.
+    """
+
     matches: list[MatchSummary]
+    has_more: bool = False
+    next_cursor: str | None = None
 
 
 # ---------- Chat ----------

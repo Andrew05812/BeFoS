@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import base64
-import binascii
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from typing import Mapping, NamedTuple
 
 from sqlalchemy import select
@@ -17,6 +15,23 @@ from app.compatibility.engine import (
     to_percent,
 )
 from app.core.exceptions import NotFoundError, ValidationError
+# The wire form of a page link lives in `app/core/page_cursor.py` since stage 126: a deck's place is a
+# rank, a gesture or a pair list's place is a moment and the row's own id, and every link is sealed by
+# the server before a reader ever holds it. The codecs used to live here, one pair per door, and three
+# doors reading one shape through three copies of one bound is how a limit set for the deck quietly
+# stopped guarding the other two. `BAD_CURSOR` is imported rather than re-defined: the sentence a
+# broken link gets is one fact about five lists, and two wordings for one fact is how two screens
+# start disagreeing about it.
+from app.core.page_cursor import (
+    BAD_CURSOR,
+    INBOX,
+    PASSES,
+    TAPS,
+    open_moment,
+    open_rank,
+    seal_moment,
+    seal_rank,
+)
 from app.models import PHOTO_DISPLAY_ORDER, Photo, Profile
 from app.models.base import age_years, utc_today
 from app.repositories.social_repo import DiscoveryRepository, SocialRepository
@@ -46,105 +61,6 @@ PASSED_SHOWN = 50
 # it admits the rest exist. This is the one door of the three whose rest the reader can ask for —
 # stage 123 gave it a cursor, and the inbox and the pass list are the open end it names.
 LIKED_SHOWN = 50
-
-CURSOR_PREFIX = "rank"
-BAD_CURSOR = "The link to the next page is broken."
-# `DiscoveryQueue.rank` is a PostgreSQL `integer`, and the parsed cursor is bound into
-# `rank > $1` as that type. A digit string beyond int32 is not a place in anybody's deck
-# but a value SQL refuses, so without the bound a hand-typed URL answers with a 500 and a
-# traceback. Deck ranks stay far below the limit: they count one viewer's candidates.
-MAX_RANK = 2**31 - 1
-
-
-def encode_cursor(rank: int) -> str:
-    raw = f"{CURSOR_PREFIX}:{rank}".encode()
-    return base64.urlsafe_b64encode(raw).decode().rstrip("=")
-
-
-def decode_cursor(cursor: str | None) -> int:
-    """Where the viewer stopped. Absent means "from the top of my deck".
-
-    A cursor is opaque to the client and comes back tampered with only if somebody is
-    poking at the API by hand, so it is refused as input rather than trusted as a rank.
-    """
-    if not cursor:
-        return -1
-    try:
-        raw = base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4)).decode()
-    except (binascii.Error, UnicodeDecodeError, ValueError):
-        raise ValidationError(BAD_CURSOR)
-    prefix, _, digits = raw.partition(":")
-    rank = _plain_digits(digits, MAX_RANK)
-    if prefix != CURSOR_PREFIX or rank is None:
-        raise ValidationError(BAD_CURSOR)
-    return rank
-
-
-# A page of the account's own taps resumes from where the reader stood in its own history. The place is
-# named by both halves of the order the read is built on, because `created_at` alone is not a total
-# order and a boundary drawn through it cuts between rows that share a microsecond — the loss stage 54
-# proved for the pair's conversation, in the one table where two gestures a microsecond apart are the
-# normal case rather than the accident.
-TAP_CURSOR_PREFIX = "tap"
-_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
-_MICROSECOND = timedelta(microseconds=1)
-# `timestamptz` ends in 294276 and Python's `datetime` ends in 9999; the smaller of the two is the
-# bound, and a hand-typed cursor beyond it is refused as the broken link it is rather than reaching the
-# arithmetic that would fail on it. Stage 17 put the same kind of bound on the deck's rank.
-MAX_TAP_MICROS = (datetime.max.replace(tzinfo=timezone.utc) - _EPOCH) // _MICROSECOND
-
-
-def _plain_digits(text: str, bound: int) -> int | None:
-    """A digit run the client typed, converted — or nothing, when it is not a number at all.
-
-    `str.isdigit()` is not the claim people read it as: `²`, `٣` and `１` all answer yes, and `int()`
-    then either converts them to something nobody typed or raises on a run past 4300 characters
-    (`ValueError: Exceeds the limit (4300 digits)`). Either way the value never reaches the column it
-    was meant for: it is refused as the broken link it is, so a typo at the URL stays a `422` and does
-    not become a 500 with a traceback. The length of the bound's own text is the second half of the
-    same refusal — a longer run cannot be inside the bound, and refusing it before `int()` is what
-    keeps the 4300-character case out of the exception path entirely.
-    """
-    if not text.isascii() or not text.isdigit():
-        return None
-    if len(text) > len(str(bound)):
-        return None
-    value = int(text)
-    return value if value <= bound else None
-
-
-def encode_tap_cursor(tapped_at: datetime, tap_id: uuid.UUID) -> str:
-    micros = (tapped_at - _EPOCH) // _MICROSECOND
-    raw = f"{TAP_CURSOR_PREFIX}:{micros}:{tap_id.hex}"
-    return base64.urlsafe_b64encode(raw.encode()).decode().rstrip("=")
-
-
-def decode_tap_cursor(cursor: str | None) -> tuple[datetime, uuid.UUID] | None:
-    """Where the reader stopped in its own taps. Absent or empty means "from the newest one".
-
-    The cursor is opaque to the client and comes back shaped only if somebody is typing at the API, so
-    anything that does not decode to a moment and a row is refused as input — with the deck's sentence,
-    because «the link to the next page is broken» is the same fact about a different list, and two
-    wordings for one fact is how two screens start disagreeing about it.
-    """
-    if not cursor:
-        return None
-    try:
-        raw = base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4)).decode()
-    except (binascii.Error, UnicodeDecodeError, ValueError):
-        raise ValidationError(BAD_CURSOR)
-    parts = raw.split(":")
-    if len(parts) != 3 or parts[0] != TAP_CURSOR_PREFIX:
-        raise ValidationError(BAD_CURSOR)
-    micros = _plain_digits(parts[1], MAX_TAP_MICROS)
-    if micros is None:
-        raise ValidationError(BAD_CURSOR)
-    try:
-        tap_id = uuid.UUID(hex=parts[2])
-    except ValueError:
-        raise ValidationError(BAD_CURSOR)
-    return _EPOCH + timedelta(microseconds=micros), tap_id
-
 
 class _RankedCandidate(NamedTuple):
     """A candidate this request has already read and scored: the row, its inputs, its result.
@@ -313,7 +229,7 @@ class DiscoveryService:
         if viewer_profile is None:
             raise NotFoundError("Complete your profile before discovering people.")
 
-        after_rank = decode_cursor(cursor)
+        after_rank = open_rank(viewer_id, cursor)
         prefs = self._preferences(viewer_profile)
         # The viewer's own row is already in hand, and it is the row the preferences above were
         # read out of. Asking for it again by id cost one more profile read plus one more
@@ -381,12 +297,14 @@ class DiscoveryService:
         tracker.track(Event.DISCOVERY_FEED, str(viewer_id), cards=len(cards))
         return {
             "items": cards,
-            "next_cursor": encode_cursor(last_rank) if advanced else None,
+            "next_cursor": seal_rank(viewer_id, last_rank) if advanced else None,
             "has_more": has_more,
         }
 
 
-    async def liked_me(self, viewer_id: uuid.UUID) -> dict:
+    async def liked_me(
+        self, viewer_id: uuid.UUID, *, cursor: str | None = None, limit: int = LIKED_ME_SHOWN
+    ) -> dict:
         """Who tapped this account, with the number their own card carried at that moment.
 
         Nothing here is recomputed. The deck spends a compatibility engine per card because it has
@@ -397,9 +315,21 @@ class DiscoveryService:
         A score that is absent stays absent. The column is nullable, and the schema has never been
         told otherwise; answering `0` would dress an unread value up as a measured one, which is
         the defect 72-1 named for the compatibility bars.
+
+        The page is the reader's own place in the inbox, and stage 126 gave it one: the door used to
+        answer fifty taps and admit behind them a rest it never let anybody reach. The key is the pair
+        `(created_at, id)` the read is ordered by, sealed so that a resumed page is a frontier this
+        server handed out rather than a moment somebody typed.
         """
-        rows = await self.discovery.liked_me(viewer_id, LIKED_ME_SHOWN + 1)
-        shown = rows[:LIKED_ME_SHOWN]
+        cards, rows, next_cursor = await self._liked_me_page(viewer_id, cursor=cursor, limit=limit)
+        return {"likes": cards, "has_more": len(rows) > limit, "next_cursor": next_cursor}
+
+    async def _liked_me_page(
+        self, viewer_id: uuid.UUID, *, cursor: str | None = None, limit: int = LIKED_ME_SHOWN
+    ) -> tuple[list[dict], list, str | None]:
+        before = open_moment(INBOX, viewer_id, cursor)
+        rows = await self.discovery.liked_me(viewer_id, limit + 1, before=before)
+        shown = rows[:limit]
         ids = [row[0] for row in shown]
         # Three batch reads for the whole page, none of them inside the loop: the same card
         # projection the match list pays for (name, birth date, city) and the one photo that leads.
@@ -407,7 +337,7 @@ class DiscoveryService:
         photos = await self.users.get_primary_photos(ids)
         today = utc_today()
         likes: list[dict] = []
-        for tapper_id, score, tapped_at in shown:
+        for tapper_id, score, tapped_at, _tap_id in shown:
             profile = profiles.get(tapper_id)
             if profile is None:
                 continue
@@ -422,7 +352,14 @@ class DiscoveryService:
                     "liked_at": tapped_at,
                 }
             )
-        return {"likes": likes, "has_more": len(rows) > LIKED_ME_SHOWN}
+        # The link is drawn from the last row this page named, not from the row that only proved more
+        # exist: the reader who follows it starts one step past what they have already been shown, and
+        # the extra row stays where it is for the page that will read it.
+        next_cursor = None
+        if len(rows) > limit and shown:
+            _tapper_id, _score, tapped_at, tap_id = shown[-1]
+            next_cursor = seal_moment(INBOX, viewer_id, tapped_at, tap_id)
+        return likes, rows, next_cursor
 
     async def liked(
         self, viewer_id: uuid.UUID, *, cursor: str | None = None, limit: int = LIKED_SHOWN
@@ -449,7 +386,7 @@ class DiscoveryService:
     async def _liked_page(
         self, viewer_id: uuid.UUID, *, cursor: str | None = None, limit: int = LIKED_SHOWN
     ) -> tuple[list[dict], list, str | None]:
-        before = decode_tap_cursor(cursor)
+        before = open_moment(TAPS, viewer_id, cursor)
         rows = await self.discovery.liked(viewer_id, limit + 1, before=before)
         shown = rows[:limit]
         ids = [row[0] for row in shown]
@@ -478,7 +415,7 @@ class DiscoveryService:
         next_cursor = None
         if len(rows) > limit and shown:
             _tapped_id, _score, tapped_at, tap_id = shown[-1]
-            next_cursor = encode_tap_cursor(tapped_at, tap_id)
+            next_cursor = seal_moment(TAPS, viewer_id, tapped_at, tap_id)
         return cards, rows, next_cursor
 
     async def undo_like(self, viewer_id: uuid.UUID, target_id: uuid.UUID) -> dict:
@@ -517,25 +454,34 @@ class DiscoveryService:
             "next_cursor": next_cursor,
         }
 
-    async def passed(self, viewer_id: uuid.UUID) -> dict:
-        """Whom this account dismissed, newest answer first, at most ``PASSED_SHOWN`` of them.
+    async def passed(
+        self, viewer_id: uuid.UUID, *, cursor: str | None = None, limit: int = PASSED_SHOWN
+    ) -> dict:
+        """Whom this account dismissed, newest answer first, one page of them.
 
         The read is the mirror of the inbox and shares its projection, not its rule: the rows are the
         reader's own gestures, so they are addressed by who wrote them, and each card is built from
         the batch reads the inbox already pays for.
-        """
-        cards, rows = await self._passed_page(viewer_id)
-        return {"passed": cards, "has_more": len(rows) > PASSED_SHOWN}
 
-    async def _passed_page(self, viewer_id: uuid.UUID) -> tuple[list[dict], list]:
-        rows = await self.discovery.passed(viewer_id, PASSED_SHOWN + 1)
-        shown = rows[:PASSED_SHOWN]
+        Stage 126 put the same boundary on this door as on the other two. Until it, the fifty answers
+        the page carried were the only ones the account could see, and `has_more` named a rest that no
+        request could reach — while the same person was able to undo any single answer on the list.
+        """
+        cards, rows, next_cursor = await self._passed_page(viewer_id, cursor=cursor, limit=limit)
+        return {"passed": cards, "has_more": len(rows) > limit, "next_cursor": next_cursor}
+
+    async def _passed_page(
+        self, viewer_id: uuid.UUID, *, cursor: str | None = None, limit: int = PASSED_SHOWN
+    ) -> tuple[list[dict], list, str | None]:
+        before = open_moment(PASSES, viewer_id, cursor)
+        rows = await self.discovery.passed(viewer_id, limit + 1, before=before)
+        shown = rows[:limit]
         ids = [row[0] for row in shown]
         profiles = {p.user_id: p for p in await self.users.get_profile_cards(ids)}
         photos = await self.users.get_primary_photos(ids)
         today = utc_today()
         cards: list[dict] = []
-        for passed_id, passed_at in shown:
+        for passed_id, passed_at, _pass_id in shown:
             profile = profiles.get(passed_id)
             if profile is None:
                 continue
@@ -549,7 +495,11 @@ class DiscoveryService:
                     "passed_at": passed_at,
                 }
             )
-        return cards, rows
+        next_cursor = None
+        if len(rows) > limit and shown:
+            _passed_id, passed_at, pass_id = shown[-1]
+            next_cursor = seal_moment(PASSES, viewer_id, passed_at, pass_id)
+        return cards, rows, next_cursor
 
     async def unpass(self, viewer_id: uuid.UUID, target_id: uuid.UUID) -> dict:
         """Take one's own pass back, and answer with the list that is left.
@@ -570,7 +520,9 @@ class DiscoveryService:
         screens start disagreeing about it.
 
         What comes back is the page, not a boolean: the screen that asked paints the list the server
-        actually holds, the same bargain ``SafetyService.unblock`` struck.
+        actually holds, the same bargain ``SafetyService.unblock`` struck. Since stage 126 that page
+        carries its own link, so a withdrawal on the fortieth row of a long list does not leave the
+        reader holding a list they can no longer walk down.
         """
         if viewer_id == target_id:
             raise ValidationError("You cannot act on your own profile.")
@@ -581,8 +533,8 @@ class DiscoveryService:
             raise NotFoundError("You have not passed this user.")
         await self.discovery.deck_release(viewer_id, target_id)
         await self.session.commit()
-        cards, rows = await self._passed_page(viewer_id)
-        return {"passed": cards, "has_more": len(rows) > PASSED_SHOWN}
+        cards, rows, next_cursor = await self._passed_page(viewer_id)
+        return {"passed": cards, "has_more": len(rows) > PASSED_SHOWN, "next_cursor": next_cursor}
 
     async def get_public_profile(
         self, viewer_id: uuid.UUID, target_id: uuid.UUID, *, for_match_member: bool = False

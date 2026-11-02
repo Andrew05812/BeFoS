@@ -16,6 +16,18 @@ _INSECURE_DEFAULTS = {
 # so a deployment that kept it has a database password anybody with the repository knows.
 _INSECURE_DB_PASSWORDS = {"befos_password"}
 _MIN_SECRET_LEN = 32
+# The key that seals a page link. Kept apart from the two session keys on purpose: a link names a
+# place in one reader's own list and is worthless outside it, while a forged access token opens the
+# account. Sharing one secret would make the cheaper object — pages are handed out on every scroll —
+# the guard of the more valuable one, and would tie their rotation together.
+_INSECURE_CURSOR_DEFAULT = "change-me-cursor-secret-min-32-chars"
+# The bounds of a page link's life, in minutes. The lower one keeps a link from being a permanent
+# claim; the upper one is a day, past which a person who left a list open overnight is better off
+# reading it again than resuming a frontier a day old.
+_CURSOR_LIFE_MIN, _CURSOR_LIFE_MAX = 1, 1440
+# A key id that says nothing is a key ring of one anonymous key, which is how a rotation stops being
+# auditable: the id in the link is the only record of which secret sealed it.
+_CURSOR_KID_MAX_LEN = 16
 # The deployment reads as production only when it says so in one of these two words. A
 # typo here silently turns every guard below off, so an unknown value is a startup error.
 _KNOWN_ENVIRONMENTS = {"development", "dev", "test", "staging", "production", "prod"}
@@ -63,6 +75,16 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = Field(default=30, alias="ACCESS_TOKEN_EXPIRE_MINUTES")
     refresh_token_expire_days: int = Field(default=30, alias="REFRESH_TOKEN_EXPIRE_DAYS")
 
+    cursor_secret: str = Field(default=_INSECURE_CURSOR_DEFAULT, alias="CURSOR_SECRET")
+    cursor_key_id: str = Field(default="a", alias="CURSOR_KEY_ID")
+    # The key a rotation retired. A link is a place in a list a person is walking, so turning the
+    # current key off instantly would stop every walk in progress: the retired key is still accepted
+    # until the links it sealed age out on their own, and it is dropped from the ring at the next
+    # rotation. Its id travels in the link, so nothing has to be remembered between the two.
+    cursor_secret_previous: str = Field(default="", alias="CURSOR_SECRET_PREVIOUS")
+    cursor_key_id_previous: str = Field(default="", alias="CURSOR_KEY_ID_PREVIOUS")
+    cursor_link_minutes: int = Field(default=720, alias="CURSOR_LINK_MINUTES")
+
     cors_origins: str = Field(default="http://localhost:8000", alias="CORS_ORIGINS")
 
     upload_dir: str = Field(default="./uploads", alias="UPLOAD_DIR")
@@ -96,6 +118,72 @@ class Settings(BaseSettings):
             )
         return cleaned
 
+    @field_validator("cursor_key_id")
+    @classmethod
+    def _named_key(cls, v: str) -> str:
+        cleaned = v.strip()
+        if not cleaned:
+            raise ValueError(
+                "CURSOR_KEY_ID names the secret that sealed a link, and an empty name is not a "
+                "name: the id is the only record of which key a link was read against."
+            )
+        return cleaned
+
+    @field_validator("cursor_key_id", "cursor_key_id_previous")
+    @classmethod
+    def _cursor_kid_shape(cls, v: str) -> str:
+        cleaned = v.strip()
+        if len(cleaned) > _CURSOR_KID_MAX_LEN:
+            raise ValueError(
+                f"CURSOR_KEY_ID is longer than {_CURSOR_KID_MAX_LEN} characters; it travels "
+                "inside every page link, so a long name is paid for on every scroll."
+            )
+        if "." in cleaned or "|" in cleaned:
+            raise ValueError(
+                "CURSOR_KEY_ID may not contain '.' or '|': the first separates the fields of a "
+                "link and the second separates the fields of its payload, so a separator inside "
+                "the name makes a link unreadable to the code that reads it back."
+            )
+        return cleaned
+
+    @field_validator("cursor_link_minutes")
+    @classmethod
+    def _link_life(cls, v: int) -> int:
+        if not _CURSOR_LIFE_MIN <= v <= _CURSOR_LIFE_MAX:
+            raise ValueError(
+                f"CURSOR_LINK_MINUTES={v} is outside {_CURSOR_LIFE_MIN}..{_CURSOR_LIFE_MAX}. "
+                "A zero or negative life refuses every page as soon as it is issued; a life "
+                "measured in weeks is a claim that a frontier an old walk left behind still leads "
+                "somewhere."
+            )
+        return v
+
+    @model_validator(mode="after")
+    def _cursor_ring_is_consistent(self) -> "Settings":
+        """The retired key comes as a pair, or it is not a key the ring can hold.
+
+        A secret without an id cannot be looked up from a link, and an id without a secret turns the
+        acceptance of an old link into a crash rather than a refusal. Both halves are also checked
+        against the current key: two entries under one id would make the ring's answer depend on the
+        order the ring was built in, which is the one question a rotation must not leave open.
+        """
+        if bool(self.cursor_secret_previous) != bool(self.cursor_key_id_previous):
+            raise ValueError(
+                "CURSOR_SECRET_PREVIOUS and CURSOR_KEY_ID_PREVIOUS come as a pair: a link carries "
+                "the id and the ring must carry the secret that matches it."
+            )
+        if self.cursor_key_id_previous and self.cursor_key_id_previous == self.cursor_key_id:
+            raise ValueError(
+                "CURSOR_KEY_ID_PREVIOUS repeats the current id, so a link sealed by either key "
+                "reads the same and the rotation cannot be told apart."
+            )
+        if self.cursor_secret_previous and self.cursor_secret_previous == self.cursor_secret:
+            raise ValueError(
+                "CURSOR_SECRET_PREVIOUS repeats the current secret under another id: the rotation "
+                "would change nothing about what an attacker can forge."
+            )
+        return self
+
     @model_validator(mode="after")
     def _reject_insecure_production_secrets(self) -> "Settings":
         """Fail fast if production runs with placeholder/short JWT secrets.
@@ -116,6 +204,31 @@ class Settings(BaseSettings):
                 )
         if self.jwt_secret == self.jwt_refresh_secret:
             raise ValueError("JWT_SECRET and JWT_REFRESH_SECRET must differ in production.")
+        if self.cursor_secret == _INSECURE_CURSOR_DEFAULT or len(self.cursor_secret) < _MIN_SECRET_LEN:
+            raise ValueError(
+                f"CURSOR_SECRET must be a strong secret (>= {_MIN_SECRET_LEN} chars, not the "
+                "development placeholder) when ENVIRONMENT=production: an unsigned link is a "
+                "claim the client makes, and a link sealed with a secret printed in this "
+                "repository is the same claim wearing a signature nobody has to have."
+            )
+        for name, value in (
+            ("JWT_SECRET", self.jwt_secret),
+            ("JWT_REFRESH_SECRET", self.jwt_refresh_secret),
+        ):
+            if self.cursor_secret == value:
+                raise ValueError(
+                    f"CURSOR_SECRET may not equal {name} in production. The two keys answer "
+                    "different questions — one opens an account, the other names a place in one "
+                    "reader's list — so sharing them would make the secret that rotates with a "
+                    "session compromise rotate the page links with it, and a leaked link-signing "
+                    "key a token-forgery key."
+                )
+        if self.cursor_secret_previous and len(self.cursor_secret_previous) < _MIN_SECRET_LEN:
+            raise ValueError(
+                f"CURSOR_SECRET_PREVIOUS is shorter than {_MIN_SECRET_LEN} characters: a retired "
+                "key is still a key the server accepts, so it is held to the same strength as the "
+                "current one."
+            )
         if "*" in self.cors_origin_list:
             raise ValueError("CORS_ORIGINS must not contain '*' in production.")
         if any(o.startswith("http://") for o in self.cors_origin_list):
@@ -155,6 +268,28 @@ class Settings(BaseSettings):
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def cursor_keys(self) -> dict[str, bytes]:
+        """The ring a page link may have been sealed by, newest first.
+
+        Keyed by id rather than tried in order: a link names the key it came from, so the server looks
+        the secret up instead of guessing which of the two to test. That is also what lets a rotation be
+        visible in a log line — the id says which key the walk was standing on.
+        """
+        ring = {self.cursor_key_id: self.cursor_secret.encode()}
+        if self.cursor_secret_previous and self.cursor_key_id_previous:
+            ring[self.cursor_key_id_previous] = self.cursor_secret_previous.encode()
+        return ring
+
+    @property
+    def cursor_signing_key(self) -> tuple[str, bytes]:
+        """The one key new links are sealed with."""
+        return self.cursor_key_id, self.cursor_secret.encode()
+
+    @property
+    def cursor_link_seconds(self) -> int:
+        return self.cursor_link_minutes * 60
 
     @property
     def max_upload_size_bytes(self) -> int:

@@ -568,7 +568,16 @@ def _build_paths():
         await DiscoveryService(session).feed(ctx["viewer_id"], limit=DECK_SIZE, cursor=ctx.get("cursor"))
 
     async def matches_list(session, ctx):
-        await MatchesService(session).list_matches(ctx["viewer_id"])
+        # The pair list, priced by the handler the route dispatches. Until stage 126 this wrapper
+        # called the service directly and could not tell the difference; the door gained a page size
+        # and a link then, so a wrapper that kept calling the service would go on publishing the
+        # price of the whole list while the screen pays for a page of it.
+        from app.api.v1.matches import list_matches as list_matches_route
+        from app.services.matches_service import MATCHES_SHOWN
+
+        return await list_matches_route(
+            limit=MATCHES_SHOWN, cursor=None, current_user=ctx["viewer_user"], session=session
+        )
 
     async def match_detail(session, ctx):
         # The pair's own page, priced by the handler the route dispatches rather than by the two
@@ -666,8 +675,11 @@ def _build_paths():
         # call as today's number. The reader arrives the way `get_current_user` would hand it over,
         # from the context and outside the window.
         from app.api.v1.discover import liked_me as liked_me_route
+        from app.services.discovery_service import LIKED_ME_SHOWN
 
-        return await liked_me_route(current_user=ctx["viewer_user"], session=session)
+        return await liked_me_route(
+            limit=LIKED_ME_SHOWN, cursor=None, current_user=ctx["viewer_user"], session=session
+        )
 
     async def passed_list(session, ctx):
         # The list stage 114 opened, priced by the handler the route dispatches: the route hands
@@ -678,8 +690,11 @@ def _build_paths():
         # been passing 40 % of the crowd off the viewer since stage 20, so the stand already
         # holds the page — a row shot as-is prices the real list, not an empty box.
         from app.api.v1.discover import passed_users as passed_users_route
+        from app.services.discovery_service import PASSED_SHOWN
 
-        return await passed_users_route(current_user=ctx["viewer_user"], session=session)
+        return await passed_users_route(
+            limit=PASSED_SHOWN, cursor=None, current_user=ctx["viewer_user"], session=session
+        )
 
     async def undo_pass(session, ctx):
         from app.api.v1.discover import undo_pass as undo_pass_route

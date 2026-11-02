@@ -11,12 +11,12 @@ The stand makes the size of that silence a number rather than an impression. `s1
 the viewer's own outgoing taps at 87 / 893 / 4 493 for 1 000 / 10 000 / 50 000 анкет, so even the
 smallest scale the table publishes leaves 37 taps unread, and the largest leaves 4 443.
 
-This file names the shape that closes it. The mechanism is not invented: the deck has paged by an
-opaque base64url cursor since stage 17 (`encode_cursor`/`decode_cursor`), the pair's history has broken
-a `created_at` tie by the row's own id since stage 54, and the blocked list answers a write with the
-page the server holds. What is new is putting those two existing devices behind this door — a keyset
-over `(created_at, id)` so that a page boundary cannot swallow a row, and a refusal that answers a
-tampered cursor as bad input rather than as an empty page.
+This file names the shape that closes it. The mechanism is not invented: the deck has paged by an opaque base64url cursor since stage 17, the
+pair's history has broken a `created_at` tie by the row's own id since stage 54, and the blocked list
+answers a write with the page the server holds. What is new is putting those two existing devices
+behind this door — a keyset over `(created_at, id)` so that a page boundary cannot swallow a row, and
+a refusal that answers a tampered cursor as bad input rather than as an empty page. (Since stage 126
+the codecs live in `app/core/page_cursor.py` and every link the door hands out is sealed there.)
 
 What deliberately does not change: the default page still carries fifty rows and pays the same three
 reads it pays today, so the published price of `liked` in `docs/SCALE_PLAN.md` stays re-derivable, and
@@ -323,44 +323,58 @@ async def test_a_cursor_nobody_handed_out_is_refused_as_input(client: AsyncClien
 async def test_the_decks_cursor_does_not_turn_this_page(
     client: AsyncClient, session: AsyncSession,
 ) -> None:
-    """Two doors, two cursors: a rank from one is not a place in the other.
+    """Two doors, two kinds of link: a rank from one is not a place in the other.
 
-    Both are base64url and both are opaque to the client, so the only thing that keeps a deck cursor
-    from being read as a tap position is the prefix it carries. Without it the number would mean a row
-    that does not exist in this ordering, and the page would answer rather than refuse.
+    Both are opaque base64url strings a reader cannot tell apart by looking, and since stage 126 both
+    are sealed, so the only thing that keeps a deck's link from being read as a tap position is the door
+    named inside the signature. Read across, the number would mean a row that does not exist in this
+    ordering, and the page would answer rather than refuse.
+
+    The link is taken from the codec that issues it rather than typed here, because the claim is about
+    one door's honest link at another door — an unsigned string would be refused for the wrong reason.
     """
-    from app.services.discovery_service import encode_cursor
+    from app.core.page_cursor import seal_rank
 
     viewer = await _account(client, "prefix_v")
     await _seed_taps(session, viewer["user_id"], 3, tag="prefix", minutes_apart=1)
 
-    code, text = await _raw(client, viewer["token"], cursor=encode_cursor(3))
+    code, text = await _raw(client, viewer["token"], cursor=seal_rank(_uuid(viewer), 3))
 
     assert code == 422, f"a deck cursor turned the tap list with {code}: {text[:160]}"
+
+
+def _uuid(account: dict) -> uuid.UUID:
+    return uuid.UUID(account["user_id"])
 
 
 async def test_a_cursor_beyond_any_clock_is_refused_rather_than_raising(
     client: AsyncClient,
 ) -> None:
-    """A hand-built payload is input: the bound that stage 17 put on the deck's rank belongs here too.
+    """A place that no row could hold is input, even inside a link this server signed.
 
     PostgreSQL's `timestamptz` ends in 294276, and Python's `datetime` refuses what is beyond it. A
-    cursor that reaches past either answers 422 with the broken-link sentence — a 500 would put a
-    traceback behind a person's typo.
+    link reaching past either answers 422 with the broken-link sentence — a 500 would put a traceback
+    behind a person's typo. Since stage 126 the envelope is checked before the place, so the same
+    garbage is also refused when it arrives unsigned: what is proved here is that the *bound* still
+    bites after the signature passes, which is the half a seal cannot do on its own.
     """
-    from app.services.discovery_service import TAP_CURSOR_PREFIX
+    from app.core.page_cursor import MOMENT_PREFIX, seal
 
     viewer = await _account(client, "absurd_v")
+    reader = _uuid(viewer)
 
     for payload in (
-        f"{TAP_CURSOR_PREFIX}:{10**25}:00000000000000000000000000000000",
-        f"{TAP_CURSOR_PREFIX}:1730000000000000:{'not-hex-at-all'}",
-        f"{TAP_CURSOR_PREFIX}:1730000000000000:" + "f" * 32 + ":extra",
+        f"{MOMENT_PREFIX}:{10**25}:00000000000000000000000000000000",
+        f"{MOMENT_PREFIX}:1730000000000000:{'not-hex-at-all'}",
+        f"{MOMENT_PREFIX}:1730000000000000:" + "f" * 32 + ":extra",
     ):
-        cursor = base64.urlsafe_b64encode(payload.encode()).decode().rstrip("=")
-        code, text = await _raw(client, viewer["token"], cursor=cursor)
+        sealed = seal("taps", reader, payload)
+        code, text = await _raw(client, viewer["token"], cursor=sealed)
         assert code == 422, f"{payload[:40]!r} answered {code}: {text[:160]}"
         assert BAD_CURSOR in text
+        unsigned = base64.urlsafe_b64encode(payload.encode()).decode().rstrip("=")
+        code, text = await _raw(client, viewer["token"], cursor=unsigned)
+        assert code == 422, f"unsigned {payload[:40]!r} answered {code}: {text[:160]}"
 
 
 async def test_a_cursor_of_digits_the_language_does_not_share_is_refused(
@@ -372,28 +386,42 @@ async def test_a_cursor_of_digits_the_language_does_not_share_is_refused(
     raises on a run past 4300 digits or returns a number no clock and no column holds. The bound on the
     deck's rank (stage 17) and the bound here are the same rule about the same kind of text: a person
     typing at the API gets `422`, and the server keeps its traceback to itself.
+
+    A run of five thousand digits cannot be sealed at all — the place is refused before a link is ever
+    made — so it is checked as the typed string it would arrive as.
     """
-    from app.services.discovery_service import TAP_CURSOR_PREFIX
+    from app.core.page_cursor import MOMENT_PREFIX, seal
 
     viewer = await _account(client, "digits_v")
+    reader = _uuid(viewer)
     hex_id = "00000000000000000000000000000000"
 
-    for digits in ("²", "١٢٣", "１２３", "9" * 5000, "1٢3"):
-        payload = f"{TAP_CURSOR_PREFIX}:{digits}:{hex_id}"
-        cursor = base64.urlsafe_b64encode(payload.encode()).decode().rstrip("=")
-        code, text = await _raw(client, viewer["token"], cursor=cursor)
-        assert code == 422, f"{digits[:12]!r} answered {code}: {text[:160]}"
-        assert BAD_CURSOR in text, f"{digits[:12]!r} was refused with another sentence: {text[:160]}"
+    for digits in ("²", "١٢٣", "１２３", "1٢3"):
+        payload = f"{MOMENT_PREFIX}:{digits}:{hex_id}"
+        for cursor in (seal("taps", reader, payload), base64.urlsafe_b64encode(payload.encode()).decode().rstrip("=")):
+            code, text = await _raw(client, viewer["token"], cursor=cursor)
+            assert code == 422, f"{digits[:12]!r} answered {code}: {text[:160]}"
+            assert BAD_CURSOR in text, f"{digits[:12]!r} was refused with another sentence: {text[:160]}"
+
+    long_run = "9" * 5000
+    cursor = base64.urlsafe_b64encode(
+        f"{MOMENT_PREFIX}:{long_run}:{hex_id}".encode()
+    ).decode().rstrip("=")
+    code, text = await _raw(client, viewer["token"], cursor=cursor)
+    assert code == 422, f"a {len(long_run)}-digit run answered {code}: {text[:160]}"
 
 
-async def test_a_cursor_carried_from_another_account_reads_only_ones_own_taps(
+async def test_a_cursor_carried_from_another_account_is_refused_rather_than_read(
     client: AsyncClient, session: AsyncSession
 ) -> None:
-    """The position is somebody's place in *their* list; the rows belong to the reader.
+    """The place is somebody's place in *their* list, and the link now says whose.
 
-    Nothing in the cursor names an account, and the read is addressed by `from_user_id`, so a borrowed
-    link must filter the reader's own taps from that moment rather than reveal a stranger's list or
-    answer with the rows the stranger was standing on.
+    Stage 123 could only promise that a borrowed link reads the reader's own rows: the cursor carried a
+    moment and a row id, and the read filtered by its own `from_user_id`, so a stranger's link gave the
+    reader their own page cut at a moment somebody else chose. Stage 126 changed what the requirement is
+    — the brief names a link bound to the reader it was issued to, and refused otherwise — so this
+    assertion is stronger than the one it replaces, not weaker: the borrowed link now answers the same
+    422 as any other broken link, and the reader's own walk is untouched by the attempt.
     """
     viewer = await _account(client, "own_a", name="Вера")
     stranger = await _account(client, "own_b", name="Пётр")
@@ -401,11 +429,13 @@ async def test_a_cursor_carried_from_another_account_reads_only_ones_own_taps(
     theirs = await _seed_taps(session, stranger["user_id"], 12, tag="own_b", minutes_apart=1)
     borrowed = (await _page(client, stranger["token"], limit=5))["next_cursor"]
 
-    body = await _page(client, viewer["token"], cursor=borrowed, limit=5)
+    code, text = await _raw(client, viewer["token"], cursor=borrowed, limit=5)
 
-    listed = [card["user_id"] for card in body["likes"]]
-    assert listed, "a borrowed moment silenced the reader's own older taps"
-    assert set(listed) <= set(mine), "the read named rows belonging to somebody else's list"
+    assert code == 422, f"a stranger's link turned this list with {code}: {text[:160]}"
+    assert BAD_CURSOR in text, f"a borrowed link was refused with another sentence: {text[:160]}"
+    fresh = await _page(client, viewer["token"], limit=5)
+    listed = [card["user_id"] for card in fresh["likes"]]
+    assert listed == mine[:5], "the reader's own walk was not intact after the refusal"
     assert not set(listed) & set(theirs), "the borrowed cursor carried a stranger's taps"
 
 

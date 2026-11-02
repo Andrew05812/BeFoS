@@ -16,7 +16,12 @@ from app.schemas.schemas import (
     PassedUsersResponse,
     PassResponse,
 )
-from app.services.discovery_service import LIKED_SHOWN, DiscoveryService
+from app.services.discovery_service import (
+    LIKED_ME_SHOWN,
+    LIKED_SHOWN,
+    PASSED_SHOWN,
+    DiscoveryService,
+)
 from app.services.match_service import MatchService
 
 router = APIRouter(tags=["discovery"])
@@ -41,17 +46,24 @@ async def discover(
 
 @router.get("/discover/liked-me", response_model=LikedMeResponse)
 async def liked_me(
+    limit: int = Query(default=LIKED_ME_SHOWN, ge=1, le=LIKED_ME_SHOWN),
+    cursor: str | None = Query(default=None),
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
-    """Who tapped the account, newest tap first, at most fifty of them.
+    """Who tapped the account, newest tap first, one page of them and the link to the next.
 
     The tap is written by the route below and, until this one existed, could be read back only as
     a yes-or-no about one named stranger. This answers the account's own question — «кто меня
     выбрал» — and says with it whether more taps stand behind the page.
+
+    Stage 126 put the boundary here. The door used to answer fifty taps and stop, and `has_more`
+    named a rest no request could reach; the key is the pair `(created_at, id)` the read is ordered
+    by, and it is sealed by the server, so a resumed page continues the reader's own walk rather than
+    repeating somebody's claim about where it stood.
     """
     service = DiscoveryService(session)
-    data = await service.liked_me(current_user.id)
+    data = await service.liked_me(current_user.id, cursor=cursor, limit=limit)
     return LikedMeResponse(**data)
 
 
@@ -81,17 +93,23 @@ async def liked_users(
 
 @router.get("/discover/passed", response_model=PassedUsersResponse)
 async def passed_users(
+    limit: int = Query(default=PASSED_SHOWN, ge=1, le=PASSED_SHOWN),
+    cursor: str | None = Query(default=None),
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
-    """Whom the account dismissed, newest answer first, at most fifty of them.
+    """Whom the account dismissed, newest answer first, one page of them and the link to the next.
 
     The deck answers «show me people I have not decided about», so a pass could only be read back as
     an absence — and the row that stores it had no door of its own. This is that door, and the row
     beside it says when the card was swiped past.
+
+    The page boundary arrived with stage 126, for the reason it arrived at the inbox: the answer could
+    already say more dismissals stood behind the fifty it named, and the person reading it held no way
+    to ask — while the same screen offers a verb that takes any one of those answers back.
     """
     service = DiscoveryService(session)
-    data = await service.passed(current_user.id)
+    data = await service.passed(current_user.id, cursor=cursor, limit=limit)
     return PassedUsersResponse(**data)
 
 
