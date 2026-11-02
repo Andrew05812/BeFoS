@@ -16,6 +16,7 @@ from httpx import AsyncClient
 from sqlalchemy import update
 
 from app.core.database import AsyncSessionLocal
+from app.core.page_cursor import DECK, seal
 from app.models import User
 
 from .conftest import (
@@ -226,9 +227,11 @@ async def test_a_forged_discovery_cursor_is_refused_rather_than_interpreted(
 
     # A well-formed rank past the end of the deck is not a security question: the deck is
     # the caller's own, so the answer is an empty page, not somebody else's cards and not
-    # a 500 from arithmetic on a position that does not exist.
+    # a 500 from arithmetic on a position that does not exist. Since stage 126 the link has
+    # to be one the server printed for that reader, so this is sealed rather than typed.
     far = await client.get(
-        f"/api/v1/discover?cursor={_cursor('rank:999999999')}", headers=headers
+        f"/api/v1/discover?cursor={seal(DECK, uuid.UUID(a['user_id']), 'rank:999999999')}",
+        headers=headers,
     )
     assert far.status_code == 200, far.text
     assert far.json()["items"] == []

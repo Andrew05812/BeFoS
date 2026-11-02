@@ -30,7 +30,10 @@ class Like(TimestampMixin, Base):
         ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     to_user_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+        # Stage 126's inbox key starts here, so the column keeps no index of its own: a btree over
+        # (`to_user_id`, …) answers a lookup on `to_user_id` alone, and the narrower one would be
+        # written on every tap for nothing — the rule `test_schema_index_redundancy.py` holds.
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     compatibility_score: Mapped[float | None] = mapped_column(Float, nullable=True)
 
@@ -52,6 +55,19 @@ class Like(TimestampMixin, Base):
             text("created_at DESC"),
             text("id DESC"),
         ),
+        # The other half of the same table, for the other walk: «кто вас выбрал» reads by `to_user_id`
+        # and turns the same `(created_at, id)` page. Without this key the reader's inbox is gathered
+        # before its fifty rows are taken — measured on the 50 000 stand at 56.8 мс for the first page
+        # and 90.6 мс behind the link, over a plan whose worst node is a sequential scan of 25 000
+        # анкет done twice (`s126_scale_a.json`), while the identical read on the tapper's side, which
+        # has had this key since stage 123, costs 4.8 мс. Same shape, same rule: the order the walk
+        # turns by belongs in the key, and the id decides the tie the timestamp cannot.
+        Index(
+            "ix_likes_target_inbox_order",
+            "to_user_id",
+            text("created_at DESC"),
+            text("id DESC"),
+        ),
     )
 
 
@@ -70,6 +86,17 @@ class Pass(TimestampMixin, Base):
     __table_args__ = (
         UniqueConstraint("from_user_id", "to_user_id", name="uq_pass_pair"),
         CheckConstraint("from_user_id <> to_user_id", name="ck_pass_not_self"),
+        # The pass list turns pages by the same pair the tap list does, and `uq_pass_pair` answers the
+        # reader's equality and then leaves the ordering to the sort: measured at 50 000, the page
+        # behind the link cost 195.6 мс of plan over 15 456 nested-loop fetches of one profile each —
+        # the reader's whole history, visited card by card, before the fifty rows were taken
+        # (`s126_scale_a.json`). The key says whose passes, then newest first, then the id.
+        Index(
+            "ix_passes_tapper_order",
+            "from_user_id",
+            text("created_at DESC"),
+            text("id DESC"),
+        ),
     )
 
 

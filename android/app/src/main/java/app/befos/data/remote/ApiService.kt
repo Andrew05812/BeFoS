@@ -314,15 +314,22 @@ class ApiService(private val client: HttpClient) {
         }
 
     /**
-     * Who tapped this account, newest first, at most fifty of them. The deck never showed the
-     * tap: a card leaves it once the account answers, so a heart that came back had no place to
-     * be read. No identifier travels with this call — the token says whose inbox it is — and the
-     * percent each row carries is the one the tap was made carrying, not a fresh score.
+     * Who tapped this account, newest first, one page of them.
+     *
+     * The deck never showed the tap: a card leaves it once the account answers, so a heart that came
+     * back had no place to be read. No identifier travels with this call — the token says whose inbox
+     * it is — and the percent each row carries is the one the tap was made carrying, not a fresh score.
+     *
+     * [cursor] is the link the previous page answered with, and null asks for the newest page. Stage 126
+     * put it here because the door used to answer fifty taps and stop, leaving `has_more` to name a rest
+     * no request could reach; the string is the server's own, sealed against the reader and the inbox,
+     * so a hand-written one is refused rather than read.
      */
-    suspend fun likedMe(): ApiResult<LikedMeDto> =
+    suspend fun likedMe(cursor: String? = null): ApiResult<LikedMeDto> =
         client.apiCall {
             method = HttpMethod.Get
             url(endpoint("discover/liked-me"))
+            if (cursor != null) parameter("cursor", cursor)
         }
 
     suspend fun like(userId: String): ApiResult<LikeResponseDto> =
@@ -338,16 +345,21 @@ class ApiService(private val client: HttpClient) {
         }
 
     /**
-     * Whom the account passed, newest answer first, at most fifty of them.
+     * Whom the account passed, newest answer first, one page of them.
      *
      * The deck answers this by silence — a person it has an answer for simply never comes back — so
      * the only way to learn the list until now was to notice who was missing. No identifier travels
      * with this call either: the token says whose passes these are.
+     *
+     * [cursor] follows the link the previous page handed out, for the reason stage 126 gave the inbox:
+     * the stand counts 315 / 3 109 / 15 509 passes for one reader at its three scales, and a screen
+     * that stops at the first fifty leaves the rest of the account's own answers unread.
      */
-    suspend fun passedUsers(): ApiResult<PassedUsersDto> =
+    suspend fun passedUsers(cursor: String? = null): ApiResult<PassedUsersDto> =
         client.apiCall {
             method = HttpMethod.Get
             url(endpoint("discover/passed"))
+            if (cursor != null) parameter("cursor", cursor)
         }
 
     /**
@@ -394,10 +406,19 @@ class ApiService(private val client: HttpClient) {
         }
 
     // ---------- Matches ----------
-    suspend fun getMatches(): ApiResult<MatchListDto> =
+    /**
+     * One page of the account's pairs, in the order the screen paints them, with the link to the next.
+     *
+     * The door used to answer every pair the account had ever formed; the screen then sorted them on
+     * the device, which is the same list read twice and a ceiling no client can lift. [cursor] is the
+     * server's own key to where its page stopped — sealed against this reader and this door, so an
+     * invented one is refused with the same words as a stale one.
+     */
+    suspend fun getMatches(cursor: String? = null): ApiResult<MatchListDto> =
         client.apiCall {
             method = HttpMethod.Get
             url(endpoint("matches"))
+            if (cursor != null) parameter("cursor", cursor)
         }
 
     suspend fun getMatch(matchId: String): ApiResult<MatchDetailDto> =

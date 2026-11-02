@@ -8,6 +8,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -34,7 +38,11 @@ import app.befos.core.designsystem.Spacing
 import app.befos.core.designsystem.tabularDigits
 import app.befos.core.di.beFosViewModel
 import app.befos.domain.model.IncomingLike
+import app.befos.presentation.common.PageTailRow
+import app.befos.presentation.common.PageTailWords
 import app.befos.presentation.common.likedMeEntryWord
+import app.befos.presentation.common.pageTail
+import app.befos.presentation.common.shownWord
 import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -54,6 +62,23 @@ fun LikedMeScreen(onBack: () -> Unit, onOpenProfile: (String) -> Unit, onOpenMat
         LikedMeViewModel(it.discoveryRepository, it.answeredUsers)
     }
     val state by vm.uiState.collectAsState()
+    val scrollState = rememberScrollState()
+
+    // Reaching the end of what the screen holds is the reader asking for the rest. The trigger sits
+    // one screen-height-short-of the bottom, so the next page is usually in by the time the thumb
+    // stops, and it cannot fire twice: `canLoadMore` is false while a page is on the wire. A list that
+    // does not even overflow the screen has already reached its end, so it asks too — and stops asking
+    // as soon as the rows are taller than the viewport.
+    val prefetchPx = with(LocalDensity.current) { 160.dp.toPx() }.toInt()
+    val shouldAskForMore by remember(prefetchPx) {
+        derivedStateOf {
+            state.canLoadMore &&
+                (scrollState.maxValue - scrollState.value <= prefetchPx || scrollState.maxValue == 0)
+        }
+    }
+    LaunchedEffect(shouldAskForMore) {
+        if (shouldAskForMore) vm.loadMore()
+    }
 
     state.match?.let { match ->
         MatchMoment(
@@ -74,7 +99,7 @@ fun LikedMeScreen(onBack: () -> Unit, onOpenProfile: (String) -> Unit, onOpenMat
             modifier = Modifier
                 .padding(padding)
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(scrollState)
                 .padding(horizontal = Spacing.gutter, vertical = Spacing.lg),
             verticalArrangement = Arrangement.spacedBy(Spacing.lg),
         ) {
@@ -84,15 +109,14 @@ fun LikedMeScreen(onBack: () -> Unit, onOpenProfile: (String) -> Unit, onOpenMat
                     "это тот процент, который увидели у того, кто вас лайкнул.",
             )
 
-            // A page that stopped at fifty says so. Without this line the list would claim it showed
-            // everyone who ever tapped, which is the one sentence it cannot know.
-            if (state.truncated && !state.loading) {
-                InlineNotice(
-                    text = "Показаны пятьдесят самых свежих лайков, за ними ждут другие. " +
-                        "Эта страница не следит за списком сама — обновите её.",
-                    isError = false,
-                    actionLabel = "Обновить",
-                    onAction = vm::load,
+            // How far the walk has come, in the reader's own words. The count is what the device
+            // actually holds — never a total the server did not name, because a page knows how many
+            // taps it read and nothing about how many the account made.
+            if (!state.loading && state.likes.isNotEmpty()) {
+                Text(
+                    likedMeShownWord(state.likes.size, state.truncated),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             if (state.error != null && state.likes.isNotEmpty()) {
@@ -162,9 +186,33 @@ fun LikedMeScreen(onBack: () -> Unit, onOpenProfile: (String) -> Unit, onOpenMat
                     }
                 }
             }
+
+            // What stands beyond these rows, and the one verb that reaches it.
+            if (!state.loading && state.error == null) {
+                PageTailRow(
+                    tail = pageTail(state.walk()),
+                    moreError = state.moreError,
+                    words = LIKED_ME_TAIL_WORDS,
+                    onRepeat = vm::retryMore,
+                    onReread = vm::load,
+                )
+            }
         }
     }
 }
+
+private val LIKED_ME_TAIL_WORDS = PageTailWords(
+    loading = "Догружаю, кто вас лайкнул…",
+    moreAvailable = "Те, кто вас лайкнул, ещё не кончились. Догружается само, когда вы доходите до конца.",
+    waitingForReread = "Те, кто вас лайкнул, ещё не кончились. Перечитайте список, и обход пойдёт дальше.",
+    end = "Дальше тех, кто вас лайкнул, нет.",
+)
+
+/**
+ * How far the walk has come: the rows on the screen, and whether the list goes on past them.
+ */
+internal fun likedMeShownWord(shown: Int, truncated: Boolean): String =
+    shownWord(shown, truncated, "лайк", "лайка", "лайков")
 
 /**
  * The row's second line: who this person is, and the day their tap was written.

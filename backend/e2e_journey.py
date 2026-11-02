@@ -1503,6 +1503,105 @@ def main() -> int:
     check(twice_tap.status_code == 404, "the second withdrawal is a refusal, not a second removal",
           str(twice_tap.status_code))
 
+    # 5d-3. the same three sentences about the two doors this stage opened, and about the seal on a
+    # link. Stage 123 taught one door to page; stage 126 taught the other three the same thing and
+    # stopped believing the string the client brings back. The live path is where those two decisions
+    # meet a real account: the inbox walk reaches the tap the first page left behind, a link from
+    # another account or from another door is refused with the one sentence, and the sentence carries a
+    # machine code a screen can act on — the device that hears `broken_page_link` drops its key and
+    # re-reads the newest page, which is the only ask that can still reach the rows behind it.
+    pace()
+    from_a = c.post(f"{BASE}/users/{uid_p}/like", headers=ha)
+    from_b = c.post(f"{BASE}/users/{uid_p}/like", headers=hb)
+    check(from_a.status_code == 200 and from_b.status_code == 200,
+          "two accounts tap the reader, so her inbox has a page to turn",
+          f"{from_a.status_code}/{from_b.status_code}")
+
+    inbox_head = c.get(f"{BASE}/discover/liked-me", headers=hp, params={"limit": 1}).json()
+    check(len(inbox_head["likes"]) == 1 and inbox_head["has_more"] is True and inbox_head["next_cursor"],
+          "the inbox answers a page and hands the way past it",
+          f"{len(inbox_head['likes'])} rows, cursor={bool(inbox_head.get('next_cursor'))}")
+    inbox_turned = c.get(f"{BASE}/discover/liked-me", headers=hp,
+                         params={"limit": 1, "cursor": inbox_head["next_cursor"]}).json()
+    first_in, second_in = inbox_head["likes"][0]["user_id"], inbox_turned["likes"][0]["user_id"]
+    check(first_in != second_in and {first_in, second_in} == {uid_a, uid_b},
+          "the link opens the tap the first page did not carry", f"{first_in} / {second_in}")
+    check(inbox_turned["has_more"] is False and inbox_turned["next_cursor"] is None,
+          "the inbox walk ends without leaving a link out", str(inbox_turned["next_cursor"]))
+
+    # The seal's two bindings, on the wire rather than in a unit: a link is a place in one reader's
+    # walk through one door. Борис's token carrying Галина's frontier would read his taps at her
+    # boundary, and the inbox's link opened by the tap list would read the wrong half of the same
+    # table — both used to be possible with a string nobody issued.
+    stolen = c.get(f"{BASE}/discover/liked-me", headers=ha,
+                   params={"limit": 1, "cursor": inbox_head["next_cursor"]})
+    other_door = c.get(f"{BASE}/discover/liked", headers=hp,
+                       params={"limit": 1, "cursor": inbox_head["next_cursor"]})
+    typed = c.get(f"{BASE}/discover/liked-me", headers=hp, params={"cursor": "aGVsbG8gd29ybGQ"})
+    bodies = {}
+    for name, answer in (("foreign account", stolen), ("another door", other_door), ("hand-typed", typed)):
+        check(answer.status_code == 422, f"a link from {name} is refused at the inbox",
+              str(answer.status_code))
+        bodies[name] = answer.json()["error"]
+    check({b["code"] for b in bodies.values()} == {"broken_page_link"},
+          "and all three refusals carry the one machine code a screen can act on",
+          str({n: b["code"] for n, b in bodies.items()}))
+    check({b["message"] for b in bodies.values()} == {"The link to the next page is broken."},
+          "the refusal is one sentence whoever broke the link", str(sorted(b["message"] for b in bodies.values())))
+    leaked = " ".join(json.dumps(b, ensure_ascii=False) for b in bodies.values()).lower()
+    check(not any(word in leaked for word in
+                  ("hmac", "signature", "sign", "kid", "secret", "expir", "version", "cursor", "key")),
+          "and it names no part of the seal", leaked[:160])
+
+    # The ceiling is the server's, so a device cannot ask a page wider than the door answers, and a
+    # page of nothing is a refusal rather than an empty list that reads as the end of the walk.
+    wide = c.get(f"{BASE}/discover/liked-me", headers=hp, params={"limit": 51})
+    empty_page = c.get(f"{BASE}/discover/passed", headers=hp, params={"limit": 0})
+    check(wide.status_code == 422 and empty_page.status_code == 422,
+          "a page wider than the cap and a page of no rows are both refused",
+          f"{wide.status_code}/{empty_page.status_code}")
+
+    # A pass is the reader's own answer, and the door walks the same way: two people put back into her
+    # list, one page of them, and the link that reaches the second. The second dismissal is seeded
+    # here, not implied by the release below — a walk that reads one row and then releases two is a
+    # walk that never crossed a page boundary at all.
+    pass_a = c.post(f"{BASE}/users/{uid_a}/pass", headers=hp)
+    pass_b = c.post(f"{BASE}/users/{uid_b}/pass", headers=hp)
+    check(pass_a.status_code == 200 and pass_b.status_code == 200,
+          "the reader dismisses two people, so her list has a page to turn",
+          f"{pass_a.status_code}/{pass_b.status_code}")
+    pass_head = c.get(f"{BASE}/discover/passed", headers=hp, params={"limit": 1}).json()
+    check(len(pass_head["passed"]) == 1 and pass_head["has_more"] and pass_head["next_cursor"],
+          "the pass list hands a page and the link behind it",
+          f"{len(pass_head['passed'])} rows, cursor={bool(pass_head.get('next_cursor'))}")
+    pass_turned = c.get(f"{BASE}/discover/passed", headers=hp,
+                        params={"limit": 1, "cursor": pass_head["next_cursor"]}).json()
+    check(len(pass_turned["passed"]) == 1
+          and pass_turned["passed"][0]["user_id"] != pass_head["passed"][0]["user_id"],
+          "and the walk names the second dismissal behind the link",
+          str([it["user_id"] for it in pass_turned["passed"]]))
+    check(pass_turned["has_more"] is False and pass_turned["next_cursor"] is None,
+          "the pass walk ends without leaving a link out", str(pass_turned["next_cursor"]))
+
+    # Nothing above is allowed to leave a row behind: the taps it read came from two accounts that
+    # take them back, the passes it read are released, and every section after this one reads the same
+    # inboxes expecting the state this walk found. The detail names all four answers and both lists,
+    # because a walk that fails here has to say which door it failed to close.
+    back_a = c.delete(f"{BASE}/users/{uid_p}/like", headers=ha)
+    back_b = c.delete(f"{BASE}/users/{uid_p}/like", headers=hb)
+    release_a = c.delete(f"{BASE}/users/{uid_a}/pass", headers=hp)
+    release_b = c.delete(f"{BASE}/users/{uid_b}/pass", headers=hp)
+    after_doors = c.get(f"{BASE}/discover/liked-me", headers=hp).json()
+    after_passes = c.get(f"{BASE}/discover/passed", headers=hp).json()
+    check(back_a.status_code == 200 and back_b.status_code == 200
+          and release_a.status_code == 200 and release_b.status_code == 200
+          and after_doors["likes"] == [] and after_doors["next_cursor"] is None
+          and after_passes["passed"] == [] and after_passes["next_cursor"] is None,
+          "the walk leaves both doors exactly as it found them",
+          f"withdrawals {back_a.status_code}/{back_b.status_code}, releases "
+          f"{release_a.status_code}/{release_b.status_code}, "
+          f"{len(after_doors['likes'])} taps and {len(after_passes['passed'])} passes left")
+
     # 6. open public profile
     pub = c.get(f"{BASE}/users/{uid_b}", headers=ha)
     check(pub.status_code == 200 and pub.json().get("name") == "Борис", "public profile B", str(pub.status_code))
@@ -1549,6 +1648,49 @@ def main() -> int:
     # 9. matches list
     ml = c.get(f"{BASE}/matches", headers=ha).json()
     check(any(m["match_id"] == match_id for m in ml["matches"]), "match in A list", f"{len(ml['matches'])} matches")
+
+    # 9b. the pair list is a page too. This is the door that never had a ceiling because it never had
+    # a limit: a screen asking for pairs got the whole account's history in one answer, and the day the
+    # server started capping it the rows past the cap would simply stop existing. So the walk stands on
+    # a list wider than one page and asks for the second row by the link, not by counting from the top.
+    pace()
+    tap_p = c.post(f"{BASE}/users/{uid_p}/like", headers=ha).json()
+    tap_p_back = c.post(f"{BASE}/users/{uid_a}/like", headers=hp).json()
+    check(tap_p.get("liked") is True and tap_p_back.get("match") is True,
+          "a second pair forms, so the list has more rows than one page",
+          f"{tap_p.get('liked')}/{tap_p_back.get('match')}")
+    second_pair = tap_p_back.get("match_id")
+
+    pairs_head = c.get(f"{BASE}/matches", headers=ha, params={"limit": 1})
+    pairs_body = pairs_head.json()
+    check(pairs_head.status_code == 200 and len(pairs_body["matches"]) == 1
+          and pairs_body["has_more"] is True and pairs_body["next_cursor"],
+          "the pair list answers a page of the size it was asked for",
+          f"{len(pairs_body.get('matches', []))} rows, "
+          f"has_more={pairs_body.get('has_more')} cursor={bool(pairs_body.get('next_cursor'))}")
+    pairs_turned = c.get(f"{BASE}/matches", headers=ha,
+                         params={"limit": 1, "cursor": pairs_body["next_cursor"]}).json()
+    turned_ids = [m["match_id"] for m in pairs_body["matches"]] + [m["match_id"] for m in pairs_turned["matches"]]
+    check(len(turned_ids) == len(set(turned_ids)) and set(turned_ids) == {match_id, second_pair},
+          "the link opens the pair the first page left behind", str(turned_ids))
+    check(pairs_turned["has_more"] is False and pairs_turned["next_cursor"] is None,
+          "the pair walk ends without leaving a link out", str(pairs_turned["next_cursor"]))
+    pairs_dead = c.get(f"{BASE}/matches", headers=ha, params={"cursor": "aGVsbG8gd29ybGQ"})
+    check(pairs_dead.status_code == 422 and pairs_dead.json()["error"]["code"] == "broken_page_link",
+          "the pair door refuses a link it never issued", str(pairs_dead.status_code))
+
+    # The pair that was formed to widen the list goes back out of it, and the door that ends a pair is
+    # the one the app already uses: the row, both taps and the conversation leave together, so both
+    # accounts are left exactly as section 8 found them.
+    ended = c.delete(f"{BASE}/matches/{second_pair}", headers=ha)
+    list_a = c.get(f"{BASE}/matches", headers=ha).json()["matches"]
+    list_p = c.get(f"{BASE}/matches", headers=hp).json()["matches"]
+    inbox_p_after = c.get(f"{BASE}/discover/liked-me", headers=hp).json()["likes"]
+    check(ended.status_code == 204 and [m["match_id"] for m in list_a] == [match_id]
+          and all(m["match_id"] != second_pair for m in list_p) and inbox_p_after == [],
+          "the extra pair leaves no row, no tap and no second list behind",
+          f"end {ended.status_code}, A has {len(list_a)} pairs, probe has {len(list_p)} "
+          f"and {len(inbox_p_after)} taps")
 
     # 10. compatibility for the match
     comp = c.get(f"{BASE}/matches/{match_id}/compatibility", headers=ha).json()

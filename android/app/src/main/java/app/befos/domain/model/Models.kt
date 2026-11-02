@@ -341,6 +341,13 @@ data class IncomingLike(
 data class LikedMePage(
     val likes: List<IncomingLike>,
     val truncated: Boolean,
+    /**
+     * Where the server stopped, in the only form it will hand back. Null says the walk is over — the
+     * page just read is the last one — and stage 126 is what made null mean something: until then this
+     * door answered fifty taps and no link, so a reader behind them had a word («за ними ждут другие»)
+     * with no verb to reach them.
+     */
+    val nextCursor: String? = null,
 )
 
 /**
@@ -371,6 +378,7 @@ data class PassedUser(
 data class PassedPage(
     val passed: List<PassedUser>,
     val truncated: Boolean,
+    val nextCursor: String? = null,
 )
 
 /**
@@ -433,6 +441,20 @@ data class MatchSummary(
     val lastMessage: String?,
     val lastMessageAt: String?,
     val unread: Int,
+)
+
+/**
+ * One page of the account's pairs, in the order the screen paints them.
+ *
+ * [truncated] is the server's word that a pair stands behind the page, and [nextCursor] is the only
+ * thing that reaches it. Stage 126 added both: the door used to answer every pair the account had ever
+ * formed, and the screen then ordered them on the device — so the list had no ceiling and no way to
+ * resume, and a reader who had been matched four hundred times paid four hundred rows for one open.
+ */
+data class MatchesPage(
+    val matches: List<MatchSummary>,
+    val truncated: Boolean,
+    val nextCursor: String? = null,
 )
 
 /**

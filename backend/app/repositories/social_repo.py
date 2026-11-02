@@ -705,8 +705,12 @@ class DiscoveryRepository:
 
     # --- incoming likes --------------------------------------------------------
     async def liked_me(
-        self, viewer_id: uuid.UUID, limit: int
-    ) -> list[tuple[uuid.UUID, float | None, datetime]]:
+        self,
+        viewer_id: uuid.UUID,
+        limit: int,
+        *,
+        before: tuple[datetime, uuid.UUID] | None = None,
+    ) -> list[tuple[uuid.UUID, float | None, datetime, uuid.UUID]]:
         """The taps that pointed at this account, newest first, at most ``limit`` of them.
 
         Until stage 112 this table was read in one direction only: ``has_liked_back`` asks whether
@@ -725,9 +729,16 @@ class DiscoveryRepository:
         person's answer about the viewer, and that record belongs to them both. Dropping it here
         would make a pass irrevocable in secret: nobody would ever learn that somebody they passed
         had said yes.
+
+        ``before`` is where the previous page stopped, and it carries both halves of the order for the
+        reason stage 54 wrote down and stage 123 repeated for the reader's own taps: a boundary drawn
+        through ``created_at`` alone cuts between rows that share a microsecond, and the rows on the far
+        side of the cut are then in neither answer. Stage 126 put the same boundary on this door, so the
+        tap's own id travels out of the read — a page that resumes has to say *which* tap at that moment
+        the reader stood on.
         """
         stmt = (
-            select(Like.from_user_id, Like.compatibility_score, Like.created_at)
+            select(Like.from_user_id, Like.compatibility_score, Like.created_at, Like.id)
             .join(Profile, Profile.user_id == Like.from_user_id)
             .join(User, User.id == Profile.user_id)
             .where(
@@ -735,13 +746,14 @@ class DiscoveryRepository:
                 *self._candidate_conditions(viewer_id, Profile.user_id),
                 *self._relationship_conditions(viewer_id, Profile.user_id),
             )
-            # `created_at` alone is not a total order — two taps can land on the same microsecond —
-            # and a tie the database resolves freely makes the page's order a coin flip. The id
-            # breaks it once, the same way the history cursor's tie-break was fixed (stage 54).
-            .order_by(Like.created_at.desc(), Like.id.desc())
-            .limit(limit)
         )
-        return [(row[0], row[1], row[2]) for row in (await self.session.execute(stmt)).all()]
+        if before is not None:
+            # One value, two columns: the same tuple comparison the conversation's page and the tap
+            # list use, which is what lets Postgres stop inside the key instead of reading the whole
+            # inbox and cutting it.
+            stmt = stmt.where(tuple_(Like.created_at, Like.id) < before)
+        stmt = stmt.order_by(Like.created_at.desc(), Like.id.desc()).limit(limit)
+        return [(row[0], row[1], row[2], row[3]) for row in (await self.session.execute(stmt)).all()]
 
     # --- the account's own taps ------------------------------------------------
     async def liked(
@@ -809,8 +821,12 @@ class DiscoveryRepository:
 
     # --- the account's own passes ----------------------------------------------
     async def passed(
-        self, viewer_id: uuid.UUID, limit: int
-    ) -> list[tuple[uuid.UUID, datetime]]:
+        self,
+        viewer_id: uuid.UUID,
+        limit: int,
+        *,
+        before: tuple[datetime, uuid.UUID] | None = None,
+    ) -> list[tuple[uuid.UUID, datetime, uuid.UUID]]:
         """Who this account dismissed, newest answer first, at most ``limit`` of them.
 
         The rows are read in one direction only: ``from_user_id`` is the reader, and a row where the
@@ -827,18 +843,24 @@ class DiscoveryRepository:
 
         A pass that a later like undid is simply not here, because it is not in the table: stage 26
         made ``like`` delete the pass row, and this read follows the row rather than the history.
+
+        ``before`` is the page boundary stage 126 added, and it is the pair `(created_at, id)` for the
+        reason the inbox and the tap list each carry it: two swipes inside one microsecond are the
+        normal case once a deck is walked fast, and a row the id did not decide is a row that lands in
+        neither page.
         """
         stmt = (
-            select(Pass.to_user_id, Pass.created_at)
+            select(Pass.to_user_id, Pass.created_at, Pass.id)
             .join(Profile, Profile.user_id == Pass.to_user_id)
             .join(User, User.id == Profile.user_id)
             .where(
                 Pass.from_user_id == viewer_id,
                 *self._candidate_conditions(viewer_id, Profile.user_id),
             )
-            # The pair's own timestamp is not a total order — two swipes inside one microsecond are
-            # common once a deck is walked fast — so the id decides, as the inbox read does.
-            .order_by(Pass.created_at.desc(), Pass.id.desc())
-            .limit(limit)
         )
-        return [(row[0], row[1]) for row in (await self.session.execute(stmt)).all()]
+        if before is not None:
+            stmt = stmt.where(tuple_(Pass.created_at, Pass.id) < before)
+        # The pair's own timestamp is not a total order, so the id decides once — as the inbox read
+        # and the reader's own taps both learned to do.
+        stmt = stmt.order_by(Pass.created_at.desc(), Pass.id.desc()).limit(limit)
+        return [(row[0], row[1], row[2]) for row in (await self.session.execute(stmt)).all()]

@@ -44,6 +44,9 @@ _LEADING_COLUMNS = [
     ("activity_preferences", "user_id"),
     ("blocks", "blocker_id"),
     ("likes", "from_user_id"),
+    # Stage 126 dropped this column's own index as a prefix of `ix_likes_target_inbox_order`; naming it
+    # here is what keeps that key from being removed later without leaving the lookup with no way in.
+    ("likes", "to_user_id"),
     ("matches", "user_a_id"),
     ("message_reads", "message_id"),
     ("messages", "match_id"),

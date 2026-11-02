@@ -52,6 +52,8 @@ async def _account(client: AsyncClient, tag: str, *, name: str = "Вера") -> 
 
 
 async def _passed(client: AsyncClient, token: str) -> dict:
+    """The page as the door answers it, envelope included: since stage 126 the pass list carries
+    `next_cursor` even when it is empty, and None there is the door saying nothing is behind it."""
     resp = await client.get(PASSED, headers=auth_headers(token))
     assert resp.status_code == 200, resp.text
     return resp.json()
@@ -221,7 +223,9 @@ async def test_an_account_that_passed_nobody_gets_an_empty_page(
 ) -> None:
     """Empty answers with the same shape as a full one, and promises no second page."""
     viewer = await _account(client, "empty")
-    assert await _passed(client, viewer["token"]) == {"passed": [], "has_more": False}
+    assert await _passed(client, viewer["token"]) == {
+        "passed": [], "has_more": False, "next_cursor": None
+    }
 
 
 async def test_a_pass_arrives_with_the_person_and_the_moment_it_was_made(
@@ -368,7 +372,9 @@ async def test_a_person_the_reader_liked_stops_being_named_as_passed(
     )
     assert liked.status_code == 200, liked.text
 
-    assert await _passed(client, viewer["token"]) == {"passed": [], "has_more": False}
+    assert await _passed(client, viewer["token"]) == {
+        "passed": [], "has_more": False, "next_cursor": None
+    }
 
 
 async def test_a_pass_about_the_reader_belongs_to_the_other_persons_list(
@@ -384,7 +390,9 @@ async def test_a_pass_about_the_reader_belongs_to_the_other_persons_list(
 
     await _pass(client, other, reader["user_id"])
 
-    assert await _passed(client, reader["token"]) == {"passed": [], "has_more": False}
+    assert await _passed(client, reader["token"]) == {
+        "passed": [], "has_more": False, "next_cursor": None
+    }
     assert [c["user_id"] for c in (await _passed(client, other["token"]))["passed"]] == [
         reader["user_id"]
     ]
@@ -627,7 +635,9 @@ async def test_a_person_who_deleted_their_account_leaves_the_list(
     )
     await session.commit()
 
-    assert await _passed(client, viewer["token"]) == {"passed": [], "has_more": False}
+    assert await _passed(client, viewer["token"]) == {
+        "passed": [], "has_more": False, "next_cursor": None
+    }
 
 
 async def test_an_anonymous_reader_is_turned_away_from_both_doors(

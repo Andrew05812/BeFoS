@@ -3,6 +3,8 @@ package app.befos.presentation.discovery
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.befos.core.network.ApiResult
+import app.befos.core.network.BROKEN_PAGE_LINK_CODE
+import app.befos.presentation.common.PageWalk
 import app.befos.domain.model.OutgoingLike
 import app.befos.domain.repository.DiscoveryRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -35,6 +37,8 @@ data class MyLikesUiState(
      * when only its older half did not come.
      */
     val moreError: String? = null,
+    /** The machine code behind [moreError]: a refused link is dropped, a failed page is asked again. */
+    val moreErrorCode: String = "",
     val busy: Boolean = false,
     /** The row whose withdrawal is on the wire, so that one card can say so while the others stand. */
     val withdrawing: String? = null,
@@ -74,6 +78,16 @@ data class MyLikesUiState(
     val canLoadMore: Boolean
         get() = nextCursor != null &&
             !loadingMore && !loading && !busy && error == null && moreError == null
+
+    /** The same five facts every paged list hands the shared tail resolver. */
+    fun walk(): PageWalk = PageWalk(
+        loadingMore = loadingMore,
+        moreError = moreError,
+        moreErrorCode = moreErrorCode,
+        truncated = truncated,
+        nextCursor = nextCursor,
+        pages = pages,
+    )
 }
 
 // The row staying put is the honest part of a failed withdrawal: a transport line alone would describe
@@ -150,6 +164,7 @@ class MyLikesViewModel(
                         pages = 1,
                         loadingMore = false,
                         moreError = null,
+                        moreErrorCode = "",
                         error = null,
                         writeError = null,
                         withdrawFailed = null,
@@ -175,6 +190,7 @@ class MyLikesViewModel(
                         error = result.message,
                         nextCursor = null,
                         moreError = null,
+                        moreErrorCode = "",
                     )
                 }
             }
@@ -200,7 +216,7 @@ class MyLikesViewModel(
         // Не `canLoadMore`: та же строка закрывает автоматический обход после отказа, а здесь стоит
         // человек с «Повторить» в руках — для него отказ не причина молчать.
         if (state.busy || state.loadingMore || state.loading || state.error != null) return
-        _uiState.update { it.copy(loadingMore = true, moreError = null) }
+        _uiState.update { it.copy(loadingMore = true, moreError = null, moreErrorCode = "") }
         viewModelScope.launch {
             when (val result = discoveryRepository.liked(cursor)) {
                 is ApiResult.Success -> _uiState.update { current ->
@@ -217,10 +233,11 @@ class MyLikesViewModel(
                         pages = current.pages + 1,
                         loadingMore = false,
                         moreError = null,
+                        moreErrorCode = "",
                     )
                 }
                 is ApiResult.Error -> _uiState.update {
-                    it.copy(loadingMore = false, moreError = result.message)
+                    it.copy(loadingMore = false, moreError = result.message, moreErrorCode = result.errorCode)
                 }
             }
         }
@@ -256,6 +273,7 @@ class MyLikesViewModel(
                             truncated = result.data.truncated,
                             nextCursor = result.data.nextCursor,
                             moreError = null,
+                            moreErrorCode = "",
                             error = null,
                             withdrawn = name,
                         )
@@ -288,6 +306,18 @@ class MyLikesViewModel(
                 }
             }
         }
+    }
+
+    /**
+     * The verb on the notice under a failed page.
+     *
+     * A page that only failed to arrive is asked for again with the same key. A key the server refuses
+     * is a different case — the frontier it names has been walked past, aged out, or sealed by a key
+     * this deployment no longer holds — and the only honest ask left is the newest page, so the dead
+     * link is dropped first and the walk starts again from the top.
+     */
+    fun retryMore() {
+        if (_uiState.value.moreErrorCode == BROKEN_PAGE_LINK_CODE) load() else loadMore()
     }
 
     /** The notice has been read; the row it named is already gone from the list. */
