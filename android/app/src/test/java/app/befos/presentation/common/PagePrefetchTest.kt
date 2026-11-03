@@ -67,12 +67,16 @@ class PagePrefetchTest {
     }
 
     @Test
-    fun `the two shapes agree about the same physical position`() {
-        // 50 rows of 300 px in a 1000 px viewport: the foot is at maxScroll 14 000, and the last visible row
-        // of that geometry is 46. Both rules must answer the same way at that moment — that agreement is what
-        // a reader crossing from one list to another actually feels.
+    fun `the two shapes meet at the same physical foot, and the row left of it is not the foot yet`() {
+        // 50 rows of 300 px in a 1000 px viewport: the foot is maxScroll 14 000. A prefetch band of 900 px
+        // is the same piece of list as "the third row from the end is on screen": row 47 becomes the last
+        // visible row exactly when the scroll stands 900 px above the foot. Row 46 as the last visible one
+        // still stands 1200 px away — a page is not asked for there by either rule, and this is the line
+        // where the two shapes were checked against each other rather than against a guess.
         val maxScroll = 50 * 300 - 1000
         assertTrue(shouldAskForMoreByPixels(true, maxScroll, scroll = maxScroll - 900, prefetchPx = 900))
-        assertTrue(shouldAskForMoreByIndex(true, totalItems = 50, lastVisibleIndex = 46, prefetchItems = 3))
+        assertTrue(shouldAskForMoreByIndex(true, totalItems = 50, lastVisibleIndex = 47, prefetchItems = 3))
+        assertFalse(shouldAskForMoreByPixels(true, maxScroll, scroll = maxScroll - 1200, prefetchPx = 900))
+        assertFalse(shouldAskForMoreByIndex(true, totalItems = 50, lastVisibleIndex = 46, prefetchItems = 3))
     }
 }

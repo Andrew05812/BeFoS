@@ -39,6 +39,9 @@ import app.befos.core.designsystem.tabularDigits
 import app.befos.core.di.beFosViewModel
 import app.befos.domain.model.IncomingLike
 import app.befos.presentation.common.PageTailRow
+import app.befos.presentation.common.PAGE_PREFETCH_PX_DP
+import app.befos.presentation.common.namedVerbOnRow
+import app.befos.presentation.common.shouldAskForMoreByPixels
 import app.befos.presentation.common.PageTailWords
 import app.befos.presentation.common.likedMeEntryWord
 import app.befos.presentation.common.pageTail
@@ -69,11 +72,15 @@ fun LikedMeScreen(onBack: () -> Unit, onOpenProfile: (String) -> Unit, onOpenMat
     // stops, and it cannot fire twice: `canLoadMore` is false while a page is on the wire. A list that
     // does not even overflow the screen has already reached its end, so it asks too — and stops asking
     // as soon as the rows are taller than the viewport.
-    val prefetchPx = with(LocalDensity.current) { 160.dp.toPx() }.toInt()
+    val prefetchPx = with(LocalDensity.current) { PAGE_PREFETCH_PX_DP.dp.toPx() }.toInt()
     val shouldAskForMore by remember(prefetchPx) {
         derivedStateOf {
-            state.canLoadMore &&
-                (scrollState.maxValue - scrollState.value <= prefetchPx || scrollState.maxValue == 0)
+            shouldAskForMoreByPixels(
+                canLoadMore = state.canLoadMore,
+                maxScroll = scrollState.maxValue,
+                scroll = scrollState.value,
+                prefetchPx = prefetchPx,
+            )
         }
     }
     LaunchedEffect(shouldAskForMore) {
@@ -178,7 +185,7 @@ fun LikedMeScreen(onBack: () -> Unit, onOpenProfile: (String) -> Unit, onOpenMat
                                 enabled = !state.busy,
                                 // The name sits in the sibling column, so the tap alone would read as
                                 // «Нравится» with nobody it belongs to.
-                                modifier = Modifier.semantics { contentDescription = "Лайк в ответ для ${like.name}" },
+                                modifier = Modifier.semantics { contentDescription = namedVerbOnRow("Лайк в ответ", like.name) },
                             ) {
                                 Text("Нравится")
                             }

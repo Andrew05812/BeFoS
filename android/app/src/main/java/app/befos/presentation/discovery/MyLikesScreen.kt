@@ -44,6 +44,9 @@ import app.befos.core.di.beFosViewModel
 import app.befos.domain.model.OutgoingLike
 import app.befos.presentation.common.PageTail
 import app.befos.presentation.common.PageTailRow
+import app.befos.presentation.common.PAGE_PREFETCH_ITEMS
+import app.befos.presentation.common.namedVerbOnRow
+import app.befos.presentation.common.shouldAskForMoreByIndex
 import app.befos.presentation.common.PageTailWords
 import app.befos.presentation.common.myLikesEntryWord
 import app.befos.presentation.common.pageTail
@@ -81,7 +84,12 @@ fun MyLikesScreen(onBack: () -> Unit, onOpenProfile: (String) -> Unit) {
         derivedStateOf {
             val info = listState.layoutInfo
             val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: -1
-            state.canLoadMore && info.totalItemsCount > 0 && lastVisible >= info.totalItemsCount - 3
+            shouldAskForMoreByIndex(
+                canLoadMore = state.canLoadMore,
+                totalItems = info.totalItemsCount,
+                lastVisibleIndex = lastVisible,
+                prefetchItems = PAGE_PREFETCH_ITEMS,
+            )
         }
     }
     LaunchedEffect(shouldAskForMore) {
@@ -282,9 +290,9 @@ private fun MyLikeRow(
                     // a button that stays lit and answers nothing looks like a tap the app refused.
                     modifier = Modifier.semantics {
                         contentDescription = if (inFlight) {
-                            "Отзываю лайк для ${like.name}"
+                            namedVerbOnRow("Отзываю лайк", like.name)
                         } else {
-                            "Забрать лайк для ${like.name}"
+                            namedVerbOnRow("Забрать лайк", like.name)
                         }
                     },
                 ) {
