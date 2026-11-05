@@ -1490,7 +1490,8 @@ Signer #1 certificate SHA-256 digest: 8e979e69b90e36386bfa64e547e13d0186e2419011
    `walk t1900` всё равно встал на холодном старте:
    `am start` дал `WaitTime: 41015 ms`, фокус забрало окно `Application Not Responding: app.befos`,
    и за десять минут перечитываний экран не очистился. Чистая перезагрузка гостя (19:21Z) помогла
-   памяти — `MemFree` 1,84 ГБ против 0,12 ГБ — но не готовности: `sys.boot_completed=1` наступило
+   памяти — `MemFree` гостя 1,75 ГБ после старта против 0,12…0,15 перед ним — но не готовности:
+   `sys.boot_completed=1` наступило
    только через 16 минут, `system_server` за это сменил pid дважды (4066 → 5618), среднее загрузки
    гостя держалось на 12…14 при четырёх vCPU, а на 20-й минуте `pm clear` и `am start` ответили
    `cmd: Can't find service: package` и `Can't find service: activity` — `walk t1941` умер до
