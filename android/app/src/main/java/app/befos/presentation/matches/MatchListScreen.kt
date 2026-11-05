@@ -31,6 +31,8 @@ import app.befos.core.designsystem.Spacing
 import app.befos.core.designsystem.tabularDigits
 import app.befos.core.di.beFosViewModel
 import app.befos.presentation.common.PageTailRow
+import app.befos.presentation.common.PAGE_PREFETCH_ITEMS
+import app.befos.presentation.common.shouldAskForMoreByIndex
 import app.befos.presentation.common.PageTailWords
 import app.befos.presentation.common.pageTail
 import app.befos.presentation.common.shownWord
@@ -54,7 +56,12 @@ fun MatchListScreen(
         derivedStateOf {
             val info = listState.layoutInfo
             val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: -1
-            state.canLoadMore && info.totalItemsCount > 0 && lastVisible >= info.totalItemsCount - 3
+            shouldAskForMoreByIndex(
+                canLoadMore = state.canLoadMore,
+                totalItems = info.totalItemsCount,
+                lastVisibleIndex = lastVisible,
+                prefetchItems = PAGE_PREFETCH_ITEMS,
+            )
         }
     }
     LaunchedEffect(shouldAskForMore) {

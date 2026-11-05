@@ -37,6 +37,9 @@ import app.befos.core.designsystem.Spacing
 import app.befos.core.di.beFosViewModel
 import app.befos.domain.model.PassedUser
 import app.befos.presentation.common.PageTailRow
+import app.befos.presentation.common.PAGE_PREFETCH_PX_DP
+import app.befos.presentation.common.namedVerbOnRow
+import app.befos.presentation.common.shouldAskForMoreByPixels
 import app.befos.presentation.common.PageTailWords
 import app.befos.presentation.common.pageTail
 import app.befos.presentation.common.passedEntryWord
@@ -63,11 +66,15 @@ fun PassedScreen(onBack: () -> Unit, onOpenProfile: (String) -> Unit) {
     // Reaching the end of what the screen holds is the reader asking for the rest; the gate closes
     // while a page is on the wire, so the ask cannot fire twice. A list short enough not to overflow
     // has already reached its end, so it asks too, and stops once the rows are taller than the screen.
-    val prefetchPx = with(LocalDensity.current) { 160.dp.toPx() }.toInt()
+    val prefetchPx = with(LocalDensity.current) { PAGE_PREFETCH_PX_DP.dp.toPx() }.toInt()
     val shouldAskForMore by remember(prefetchPx) {
         derivedStateOf {
-            state.canLoadMore &&
-                (scrollState.maxValue - scrollState.value <= prefetchPx || scrollState.maxValue == 0)
+            shouldAskForMoreByPixels(
+                canLoadMore = state.canLoadMore,
+                maxScroll = scrollState.maxValue,
+                scroll = scrollState.value,
+                prefetchPx = prefetchPx,
+            )
         }
     }
     LaunchedEffect(shouldAskForMore) {
@@ -163,7 +170,7 @@ fun PassedScreen(onBack: () -> Unit, onOpenProfile: (String) -> Unit) {
                                 enabled = !state.busy,
                                 // The name sits in the sibling column, so the tap alone would read as
                                 // «Вернуть в подбор» with nobody it belongs to.
-                                modifier = Modifier.semantics { contentDescription = "Вернуть в подбор для ${user.name}" },
+                                modifier = Modifier.semantics { contentDescription = namedVerbOnRow("Вернуть в подбор", user.name) },
                             ) {
                                 Text("Вернуть в подбор")
                             }
