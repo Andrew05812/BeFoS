@@ -59,6 +59,28 @@ interface AuthRepository {
     suspend fun logout()
 
     /**
+     * Ask the server for a code that returns a lost word.
+     *
+     * A success here means the request was accepted, not that a letter arrived: the server writes or
+     * hands the letter off and answers the same way for an address that holds no account, and no
+     * screen may turn that into a promise about somebody's mailbox. The value carried back is how
+     * many seconds the server said the code lives — read from the answer rather than typed into a
+     * string on the screen, because a countdown the client invented is a promise about a row nobody
+     * here has read.
+     */
+    suspend fun requestPasswordReset(email: String): ApiResult<Int>
+
+    /**
+     * Spend the code from the letter on a new word. A success ends every session the account holds,
+     * this device included, so the stored pair goes with them.
+     */
+    suspend fun confirmPasswordReset(
+        code: String,
+        newPassword: String,
+        passwordConfirm: String,
+    ): ApiResult<Unit>
+
+    /**
      * Write a new word over the account's old one. A success means the device's own session is gone
      * with every other one the account holds, so the caller must not stay signed in afterwards.
      */

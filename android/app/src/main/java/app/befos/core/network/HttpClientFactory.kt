@@ -63,7 +63,12 @@ val befosJson = Json {
 
 /** Routes that are answered without a session, so no bearer token belongs on them. */
 internal fun isPublicAuthRoute(url: String): Boolean =
-    url.contains("/auth/login") || url.contains("/auth/register") || url.contains("/auth/refresh")
+    url.contains("/auth/login") || url.contains("/auth/register") || url.contains("/auth/refresh") ||
+        // The two recovery doors. A caller standing in front of them has by definition no session:
+        // stamping a stored bearer onto them would let a stale token decide the answer, and Ktor's
+        // refresh-on-401 would spend a rotation trying to unlock a door that is already open.
+        url.contains("/auth/password-reset/request") ||
+        url.contains("/auth/password-reset/confirm")
 
 /**
  * What the device says about itself when it signs in.

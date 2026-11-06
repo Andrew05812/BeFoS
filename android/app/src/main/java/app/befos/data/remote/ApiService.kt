@@ -9,6 +9,9 @@ import app.befos.data.model.AnswersRequest
 import app.befos.data.model.AuthResponseDto
 import app.befos.data.model.BlockedUsersDto
 import app.befos.data.model.ChangePasswordRequest
+import app.befos.data.model.PasswordResetAcceptedDto
+import app.befos.data.model.PasswordResetConfirmRequest
+import app.befos.data.model.PasswordResetRequest
 import app.befos.data.model.CompatibilityDto
 import app.befos.data.model.UniverseDto
 import app.befos.data.model.DiscoveryPageDto
@@ -77,6 +80,35 @@ class ApiService(private val client: HttpClient) {
             url(endpoint("auth/register"))
             setBody(RegisterRequest(email, password, password))
         }
+
+    /**
+     * Ask for a code that returns a lost word.
+     *
+     * The server answers the same way whether or not the address holds an account, so this call is
+     * not a way to find out who signs up here; the body carries how long a code lives and nothing
+     * about the person it was sent to.
+     */
+    suspend fun requestPasswordReset(email: String): ApiResult<PasswordResetAcceptedDto> =
+        client.apiCall {
+            method = HttpMethod.Post
+            url(endpoint("auth/password-reset/request"))
+            setBody(PasswordResetRequest(email))
+        }
+
+    /**
+     * Trade the code read off a letter for a word said twice. Empty on purpose: the sessions this
+     * write ends include any the device still holds, so a token pair handed back would be the server
+     * un-revoking its own write.
+     */
+    suspend fun confirmPasswordReset(
+        code: String,
+        newPassword: String,
+        passwordConfirm: String,
+    ): ApiResult<Unit> = client.apiCallUnit {
+        method = HttpMethod.Post
+        url(endpoint("auth/password-reset/confirm"))
+        setBody(PasswordResetConfirmRequest(code, newPassword, passwordConfirm))
+    }
 
     suspend fun login(email: String, password: String): ApiResult<AuthResponseDto> =
         client.apiCall {

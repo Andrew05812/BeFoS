@@ -5,6 +5,7 @@ import app.befos.core.network.StoredAuth
 import app.befos.core.network.TokenStore
 import app.befos.core.network.map
 import app.befos.data.mapper.toDomain
+import app.befos.data.model.PasswordResetAcceptedDto
 import app.befos.data.model.TokenPairDto
 import app.befos.data.remote.ApiService
 import app.befos.domain.model.SessionsPage
@@ -48,6 +49,24 @@ class AuthRepositoryImpl(
         val refresh = tokenStore.current()?.refreshToken
         if (refresh != null) runCatching { api.logout(refresh) }
         tokenStore.clear()
+    }
+
+    override suspend fun requestPasswordReset(email: String): ApiResult<Int> =
+        api.requestPasswordReset(email).map { it.expiresInSeconds }
+
+    /**
+     * The server ends every session the account holds when it accepts a code, this device's included,
+     * so the stored pair goes with them — the same reason [changePassword] clears it. A screen that
+     * kept the tokens would keep reporting a session the recovery already revoked.
+     */
+    override suspend fun confirmPasswordReset(
+        code: String,
+        newPassword: String,
+        passwordConfirm: String,
+    ): ApiResult<Unit> {
+        val result = api.confirmPasswordReset(code, newPassword, passwordConfirm)
+        if (result is ApiResult.Success) tokenStore.clear()
+        return result
     }
 
     /**

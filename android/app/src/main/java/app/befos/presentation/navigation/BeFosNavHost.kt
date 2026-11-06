@@ -11,6 +11,8 @@ import androidx.navigation.compose.composable
 import app.befos.core.di.appContainer
 import app.befos.core.di.beFosViewModel
 import app.befos.presentation.auth.AuthScreen
+import app.befos.presentation.auth.PasswordResetCodeScreen
+import app.befos.presentation.auth.PasswordResetRequestScreen
 import app.befos.presentation.chat.ChatScreen
 import app.befos.presentation.compatibility.CompatibilityScreen
 import app.befos.presentation.discovery.LikedMeScreen
@@ -83,7 +85,7 @@ fun BeFosNavHost(navController: NavHostController) {
 
         composable(Routes.AUTH) {
             AuthScreen(
-                onAuthed = { rootVm.resolve() },
+                onAuthed = { rootVm.resolve() }, onForgotPassword = { navController.navigate(Routes.PASSWORD_RESET) { launchSingleTop = true } },
             )
         }
 
@@ -385,6 +387,34 @@ fun BeFosNavHost(navController: NavHostController) {
             PlanHistoryScreen(
                 planId = entry.arguments?.getString(Routes.PLAN_ARG).orEmpty(),
                 onBack = { navController.popBackStack() },
+            )
+        }
+
+        // Appended after the pair-facing screens rather than tucked under AUTH, and the reason is
+        // measurable: docs/USER_FLOWS.md «Карта экранов» cites the line each composable block opens
+        // on, and an insertion above AUTH would silently stale nineteen of those rows.
+        composable(Routes.PASSWORD_RESET) {
+            PasswordResetRequestScreen(
+                onBack = { navController.popBackStack() },
+                onLetterSent = {
+                    navController.navigate(Routes.PASSWORD_RESET_CODE) { launchSingleTop = true }
+                },
+            )
+        }
+
+        composable(Routes.PASSWORD_RESET_CODE) {
+            PasswordResetCodeScreen(
+                onBack = { navController.popBackStack() },
+                // A recovered word ends every session the account held, this device included, so the
+                // only honest place to put a person afterwards is the login door — with the stack
+                // cleared, the same way sign-out does it, so «назад» cannot resurrect a session the
+                // server already revoked.
+                onDone = {
+                    navController.navigate(Routes.AUTH) {
+                        popUpTo(navController.graph.id) { inclusive = true }
+                        launchSingleTop = true
+                    }
+                },
             )
         }
     }

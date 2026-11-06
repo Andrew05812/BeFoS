@@ -41,7 +41,7 @@ import app.befos.core.designsystem.Spacing
 import app.befos.core.di.beFosViewModel
 
 @Composable
-fun AuthScreen(onAuthed: () -> Unit) {
+fun AuthScreen(onAuthed: () -> Unit, onForgotPassword: () -> Unit) {
     val vm: AuthViewModel = beFosViewModel { AuthViewModel(it.authRepository) }
     val state by vm.uiState.collectAsState()
 
@@ -151,6 +151,18 @@ fun AuthScreen(onAuthed: () -> Unit) {
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onPrimaryContainer,
                 )
+            }
+            // Only on the login branch, and only ever a question: this row is the bottom of the
+            // screen, and asking for a letter is the one thing a person outside their account can
+            // still do here. Registration does not need it — nobody has a word to lose yet.
+            if (!state.isRegister) {
+                TextButton(onClick = onForgotPassword) {
+                    Text(
+                        "Забыли пароль?",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
+                }
             }
         }
     }

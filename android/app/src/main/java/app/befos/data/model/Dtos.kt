@@ -51,6 +51,28 @@ data class ChangePasswordRequest(
     @SerialName("password_confirm") val passwordConfirm: String,
 )
 
+@Serializable
+data class PasswordResetRequest(
+    val email: String,
+)
+
+@Serializable
+data class PasswordResetConfirmRequest(
+    val code: String,
+    @SerialName("new_password") val newPassword: String,
+    @SerialName("password_confirm") val passwordConfirm: String,
+)
+
+/**
+ * The answer the recovery door gives. It is the same body whether or not the address holds an
+ * account, so the only thing a caller can learn from it is how long a code lives.
+ */
+@Serializable
+data class PasswordResetAcceptedDto(
+    val accepted: Boolean = false,
+    @SerialName("expires_in_seconds") val expiresInSeconds: Int = 0,
+)
+
 /**
  * One of the account's own live sessions, as the server names it.
  *
