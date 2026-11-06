@@ -53,6 +53,21 @@ services:
       DEMO_ENABLED: ${DEMO_ENABLED:-true}
       DEMO_EMAIL: ${DEMO_EMAIL:-demo@befos.app}
       DEMO_PASSWORD: ${DEMO_PASSWORD:-Demo12345}
+      # The letter channel. `outbox` is the development default and writes into the container's own
+      # filesystem, which is not a volume: a rebuild erases the letters with it, and that is the
+      # honest shape of a stand that does not deliver mail. A real peer — host, credentials, sender
+      # — is the owner's decision and arrives from the deployment's environment, never from this
+      # file (see .env.example, «Подключать почтовый сервис решает владелец»).
+      MAIL_TRANSPORT: ${MAIL_TRANSPORT:-outbox}
+      MAIL_OUTBOX_DIR: ${MAIL_OUTBOX_DIR:-/app/outbox}
+      MAIL_FROM: ${MAIL_FROM:-no-reply@befos.local}
+      MAIL_LINK_BASE: ${MAIL_LINK_BASE:-}
+      MAIL_SMTP_HOST: ${MAIL_SMTP_HOST:-}
+      MAIL_SMTP_PORT: ${MAIL_SMTP_PORT:-587}
+      MAIL_SMTP_USERNAME: ${MAIL_SMTP_USERNAME:-}
+      MAIL_SMTP_PASSWORD: ${MAIL_SMTP_PASSWORD:-}
+      MAIL_SMTP_STARTTLS: ${MAIL_SMTP_STARTTLS:-true}
+      RESET_CODE_MINUTES: ${RESET_CODE_MINUTES:-30}
       UPLOAD_DIR: /app/uploads
       # Whose window the limiter counts: the address of the connection, or the address a proxy
       # wrote down. --no-proxy-headers below removes uvicorn's address rewrite, so this switch

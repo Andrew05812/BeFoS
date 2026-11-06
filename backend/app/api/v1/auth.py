@@ -14,6 +14,9 @@ from app.schemas.schemas import (
     AuthResponse,
     ChangePasswordRequest,
     LoginRequest,
+    PasswordResetAccepted,
+    PasswordResetConfirm,
+    PasswordResetRequest,
     RefreshRequest,
     RegisterRequest,
     SessionCard,
@@ -22,6 +25,7 @@ from app.schemas.schemas import (
     UserBrief,
 )
 from app.services.auth_service import AuthService
+from app.services.recovery_service import RecoveryService
 
 router = APIRouter(prefix="/auth", tags=["auth"], dependencies=[Depends(auth_rate_limit_dependency)])
 
@@ -137,4 +141,35 @@ async def revoke_session(
     """
     service = AuthService(session)
     await service.end_session(current_user, session_id)
+    return None
+
+
+@router.post("/password-reset/request", status_code=202, response_model=PasswordResetAccepted)
+async def request_password_reset(
+    payload: PasswordResetRequest, session: AsyncSession = Depends(get_session)
+):
+    """Open the door that does not need the word: the word is exactly what the caller has lost.
+
+    Answers the same 202 with the same body whether or not the address holds an account, for the
+    reason stage 52 gave for sign-in (`auth_service.py:69-84`): a recovery door that distinguishes
+    the two is a subscription list for whoever asks. Nothing in this body names a person.
+    """
+    service = RecoveryService(session)
+    window = await service.request_reset(payload.email)
+    return PasswordResetAccepted(accepted=True, expires_in_seconds=window)
+
+
+@router.post("/password-reset/confirm", status_code=204)
+async def confirm_password_reset(
+    payload: PasswordResetConfirm, session: AsyncSession = Depends(get_session)
+):
+    """Trade a code read off a letter for a word the caller chooses, and end every older session.
+
+    Empty on purpose, like `change-password`: the sessions this write ends include any the caller
+    might still be standing on, and a token pair handed back here would be the server un-revoking
+    its own write. The three refusals — no such code, already used, too late — are one answer, so
+    the door cannot be probed to learn which of them happened.
+    """
+    service = RecoveryService(session)
+    await service.complete_reset(payload.code, payload.new_password, payload.password_confirm)
     return None

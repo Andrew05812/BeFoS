@@ -77,6 +77,7 @@ from app.models import (  # noqa: E402
     Profile,
     Recommendation,
     RefreshToken,
+    AuthChallenge,
     Report,
     ReportReview,
     SharedPlan,
@@ -108,6 +109,7 @@ _DOMAIN_MODELS = (
     Photo,
     Profile,
     RefreshToken,
+    AuthChallenge,
     User,
 )
 

@@ -57,6 +57,35 @@ class ChangePasswordRequest(BaseModel):
     password_confirm: str = Field(min_length=8, max_length=128)
 
 
+class PasswordResetRequest(BaseModel):
+    email: EmailStr
+
+
+class PasswordResetConfirm(BaseModel):
+    """The code as it was read, plus the new word said twice.
+
+    `code` is not constrained to twelve characters because the person typing it is reading it from a
+    letter that prints it in groups, from a keyboard that adds its own separators, sometimes on
+    another device: the shape is normalised before it is compared (`core/security.py`), and a rule
+    here would refuse a correct code for being punctuated.
+    """
+
+    code: str = Field(min_length=1, max_length=64)
+    new_password: str = Field(min_length=8, max_length=128)
+    password_confirm: str = Field(min_length=8, max_length=128)
+
+
+class PasswordResetAccepted(BaseModel):
+    """The one answer a recovery request gives, whether or not the address holds an account.
+
+    Deliberately carries nothing about the address it was sent to: this body is the only place a
+    stranger can learn anything from this door, so it says a product constant and stops.
+    """
+
+    accepted: bool = True
+    expires_in_seconds: int
+
+
 class TokenPair(BaseModel):
     access_token: str
     refresh_token: str

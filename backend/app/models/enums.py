@@ -45,6 +45,17 @@ class ReportStatus(StrEnum):
     DISMISSED = "dismissed"
 
 
+class ChallengePurpose(StrEnum):
+    """What a one-time code is proof of. The value sits in the redemption predicate, not only in a label.
+
+    A code minted for one purpose must not be redeemable as another, and the cheapest way to make
+    that true is to carry the purpose in the same ``WHERE`` clause that decides whether the code is
+    alive at all. Adding a purpose later is a new value here and no migration.
+    """
+
+    PASSWORD_RESET = "password_reset"
+
+
 class CompatibilityCategory(StrEnum):
     VALUES = "values"
     PERSONALITY = "personality"

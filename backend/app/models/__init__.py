@@ -8,6 +8,7 @@ work correctly.
 from app.core.database import Base
 from app.models.base import TimestampMixin, utcnow
 from app.models.enums import (
+    ChallengePurpose,
     CompatibilityCategory,
     DatingGoal,
     Gender,
@@ -27,7 +28,7 @@ from app.models.chat import Message, MessageRead
 from app.models.discovery import DiscoveryQueue
 from app.models.activity import Activity, ActivityPreference, Recommendation
 from app.models.plan import SharedPlan, SharedPlanMember
-from app.models.token import RefreshToken
+from app.models.token import AuthChallenge, RefreshToken
 
 __all__ = [
     "Base",
@@ -37,6 +38,7 @@ __all__ = [
     "DatingGoal",
     "InterestCategory",
     "ReportStatus",
+    "ChallengePurpose",
     "CompatibilityCategory",
     "User",
     "Profile",
@@ -64,4 +66,5 @@ __all__ = [
     "SharedPlan",
     "SharedPlanMember",
     "RefreshToken",
+    "AuthChallenge",
 ]
