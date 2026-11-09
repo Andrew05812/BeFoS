@@ -40,14 +40,17 @@ from app.models import ChallengePurpose, User
 from app.repositories.challenge_repo import ChallengeRepository
 from app.repositories.token_repo import TokenRepository
 from app.repositories.user_repo import UserRepository
-from app.services.mail import current_transport, password_reset_letter
+from app.services.mail import CODE_REFUSED, current_transport, password_reset_letter
 
 logger = get_logger(__name__)
 
 # One sentence for every refusal this door can give. Naming the reason — expired, used, unknown —
 # would tell a caller how far a guess got, which is the same argument `page_cursor.py:25-28` makes
 # about a broken page link and `auth_service.py:69-84` makes about sign-in timing.
-REFUSED = "The code did not work. Ask for a new letter."
+# The sentence itself lives in `services/mail.py`, beside the letters: the confirmation door refuses
+# in the same words for the same reason, and two one-time-code doors with one rule should not drift
+# into two sentences a client translates differently.
+REFUSED = CODE_REFUSED
 
 
 class RecoveryService:

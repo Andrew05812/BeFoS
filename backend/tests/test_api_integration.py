@@ -9,6 +9,8 @@ from __future__ import annotations
 import pytest
 from httpx import AsyncClient
 
+from app.core.consent import CONSENT_VERSION
+
 from .conftest import (
     answer_all_questions,
     auth_headers,
@@ -70,6 +72,7 @@ async def test_register_duplicate_email_conflicts(client: AsyncClient):
             "email": "dup@befos.app",
             "password": "Test12345",
             "password_confirm": "Test12345",
+            "consent_version": CONSENT_VERSION,
         },
     )
     assert resp.status_code == 409

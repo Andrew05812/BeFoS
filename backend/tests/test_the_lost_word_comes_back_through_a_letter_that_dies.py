@@ -65,8 +65,22 @@ def _outbox(client: AsyncClient, directory: Path) -> None:
     settings.mail_outbox_dir = str(directory)
 
 
+_RESET_SUBJECT = "Код восстановления BeFoS"
+
+
 def _letters(directory: Path) -> list[Path]:
-    return sorted(directory.glob("*.eml"))
+    """The recovery letters in the directory, oldest first.
+
+    Since stage 131 the same outbox also carries the confirmation letter registration writes, and a
+    helper that returned every file would count a registration as a recovery request — the first
+    letter a person ever gets in this product is not this one. The subject is the only part of the
+    envelope the two doors differ in.
+    """
+    return sorted(
+        letter
+        for letter in directory.glob("*.eml")
+        if _RESET_SUBJECT in letter.read_text(encoding="utf-8")
+    )
 
 
 def _codes_in(letter: Path) -> list[str]:
@@ -339,7 +353,8 @@ async def test_the_row_holds_a_hash_of_the_code_and_never_the_code(
         await session.execute(
             text(
                 "select token_hash, purpose, expires_at, consumed_at from auth_challenges "
-                "where user_id = (select id from users where email = :email)"
+                "where user_id = (select id from users where email = :email) "
+                "and purpose = 'password_reset'"
             ),
             {"email": email},
         )
@@ -366,7 +381,10 @@ async def test_a_reset_dies_with_the_account_it_belongs_to(
     await client.post(_REQUEST, json={"email": email})
     before = (
         await session.execute(
-            text("select count(*) from auth_challenges where user_id = :uid"),
+            text(
+                "select count(*) from auth_challenges "
+                "where user_id = :uid and purpose = 'password_reset'"
+            ),
             {"uid": account["user_id"]},
         )
     ).scalar_one()
@@ -509,8 +527,11 @@ async def test_the_code_lifetime_is_a_setting_the_row_actually_carries(
 
     stored = (
         await session.execute(
-            text("select expires_at from auth_challenges where user_id = ("
-                 "select id from users where email = :email)"),
+            text(
+                "select expires_at from auth_challenges "
+                "where purpose = 'password_reset' and user_id = ("
+                "select id from users where email = :email)"
+            ),
             {"email": email},
         )
     ).scalar_one()

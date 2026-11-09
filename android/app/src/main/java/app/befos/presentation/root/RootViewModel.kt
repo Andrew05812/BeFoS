@@ -11,7 +11,16 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
-enum class RootDestination { LOADING, AUTH, ONBOARDING, MAIN }
+enum class RootDestination {
+    LOADING,
+    AUTH,
+    /** The text on file is no longer the one the product publishes; read and accept the current one. */
+    CONSENT,
+    /** The account exists but the letter sent to its address was never answered. */
+    EMAIL_CONFIRMATION,
+    ONBOARDING,
+    MAIN,
+}
 
 class RootViewModel(
     private val authRepository: AuthRepository,
@@ -42,11 +51,23 @@ class RootViewModel(
         return when (val result = profileRepository.me()) {
             is ApiResult.Success -> {
                 val profile = result.data
-                // The server's own stamp, not a guess from the fields: registration leaves a shell
-                // already holding a name and a goal, and a person who named no interests is a
-                // person who finished onboarding. Both read as «unfinished» to any field rule,
-                // and the second one loses their pair over it.
-                if (profile.onboardingCompleted) RootDestination.MAIN else RootDestination.ONBOARDING
+                // Two account-level gates precede the profile one, in the order a person can act on
+                // them. Consent first: an account that never named the text it accepted has no basis
+                // on record, and re-accepting is one screen with no mailbox involved. The address
+                // next: an unconfirmed account is invisible to everybody else's deck on the server
+                // (`social_repo._candidate_conditions`), so sending it to onboarding would ask it to
+                // fill a profile nobody can be shown and then announce «Анкеты закончились» as if
+                // that were the product rather than the letter.
+                when {
+                    !profile.consentUpToDate -> RootDestination.CONSENT
+                    !profile.emailVerified -> RootDestination.EMAIL_CONFIRMATION
+                    // The server's own stamp, not a guess from the fields: registration leaves a shell
+                    // already holding a name and a goal, and a person who named no interests is a
+                    // person who finished onboarding. Both read as «unfinished» to any field rule,
+                    // and the second one loses their pair over it.
+                    profile.onboardingCompleted -> RootDestination.MAIN
+                    else -> RootDestination.ONBOARDING
+                }
             }
             is ApiResult.Error -> {
                 // The session is over only when the client itself gave up on it: a refresh

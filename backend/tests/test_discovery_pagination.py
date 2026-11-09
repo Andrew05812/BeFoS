@@ -55,6 +55,7 @@ async def _seed_candidates(session: AsyncSession, count: int, *, tag: str) -> li
                 "password_hash": "not-a-real-hash",
                 "is_active": True,
                 "is_deleted": False,
+                "is_verified": True,
             }
             for i, uid in enumerate(ids)
         ],

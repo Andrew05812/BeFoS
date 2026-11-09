@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import smtplib
 import uuid
+from datetime import datetime, timezone
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.consent import CONSENT_VERSION, is_current
 from app.core.exceptions import ConflictError, NotFoundError, UnauthorizedError, ValidationError
 from app.core.logging import get_logger
 from app.core.security import (
@@ -19,6 +22,8 @@ from app.core.security import (
 from app.models import Profile, User
 from app.repositories.token_repo import TokenRepository
 from app.repositories.user_repo import UserRepository
+from app.services.mail import MailChannelUnavailable
+from app.services.verification_service import VerificationService
 
 logger = get_logger(__name__)
 
@@ -29,7 +34,20 @@ class AuthService:
         self.users = UserRepository(session)
         self.tokens = TokenRepository(session)
 
-    async def register(self, email: str, password: str, password_confirm: str) -> User:
+    async def register(
+        self,
+        email: str,
+        password: str,
+        password_confirm: str,
+        consent_version: str | None,
+    ) -> User:
+        # The text first, and before the word is hashed: an account may only be created by a client
+        # that was shown the document the product asks for today. A stale version is refused with a
+        # sentence that says «reload», not «edit» — the person did nothing wrong, the build did.
+        if not is_current(consent_version):
+            raise ValidationError(
+                "The consent text has changed. Reload it, read it, and accept it again."
+            )
         if password != password_confirm:
             raise ValidationError("Passwords do not match.")
         if await self.users.email_exists(email):
@@ -42,6 +60,8 @@ class AuthService:
                 email=email.lower(),
                 password_hash=await hash_password_async(password),
                 is_active=True,
+                consent_version=CONSENT_VERSION,
+                consent_accepted_at=datetime.now(timezone.utc),
             )
             await self.users.create(user)
         except IntegrityError:
@@ -63,7 +83,21 @@ class AuthService:
         )
         self.session.add(profile)
         await self.session.flush()
+        # The account is the person's the moment the row exists: a mail channel that is refusing
+        # letters must not refuse a registration. The letter is a consequence of the account — the
+        # confirmation screen has its resend door — so a failed hand-over is logged (without the
+        # address and without the code). `send_letter` removed its own challenge row before raising;
+        # a rollback here would expire this user and turn the next read of its id into greenlet
+        # arithmetic, which is a 500 on a registration that in fact succeeded.
+        await self.session.commit()
         logger.info("Registered new user id=%s", user.id)
+        try:
+            await VerificationService(self.session).send_letter(user)
+        except (MailChannelUnavailable, smtplib.SMTPException, OSError) as error:
+            logger.warning(
+                "The account was created but the confirmation letter was not handed over (%s)",
+                type(error).__name__,
+            )
         return user
 
     async def authenticate(self, email: str, password: str) -> User:

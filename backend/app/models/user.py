@@ -36,6 +36,15 @@ class User(TimestampMixin, Base):
     # it. It moves only when an operator changes the column, which is what makes the moderation
     # surface a role rather than a screen somebody could reach by typing into a form.
     is_moderator: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # The text this account accepted at registration, and the moment it did. Both nullable because
+    # every row made before stage 131 was made without a text to accept; null is read as «no consent
+    # on record» (`core/consent.py:is_current`), never as a yes. The version is a product string, not
+    # a hash of the text, so an operator reading a row can say which document it was without diffing
+    # the repository.
+    consent_version: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    consent_accepted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

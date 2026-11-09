@@ -5,6 +5,7 @@ import app.befos.core.network.StoredAuth
 import app.befos.domain.model.AccountExport
 import app.befos.domain.model.BlockedUser
 import app.befos.domain.model.Compatibility
+import app.befos.domain.model.ConsentDocument
 import app.befos.domain.model.DiscoveryPage
 import app.befos.domain.model.Interest
 import app.befos.domain.model.LikeOutcome
@@ -54,9 +55,33 @@ interface AuthRepository {
     val authState: Flow<StoredAuth?>
     suspend fun current(): StoredAuth?
     suspend fun lastEmail(): String?
-    suspend fun register(email: String, password: String): ApiResult<String>
+    /**
+     * Make the account. `consentVersion` is the version of the document the screen showed — the
+     * server records it on the row and refuses a build that names an older draft, so the text is
+     * read first (`consent()`), never assumed.
+     */
+    suspend fun register(email: String, password: String, consentVersion: String): ApiResult<String>
     suspend fun login(email: String, password: String): ApiResult<String>
     suspend fun logout()
+
+    /** The consent text the register screen must put in front of a person, and its version. */
+    suspend fun consent(): ApiResult<ConsentDocument>
+
+    /**
+     * Record that the signed-in account has read the current text. No address in the body: whose row
+     * is stamped comes from the session, and the server refuses a version that is no longer current.
+     */
+    suspend fun acceptConsent(consentVersion: String): ApiResult<Unit>
+
+    /** Spend the code from the confirmation letter. A success means the address is now confirmed. */
+    suspend fun confirmEmail(code: String): ApiResult<Unit>
+
+    /**
+     * Ask for another confirmation letter for the signed-in account. Silent on purpose: an address
+     * already confirmed, or one whose letter still works, gets the same empty success and no second
+     * letter, so the door cannot be used as a mail relay or a delivery oracle.
+     */
+    suspend fun resendEmailConfirmation(): ApiResult<Unit>
 
     /**
      * Ask the server for a code that returns a lost word.

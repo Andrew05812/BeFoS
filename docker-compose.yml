@@ -68,6 +68,9 @@ services:
       MAIL_SMTP_PASSWORD: ${MAIL_SMTP_PASSWORD:-}
       MAIL_SMTP_STARTTLS: ${MAIL_SMTP_STARTTLS:-true}
       RESET_CODE_MINUTES: ${RESET_CODE_MINUTES:-30}
+      # The window of the address-confirmation letter. Longer than the reset one: it waits for a
+      # person who registered and went back to their work, not for one sitting at the screen.
+      CONFIRM_CODE_MINUTES: ${CONFIRM_CODE_MINUTES:-60}
       UPLOAD_DIR: /app/uploads
       # Whose window the limiter counts: the address of the connection, or the address a proxy
       # wrote down. --no-proxy-headers below removes uvicorn's address rewrite, so this switch
@@ -88,6 +91,11 @@ services:
       start_period: 60s
     volumes:
       - befos_uploads:/app/uploads
+      # The development mailbox. A named volume rather than the container's own filesystem, so
+      # the letters survive a rebuild and the live journey can read one out of it
+      # (`docker compose cp backend:/app/outbox .`) the way a person reads it out of a mail client.
+      # It is still not delivery: production refuses `outbox` at startup (core/config.py).
+      - befos_outbox:/app/outbox
     # uvicorn closes an idle keep-alive socket after five seconds unless told otherwise, and
     # five seconds is shorter than a pause between two actions in the app. Measured on the
     # emulator over one socket: a second request answered after 1 s and after 4 s of idle and
@@ -122,3 +130,4 @@ services:
 volumes:
   befos_pgdata:
   befos_uploads:
+  befos_outbox:

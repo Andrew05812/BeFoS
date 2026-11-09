@@ -126,6 +126,16 @@ fun AuthScreen(onAuthed: () -> Unit, onForgotPassword: () -> Unit) {
                     onImeAction = vm::submit,
                     modifier = Modifier.fillMaxWidth(),
                 )
+                // Stage 131: an account is made by a person who has read what it is for and where
+                // the data goes. The text is the server's current document, and the version the
+                // box carries is what the register door records on the row.
+                ConsentPanel(
+                    document = state.consent,
+                    checked = state.consentChecked,
+                    onCheckedChange = vm::onConsentChecked,
+                    loading = state.consentLoading,
+                    error = state.consentError,
+                )
             }
             state.error?.let { InlineNotice(it) }
             AppButton(

@@ -19,6 +19,7 @@ from PIL import Image
 from starlette.requests import Request
 
 from app.core.config import settings
+from app.core.consent import CONSENT_VERSION
 from app.core.exceptions import RateLimitedError, ValidationError
 from app.core.logging import redact
 from app.core.rate_limit import _MAX_KEYS, SlidingWindowRateLimiter, _client_key
@@ -313,7 +314,12 @@ async def test_concurrent_onboarding_keeps_one_interest_set(client: AsyncClient)
 
 async def test_concurrent_duplicate_registration_is_a_conflict(client: AsyncClient) -> None:
     """§2: two taps of «Зарегистрироваться» with one email — one account, no 500."""
-    payload = {"email": "twin@befos.app", "password": "Test12345", "password_confirm": "Test12345"}
+    payload = {
+        "email": "twin@befos.app",
+        "password": "Test12345",
+        "password_confirm": "Test12345",
+        "consent_version": CONSENT_VERSION,
+    }
     responses = await asyncio.gather(
         *[client.post("/api/v1/auth/register", json=payload) for _ in range(4)]
     )

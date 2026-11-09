@@ -37,9 +37,43 @@ class ErrorResponse(BaseModel):
 
 # ---------- Auth ----------
 class RegisterRequest(BaseModel):
+    """The address and the word, plus the text the caller says they read.
+
+    `consent_version` is required and not defaulted: a body that does not name the text was written by
+    a client that never showed one, and accepting it would be the product recording a signature for a
+    document nobody was shown. The server compares it to `core/consent.py:CONSENT_VERSION` and refuses
+    a stale version with one sentence that tells the person to reload the text — not to edit a form.
+    """
+
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
     password_confirm: str = Field(min_length=8, max_length=128)
+    consent_version: str = Field(min_length=1, max_length=16)
+
+
+class ConsentOut(BaseModel):
+    """The document as it stands now, for the screen that has to put it in front of a person."""
+
+    version: str
+    effective_date: str
+    text: str
+
+
+class ConsentAccept(BaseModel):
+    """The version the caller is accepting; the server only records its own current one."""
+
+    consent_version: str = Field(min_length=1, max_length=16)
+
+
+class EmailConfirmationRequest(BaseModel):
+    """The code as it was read off the letter.
+
+    Not constrained to twelve characters, for the same reason `PasswordResetConfirm.code` is not: it
+    is normalised before it is compared, and a shape rule here would refuse a correct code somebody
+    pasted with the separators a mail client added.
+    """
+
+    code: str = Field(min_length=1, max_length=64)
 
 
 class LoginRequest(BaseModel):
@@ -102,6 +136,9 @@ class UserBrief(ORMModel):
     id: str
     email: EmailStr
     is_active: bool
+    # Registration answers with this so a client can say «a letter is on its way» from the server's
+    # own row rather than from the branch of the form it just submitted.
+    is_verified: bool = False
     created_at: datetime
 
 
@@ -171,6 +208,14 @@ class ProfileOut(BaseModel):
     # is the reader's own. It tells the client where to put a door, and opens nothing: the
     # moderation routes read the flag off the account row per request (`app/auth/deps.py:56`).
     is_moderator: bool = False
+    # The account's own address proof, not a fact about the profile. It gates the deck
+    # (`social_repo._candidate_conditions`), and the client reads it after sign-in to send an account
+    # whose letter was never answered to the confirmation screen before onboarding.
+    email_verified: bool = False
+    # Whether the text this account accepted is still the one the product asks for. False is the
+    # answer for every account made before stage 131 (no version on the row) and for an account that
+    # accepted an older draft, and the client shows the consent screen again in both cases.
+    consent_up_to_date: bool = True
 
 
 class ProfileUpdate(BaseModel):

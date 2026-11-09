@@ -5,7 +5,9 @@ PostgreSQL 16, SQLAlchemy 2.0 (async) + asyncpg. Миграции — Alembic (`
 `f7c2a9d4e6b1` даёт обходу своих касаний ключ `(from_user_id, created_at DESC, id DESC)`,
 `c8f2b5d7a140` кладёт такие же ключи входящему списку и списку пропусков и снимает префикс
 `ix_likes_to_user_id`, а `a7d4f0b2c318_the_door_that_returns_a_lost_word_needs_a_dea` поднимает
-`auth_challenges`: это head на 2026-11-06, и `alembic check` на нём пуст (счёт переснят ниже).
+`auth_challenges`, а `b1f4a9c2e7d3_an_account_names_the_text_and_the_day_it_accepted`
+дописывает к `users` версию принятого текста и момент согласия: это head на 2026-11-09, и
+`alembic check` на нём пуст (счёт переснят ниже).
 
 Все таблицы наследуют `TimestampMixin` (`created_at`, `updated_at`), кроме чисто справочных. Первичные ключи пользователей и связанных сущностей — `UUID`; справочники — `INTEGER` (autoincrement). Внешние ключи на `users.id` используют `ON DELETE CASCADE`.
 
@@ -67,6 +69,13 @@ schemaname='public'` и `select count(*) from pg_indexes where schemaname='publi
 каталогу ровно столько и считает, и `alembic check` пуст, что и есть проверка «модель объявлена, но
 не забыта миграцией».
 
+`b1f4a9c2e7d3` не добавляет ни таблиц, ни индексов: две nullable-колонки на `users` и
+ничего в планах чтения. `alembic check` на ней пуст, `downgrade base` оставляет одну строку
+таблиц и один индекс, повторный `upgrade head` возвращает тот же счёт, а `downgrade` этой
+ревизии снимает обе колонки. `NULL` в `consent_version` — не пустая строка и не прочерк: это
+строка, созданная до того, как текст появился, и клиент показывает ей документ снова
+(`RootViewModel` → `CONSENT`).
+
 ## Диаграмма связей (обзор)
 
 ```
@@ -100,6 +109,8 @@ users ─1:1─ profiles ─M:N─ interests   (через user_interests)
 | is_active | Boolean | default true |
 | is_verified | Boolean | default false |
 | is_moderator | Boolean | не default, nullable false — единственная привилегия продукта, и её не записывает ни один маршрут (стадия 102) |
+| consent_version | String(16) | nullable; версия текста, которую аккаунт принял (`core/consent.py`), `NULL` — строка до стадии 131 и читается как «согласия нет», а не как «согласие есть» |
+| consent_accepted_at | timestamptz | nullable; момент принятия той версии, что стоит слева; `POST /auth/consent` переписывает оба поля вместе |
 | is_deleted | Boolean | мягкое удаление |
 | deleted_at | timestamptz | nullable |
 

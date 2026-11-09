@@ -129,6 +129,12 @@ class Settings(BaseSettings):
     # letter is a door left open on a mailbox that may be shared, rather than an answer to a question
     # that was just asked.
     reset_code_minutes: int = Field(default=30, alias="RESET_CODE_MINUTES")
+    # How long the code that proves a mailbox stays spendable. Longer than a recovery code on purpose:
+    # a recovery letter answers a question asked a minute ago, while the confirmation letter is waiting
+    # for somebody who registered and then went back to their work. A day is the ceiling — past that the
+    # letter is less a proof of a request than a door left ajar on an address that may have changed hands
+    # — and five minutes the floor, for the same reading-speed reason as above.
+    confirm_code_minutes: int = Field(default=60, alias="CONFIRM_CODE_MINUTES")
 
     @field_validator("cors_origins")
     @classmethod
@@ -221,6 +227,17 @@ class Settings(BaseSettings):
                 f"RESET_CODE_MINUTES={v} is outside 5..180. Under five minutes a code is refused "
                 "before a person has read it off one screen and typed it into another; past three "
                 "hours it is a door left standing on a mailbox that may be shared."
+            )
+        return v
+
+    @field_validator("confirm_code_minutes")
+    @classmethod
+    def _confirmation_life(cls, v: int) -> int:
+        if not 5 <= v <= 1440:
+            raise ValueError(
+                f"CONFIRM_CODE_MINUTES={v} is outside 5..1440. Under five minutes a code is refused "
+                "before a person has read it off one screen and typed it into another; past a day "
+                "it is no longer an answer to «I registered just now»."
             )
         return v
 

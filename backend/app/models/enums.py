@@ -54,6 +54,11 @@ class ChallengePurpose(StrEnum):
     """
 
     PASSWORD_RESET = "password_reset"
+    # The other claim a mailbox can make, and a different one: a reset code says «this person may set
+    # the word», a confirmation code says «this address belongs to this account». Sharing one purpose
+    # would let a recovery code, asked for to get back in, silently mark an address the account never
+    # proved — so the two live apart in the one column the redemption predicate reads.
+    EMAIL_CONFIRMATION = "email_confirmation"
 
 
 class CompatibilityCategory(StrEnum):

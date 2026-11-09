@@ -68,7 +68,12 @@ internal fun isPublicAuthRoute(url: String): Boolean =
         // stamping a stored bearer onto them would let a stale token decide the answer, and Ktor's
         // refresh-on-401 would spend a rotation trying to unlock a door that is already open.
         url.contains("/auth/password-reset/request") ||
-        url.contains("/auth/password-reset/confirm")
+        url.contains("/auth/password-reset/confirm") ||
+        // Stage 131: the confirmation code is the whole proof, and the device reading the mailbox is
+        // not always the device that registered — so this door, too, is answered without a session.
+        // `POST /auth/consent` stays off the list on purpose: it writes the account's
+        // row and must carry the bearer that says whose row it is.
+        url.contains("/auth/email-confirmation/confirm")
 
 /**
  * What the device says about itself when it signs in.

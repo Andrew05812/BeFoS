@@ -392,6 +392,11 @@ class DiscoveryRepository:
         return [
             User.is_deleted.is_(False),
             User.is_active.is_(True),
+            # Stage 131: the address is the account's only way back to itself a week later, so the
+            # deck does not introduce people who have not proved they hold their mailbox. A person
+            # who just registered is absent from everybody's cards until the code from the letter is
+            # entered — not hidden by a preference they toggled, but never a candidate at all.
+            User.is_verified.is_(True),
             Profile.is_hidden.is_(False),
             # An account that registered and never answered the setup questions still owns
             # a profile row -- the shell registration writes it, with the email local part

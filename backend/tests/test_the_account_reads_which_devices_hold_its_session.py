@@ -33,6 +33,7 @@ import pytest
 from httpx import AsyncClient, Response
 from sqlalchemy import select, update
 
+from app.core.consent import CONSENT_VERSION
 from app.core.database import AsyncSessionLocal
 from app.core.security import create_token, generate_token_hash
 from app.models import RefreshToken
@@ -54,7 +55,12 @@ async def _registered(client: AsyncClient, email: str, device: str = PHONE) -> d
     """
     response = await client.post(
         "/api/v1/auth/register",
-        json={"email": email, "password": PASSWORD, "password_confirm": PASSWORD},
+        json={
+            "email": email,
+            "password": PASSWORD,
+            "password_confirm": PASSWORD,
+            "consent_version": CONSENT_VERSION,
+        },
         headers={"User-Agent": device},
     )
     assert response.status_code == 201, response.text

@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.api.v1 import health as health_module
 from app.core.config import settings
+from app.core.consent import CONSENT_VERSION
 from app.core.database import checkout_connection, engine, get_session
 from app.main import create_app
 
@@ -308,6 +309,7 @@ async def test_a_mailbox_taken_in_one_casing_is_refused_in_every_other(
             "email": "Casing_Claims@befos.app",
             "password": "Test12345",
             "password_confirm": "Test12345",
+            "consent_version": CONSENT_VERSION,
         },
     )
     assert first.status_code == 201, first.text
@@ -318,6 +320,7 @@ async def test_a_mailbox_taken_in_one_casing_is_refused_in_every_other(
             "email": "casing_claims@befos.app",
             "password": "Test12345",
             "password_confirm": "Test12345",
+            "consent_version": CONSENT_VERSION,
         },
     )
     assert second.status_code == 409, second.text

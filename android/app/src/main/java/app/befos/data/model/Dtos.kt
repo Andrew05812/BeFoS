@@ -9,6 +9,10 @@ data class UserBriefDto(
     val id: String,
     val email: String,
     @SerialName("is_active") val isActive: Boolean = true,
+    // Stage 131: registration answers with the address unconfirmed, and the letter that changes
+    // that is written in the same request. The default is false so a response that predates the
+    // field cannot read as a confirmed mailbox.
+    @SerialName("is_verified") val isVerified: Boolean = false,
     @SerialName("created_at") val createdAt: String = "",
 )
 
@@ -31,6 +35,10 @@ data class RegisterRequest(
     val email: String,
     val password: String,
     @SerialName("password_confirm") val passwordConfirm: String,
+    // The one field the form does not type: the version of the text the screen put in front of the
+    // person, read from `GET /auth/consent`. The server records it and refuses a build that showed
+    // an older draft, which is why it is sent rather than inferred from the app's version code.
+    @SerialName("consent_version") val consentVersion: String,
 )
 
 @Serializable
@@ -71,6 +79,26 @@ data class PasswordResetConfirmRequest(
 data class PasswordResetAcceptedDto(
     val accepted: Boolean = false,
     @SerialName("expires_in_seconds") val expiresInSeconds: Int = 0,
+)
+
+/** The consent document as the server holds it: the words and the version that names them. */
+@Serializable
+data class ConsentDto(
+    val version: String,
+    @SerialName("effective_date") val effectiveDate: String = "",
+    val text: String = "",
+)
+
+/** What a screen sends back when the person accepts the text it just read. */
+@Serializable
+data class ConsentAcceptRequest(
+    @SerialName("consent_version") val consentVersion: String,
+)
+
+/** The one code the confirmation letter carries. */
+@Serializable
+data class EmailConfirmationRequest(
+    val code: String,
 )
 
 /**
@@ -147,6 +175,11 @@ data class ProfileDto(
     // The server's own stamp that onboarding ran through. Default false: an answer from an older
     // backend says nothing, and silence must not read as «прошёл».
     @SerialName("onboarding_completed") val onboardingCompleted: Boolean = false,
+    // Stage 131. Both describe the account rather than the profile: whether the mailbox has been
+    // proved, and whether the text on file is still the one the product asks for. The start screen
+    // reads them before it decides where the person may go next.
+    @SerialName("email_verified") val emailVerified: Boolean = false,
+    @SerialName("consent_up_to_date") val consentUpToDate: Boolean = true,
 )
 
 @Serializable

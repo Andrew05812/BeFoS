@@ -232,7 +232,11 @@ async def test_deleting_an_account_does_not_read_the_interests_it_drops(client: 
         f"{_interest_list_reads(seen)} reads of the interest list on the request that deletes "
         "those rows"
     )
-    assert len(seen) <= 20, f"{len(seen)} trips to erase an account"
+    # 20 was the erasure before stage 131; the 21st is the DELETE that takes the account's
+    # one-time codes with it (recovery and address confirmation share `auth_challenges`). The
+    # ceiling is a trip count, not a budget of meaning: it moves only with a statement the
+    # erasure itself gained, never with a loop that grew.
+    assert len(seen) <= 21, f"{len(seen)} trips to erase an account"
 
 
 async def test_the_stored_set_is_the_answered_set(client: AsyncClient, session) -> None:

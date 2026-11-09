@@ -39,6 +39,13 @@ from app.core.logging import get_logger
 logger = get_logger(__name__)
 
 RESET_SUBJECT = "Код восстановления BeFoS"
+CONFIRM_SUBJECT = "Подтверждение адреса BeFoS"
+
+# The one sentence every one-time-code door in this product refuses with: unknown, spent and expired
+# codes are told apart nowhere, because a door that says which of the three happened is a
+# door that reports how far a guess got. Shared rather than copied: two doors with the same rule
+# should not be able to drift into two sentences a client translates differently.
+CODE_REFUSED = "The code did not work. Ask for a new letter."
 
 # The alphabet and the length of a code are decided in `core/security.py`, where the secret is minted;
 # this module only ever prints one. Splitting the two is what keeps a letter from becoming the place
@@ -96,6 +103,29 @@ def password_reset_letter(to: str, code: str, minutes: int, link_base: str = "")
         lines += ["", f"Можно открыть и по ссылке: {link_base.rstrip('/')}/{format_code(code)}"]
     lines += ["", "BeFoS — не диагноз и не оценка человека, а анкета и тест.", ""]
     return Letter(to=to, subject=RESET_SUBJECT, body="\n".join(lines))
+
+
+def email_confirmation_letter(to: str, code: str, minutes: int) -> Letter:
+    """The letter that turns «an address somebody typed» into «an address this account holds».
+
+    It says what the code does and what happens while it is unused — the deck does not show this
+    account. A person who registered with a typo in the domain needs that half more than the first:
+    the letter they are waiting for is going to the wrong mailbox, and the screen behind this one is
+    the only place that can tell them so.
+    """
+    lines = [
+        "Этот адрес указали при регистрации в BeFoS.",
+        "",
+        f"Если это были вы, введите этот код в приложении: {format_code(code)}",
+        "",
+        f"Код действует {minutes} минут и принимается один раз.",
+        "Пока адрес не подтверждён, анкета не показывается другим людям в подборе.",
+        "Если вы не регистрировались в BeFoS, ничего не делайте: без этого кода адрес не подтвердится.",
+        "",
+        "BeFoS — не диагноз и не оценка человека, а анкета и тест.",
+        "",
+    ]
+    return Letter(to=to, subject=CONFIRM_SUBJECT, body="\n".join(lines))
 
 
 class OutboxTransport:

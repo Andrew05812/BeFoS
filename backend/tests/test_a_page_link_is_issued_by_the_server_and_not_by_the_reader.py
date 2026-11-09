@@ -367,6 +367,11 @@ def _production(**overrides) -> Settings:
         "DEBUG": "false",
         "DEMO_ENABLED": "false",
         "CURSOR_SECRET": _PAGE_SECRET,
+        # Stage 131 makes the letter channel part of a production start too; this case is about
+        # the page ring, so the mail peer is named and correct and every refusal below is one.
+        "MAIL_TRANSPORT": "smtp",
+        "MAIL_SMTP_HOST": "smtp.befos.example.com",
+        "MAIL_FROM": "no-reply@befos.example.com",
     }
     base.update(overrides)
     return Settings(**base)

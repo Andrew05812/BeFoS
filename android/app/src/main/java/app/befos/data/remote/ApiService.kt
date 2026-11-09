@@ -9,6 +9,9 @@ import app.befos.data.model.AnswersRequest
 import app.befos.data.model.AuthResponseDto
 import app.befos.data.model.BlockedUsersDto
 import app.befos.data.model.ChangePasswordRequest
+import app.befos.data.model.ConsentAcceptRequest
+import app.befos.data.model.ConsentDto
+import app.befos.data.model.EmailConfirmationRequest
 import app.befos.data.model.PasswordResetAcceptedDto
 import app.befos.data.model.PasswordResetConfirmRequest
 import app.befos.data.model.PasswordResetRequest
@@ -74,11 +77,41 @@ class ApiService(private val client: HttpClient) {
     private fun endpoint(path: String): String = ApiConfig.api(path)
 
     // ---------- Auth ----------
-    suspend fun register(email: String, password: String): ApiResult<AuthResponseDto> =
+    suspend fun register(email: String, password: String, consentVersion: String): ApiResult<AuthResponseDto> =
         client.apiCall {
             method = HttpMethod.Post
             url(endpoint("auth/register"))
-            setBody(RegisterRequest(email, password, password))
+            setBody(RegisterRequest(email, password, password, consentVersion))
+        }
+
+    /** The text registration asks a person to accept; public, because there is no account yet. */
+    suspend fun consent(): ApiResult<ConsentDto> =
+        client.apiCall {
+            method = HttpMethod.Get
+            url(endpoint("auth/consent"))
+        }
+
+    /** Record that the signed-in account read the current text; the server checks the version. */
+    suspend fun acceptConsent(consentVersion: String): ApiResult<Unit> =
+        client.apiCallUnit {
+            method = HttpMethod.Post
+            url(endpoint("auth/consent"))
+            setBody(ConsentAcceptRequest(consentVersion))
+        }
+
+    /** Spend the code from the confirmation letter. Empty: the proof lives on the account row. */
+    suspend fun confirmEmail(code: String): ApiResult<Unit> =
+        client.apiCallUnit {
+            method = HttpMethod.Post
+            url(endpoint("auth/email-confirmation/confirm"))
+            setBody(EmailConfirmationRequest(code))
+        }
+
+    /** Ask for another letter for the signed-in account; no address travels in the body. */
+    suspend fun resendEmailConfirmation(): ApiResult<Unit> =
+        client.apiCallUnit {
+            method = HttpMethod.Post
+            url(endpoint("auth/email-confirmation/resend"))
         }
 
     /**

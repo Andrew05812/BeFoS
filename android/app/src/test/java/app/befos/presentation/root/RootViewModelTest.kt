@@ -30,6 +30,10 @@ class RootViewModelTest {
         goal: String = "relationship",
         interests: Int = 2,
         onboarded: Boolean = true,
+        // A finished account is a confirmed address and the text the product publishes today.
+        // The gates get their own cases below; every other case here is about onboarding.
+        verified: Boolean = true,
+        consentCurrent: Boolean = true,
     ) = Profile(
         userId = "u1",
         name = name,
@@ -45,6 +49,8 @@ class RootViewModelTest {
         ageMax = 40,
         genderPreference = emptyList(),
         onboardingCompleted = onboarded,
+        emailVerified = verified,
+        consentUpToDate = consentCurrent,
     )
 
     private fun viewModel() = RootViewModel(auth, profiles).also {
@@ -110,6 +116,47 @@ class RootViewModelTest {
         assertEquals(RootDestination.MAIN, viewModel().destination.value)
         coVerify(exactly = 0) { auth.logout() }
     }
+
+    @Test
+    fun `an unconfirmed address stops at the letter before onboarding`() = runTest {
+        coEvery { auth.current() } returns StoredAuth("a", "r", "u1")
+        coEvery { profiles.me() } returns ApiResult.Success(
+            profile(onboarded = false, verified = false)
+        )
+        // A person who registered and never answered the letter is not sent into a questionnaire
+        // that ends in a deck the server keeps them out of.
+        assertEquals(RootDestination.EMAIL_CONFIRMATION, viewModel().destination.value)
+    }
+
+    @Test
+    fun `a confirmed account that finished onboarding goes to main`() = runTest {
+        coEvery { auth.current() } returns StoredAuth("a", "r", "u1")
+        coEvery { profiles.me() } returns ApiResult.Success(
+            profile(onboarded = true, verified = true)
+        )
+        assertEquals(RootDestination.MAIN, viewModel().destination.value)
+    }
+
+    @Test
+    fun `a stale consent text is asked for before the address or the form`() = runTest {
+        coEvery { auth.current() } returns StoredAuth("a", "r", "u1")
+        coEvery { profiles.me() } returns ApiResult.Success(
+            profile(onboarded = true, verified = false, consentCurrent = false)
+        )
+        // Both gates are open; the document is the one the person can settle on this screen, and
+        // until it is accepted the product has no record of what they agreed to.
+        assertEquals(RootDestination.CONSENT, viewModel().destination.value)
+    }
+
+    @Test
+    fun `a session with the text accepted and the address confirmed is past both gates`() =
+        runTest {
+            coEvery { auth.current() } returns StoredAuth("a", "r", "u1")
+            coEvery { profiles.me() } returns ApiResult.Success(
+                profile(onboarded = false, verified = true, consentCurrent = true)
+            )
+            assertEquals(RootDestination.ONBOARDING, viewModel().destination.value)
+        }
 
     @Test
     fun `transient backend failure keeps user inside main`() = runTest {
