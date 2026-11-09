@@ -26,6 +26,12 @@ def _settings(**overrides) -> Settings:
         "CORS_ORIGINS": "https://befos.example.com",
         "DEBUG": "false",
         "DEMO_ENABLED": "false",
+        # Stage 131: a production start refuses a mail channel that files letters instead of
+        # sending them, so the "correctly configured" stand names a real peer. The sender is on a
+        # domain this configuration owns, which is the other half of that refusal.
+        "MAIL_TRANSPORT": "smtp",
+        "MAIL_SMTP_HOST": "smtp.befos.example.com",
+        "MAIL_FROM": "no-reply@befos.example.com",
     }
     base.update(overrides)
     return Settings(**base)

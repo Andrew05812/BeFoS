@@ -84,6 +84,11 @@ class UserRepository:
             Profile.user_id == user_id,
             User.is_deleted.is_(False),
             User.is_active.is_(True),
+            # Same gate as `social_repo._candidate_conditions` (stage 131): `is_showable_profile`
+            # decides whether a like can resolve the id and whether the card opens at all, so an
+            # address nobody proved must fail here too. A rule written in one of the two reads only
+            # would let a link like somebody the deck itself refuses to show.
+            User.is_verified.is_(True),
             Profile.is_hidden.is_(False),
             Profile.onboarding_completed_at.is_not(None),
         ]

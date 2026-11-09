@@ -5,6 +5,7 @@ import app.befos.core.network.StoredAuth
 import app.befos.domain.model.AccountExport
 import app.befos.domain.model.BlockedUser
 import app.befos.domain.model.Compatibility
+import app.befos.domain.model.ConsentDocument
 import app.befos.domain.model.DiscoveryPage
 import app.befos.domain.model.Interest
 import app.befos.domain.model.LikeOutcome
@@ -54,9 +55,55 @@ interface AuthRepository {
     val authState: Flow<StoredAuth?>
     suspend fun current(): StoredAuth?
     suspend fun lastEmail(): String?
-    suspend fun register(email: String, password: String): ApiResult<String>
+    /**
+     * Make the account. `consentVersion` is the version of the document the screen showed — the
+     * server records it on the row and refuses a build that names an older draft, so the text is
+     * read first (`consent()`), never assumed.
+     */
+    suspend fun register(email: String, password: String, consentVersion: String): ApiResult<String>
     suspend fun login(email: String, password: String): ApiResult<String>
     suspend fun logout()
+
+    /** The consent text the register screen must put in front of a person, and its version. */
+    suspend fun consent(): ApiResult<ConsentDocument>
+
+    /**
+     * Record that the signed-in account has read the current text. No address in the body: whose row
+     * is stamped comes from the session, and the server refuses a version that is no longer current.
+     */
+    suspend fun acceptConsent(consentVersion: String): ApiResult<Unit>
+
+    /** Spend the code from the confirmation letter. A success means the address is now confirmed. */
+    suspend fun confirmEmail(code: String): ApiResult<Unit>
+
+    /**
+     * Ask for another confirmation letter for the signed-in account. Silent on purpose: an address
+     * already confirmed, or one whose letter still works, gets the same empty success and no second
+     * letter, so the door cannot be used as a mail relay or a delivery oracle.
+     */
+    suspend fun resendEmailConfirmation(): ApiResult<Unit>
+
+    /**
+     * Ask the server for a code that returns a lost word.
+     *
+     * A success here means the request was accepted, not that a letter arrived: the server writes or
+     * hands the letter off and answers the same way for an address that holds no account, and no
+     * screen may turn that into a promise about somebody's mailbox. The value carried back is how
+     * many seconds the server said the code lives — read from the answer rather than typed into a
+     * string on the screen, because a countdown the client invented is a promise about a row nobody
+     * here has read.
+     */
+    suspend fun requestPasswordReset(email: String): ApiResult<Int>
+
+    /**
+     * Spend the code from the letter on a new word. A success ends every session the account holds,
+     * this device included, so the stored pair goes with them.
+     */
+    suspend fun confirmPasswordReset(
+        code: String,
+        newPassword: String,
+        passwordConfirm: String,
+    ): ApiResult<Unit>
 
     /**
      * Write a new word over the account's old one. A success means the device's own session is gone

@@ -153,7 +153,7 @@ async def _candidate(session: AsyncSession, *, tag: str, birth: date) -> str:
     await session.execute(
         insert(User).values(
             id=uid, email=f"calendar_{tag}@befos.app", password_hash="x",
-            is_active=True, is_deleted=False,
+            is_active=True, is_deleted=False, is_verified=True,
         )
     )
     await session.execute(

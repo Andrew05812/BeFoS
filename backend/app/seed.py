@@ -27,6 +27,7 @@ from app.compatibility.engine import CompatibilityInput, compute_compatibility
 from app.compatibility.traits import TRAIT_CATEGORIES_BY_KEY
 from app.compatibility.weights import ENGINE_VERSION
 from app.core.config import settings
+from app.core.consent import CONSENT_VERSION
 from app.core.database import AsyncSessionLocal, Base, engine
 from app.core.logging import get_logger
 from app.core.security import hash_password
@@ -278,7 +279,17 @@ async def _create_user(
     latent: dict[tuple[str, str], float],
     avatar_name: str,
 ) -> User:
-    user = User(email=email, password_hash=password_hash, is_active=True, is_verified=True)
+    # The stand seeds finished accounts: verified address, and the current consent text already
+    # accepted. Nulls here would be read by the client's gate as «this person never confirmed or
+    # agreed», and the whole seeded population would sit behind two screens it is not a test of.
+    user = User(
+        email=email,
+        password_hash=password_hash,
+        is_active=True,
+        is_verified=True,
+        consent_version=CONSENT_VERSION,
+        consent_accepted_at=datetime.now(timezone.utc),
+    )
     session.add(user)
     await session.flush()
 

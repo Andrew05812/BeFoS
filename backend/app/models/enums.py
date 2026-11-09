@@ -45,6 +45,22 @@ class ReportStatus(StrEnum):
     DISMISSED = "dismissed"
 
 
+class ChallengePurpose(StrEnum):
+    """What a one-time code is proof of. The value sits in the redemption predicate, not only in a label.
+
+    A code minted for one purpose must not be redeemable as another, and the cheapest way to make
+    that true is to carry the purpose in the same ``WHERE`` clause that decides whether the code is
+    alive at all. Adding a purpose later is a new value here and no migration.
+    """
+
+    PASSWORD_RESET = "password_reset"
+    # The other claim a mailbox can make, and a different one: a reset code says «this person may set
+    # the word», a confirmation code says «this address belongs to this account». Sharing one purpose
+    # would let a recovery code, asked for to get back in, silently mark an address the account never
+    # proved — so the two live apart in the one column the redemption predicate reads.
+    EMAIL_CONFIRMATION = "email_confirmation"
+
+
 class CompatibilityCategory(StrEnum):
     VALUES = "values"
     PERSONALITY = "personality"

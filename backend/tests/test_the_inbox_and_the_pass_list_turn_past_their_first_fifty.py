@@ -105,6 +105,7 @@ async def _people(
                 "password_hash": "not-a-real-hash",
                 "is_active": True,
                 "is_deleted": False,
+                "is_verified": True,
             }
             for i, uid in enumerate(ids)
         ],

@@ -11,6 +11,10 @@ import androidx.navigation.compose.composable
 import app.befos.core.di.appContainer
 import app.befos.core.di.beFosViewModel
 import app.befos.presentation.auth.AuthScreen
+import app.befos.presentation.auth.ConsentAcceptScreen
+import app.befos.presentation.auth.EmailConfirmationScreen
+import app.befos.presentation.auth.PasswordResetCodeScreen
+import app.befos.presentation.auth.PasswordResetRequestScreen
 import app.befos.presentation.chat.ChatScreen
 import app.befos.presentation.compatibility.CompatibilityScreen
 import app.befos.presentation.discovery.LikedMeScreen
@@ -53,15 +57,25 @@ fun BeFosNavHost(navController: NavHostController) {
     }
 
     // Logging in must re-resolve the destination: a returning user who already
-    // completed onboarding goes straight to MAIN, a fresh account to ONBOARDING.
+    // completed onboarding goes straight to MAIN, a fresh account to ONBOARDING — and one who
+    // signed in before answering the letter or accepting the current text stops at that gate
+    // first (stage 131). The gates are also the doors that re-resolve themselves: confirming the
+    // address or accepting the text calls `rootVm.resolve()`, and the next answer lands here.
     LaunchedEffect(destination) {
-        if (navController.currentDestination?.route != Routes.AUTH) return@LaunchedEffect
         val target = when (destination) {
             RootDestination.MAIN -> Routes.MAIN
             RootDestination.ONBOARDING -> Routes.ONBOARDING
+            RootDestination.CONSENT -> Routes.CONSENT
+            RootDestination.EMAIL_CONFIRMATION -> Routes.EMAIL_CONFIRMATION
             else -> null
         } ?: return@LaunchedEffect
-        navController.navigate(target) { popUpTo(Routes.AUTH) { inclusive = true } }
+        val current = navController.currentDestination?.route ?: return@LaunchedEffect
+        // A gate answer only moves a screen that is itself waiting at a gate. MAIN and ONBOARDING
+        // resolve in the background when a write re-reads the profile, and a navigation fired from
+        // that answer would pull the person off the screen they are standing on.
+        if (current !in setOf(Routes.AUTH, Routes.CONSENT, Routes.EMAIL_CONFIRMATION)) return@LaunchedEffect
+        if (current == target) return@LaunchedEffect
+        navController.navigate(target) { popUpTo(current) { inclusive = true } }
     }
 
     NavHost(navController = navController, startDestination = Routes.SPLASH) {
@@ -71,6 +85,8 @@ fun BeFosNavHost(navController: NavHostController) {
                 onRoute = { destination ->
                     val target = when (destination) {
                         RootDestination.AUTH -> Routes.AUTH
+                        RootDestination.CONSENT -> Routes.CONSENT
+                        RootDestination.EMAIL_CONFIRMATION -> Routes.EMAIL_CONFIRMATION
                         RootDestination.ONBOARDING -> Routes.ONBOARDING
                         else -> Routes.MAIN
                     }
@@ -83,7 +99,7 @@ fun BeFosNavHost(navController: NavHostController) {
 
         composable(Routes.AUTH) {
             AuthScreen(
-                onAuthed = { rootVm.resolve() },
+                onAuthed = { rootVm.resolve() }, onForgotPassword = { navController.navigate(Routes.PASSWORD_RESET) { launchSingleTop = true } },
             )
         }
 
@@ -386,6 +402,46 @@ fun BeFosNavHost(navController: NavHostController) {
                 planId = entry.arguments?.getString(Routes.PLAN_ARG).orEmpty(),
                 onBack = { navController.popBackStack() },
             )
+        }
+
+        // Appended after the pair-facing screens rather than tucked under AUTH, and the reason is
+        // measurable: docs/USER_FLOWS.md «Карта экранов» cites the line each composable block opens
+        // on, and an insertion above AUTH would silently stale nineteen of those rows.
+        composable(Routes.PASSWORD_RESET) {
+            PasswordResetRequestScreen(
+                onBack = { navController.popBackStack() },
+                onLetterSent = {
+                    navController.navigate(Routes.PASSWORD_RESET_CODE) { launchSingleTop = true }
+                },
+            )
+        }
+
+        composable(Routes.PASSWORD_RESET_CODE) {
+            PasswordResetCodeScreen(
+                onBack = { navController.popBackStack() },
+                // A recovered word ends every session the account held, this device included, so the
+                // only honest place to put a person afterwards is the login door — with the stack
+                // cleared, the same way sign-out does it, so «назад» cannot resurrect a session the
+                // server already revoked.
+                onDone = {
+                    navController.navigate(Routes.AUTH) {
+                        popUpTo(navController.graph.id) { inclusive = true }
+                        launchSingleTop = true
+                    }
+                },
+            )
+        }
+
+        // Stage 131. The two gates are appended here, below the recovery pair, for a measured reason:
+        // docs/USER_FLOWS.md cites the line each block opens on, and an insertion above would stale a
+        // row per screen below it. Reaching one of these screens is not a choice a person makes — the
+        // start screen sends them and re-resolves on return.
+        composable(Routes.EMAIL_CONFIRMATION) {
+            EmailConfirmationScreen(onDone = { rootVm.resolve() })
+        }
+
+        composable(Routes.CONSENT) {
+            ConsentAcceptScreen(onDone = { rootVm.resolve() })
         }
     }
 }

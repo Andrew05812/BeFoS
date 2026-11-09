@@ -110,4 +110,26 @@ object Routes {
     // to the person sitting in the chat the card was opened from.
     const val PARTNER = "partner/{$CHAT_ARG}"
     fun partner(matchId: String) = "partner/$matchId"
+
+    // The first half of getting back in: the address is typed, the answer is the same either way.
+    // No identifier in the route, because nothing here is about a row the caller can name — and a
+    // route that carried the email would put somebody's address into a back stack and into a link
+    // that can be shared out of it.
+    const val PASSWORD_RESET = "passwordReset"
+
+    // The second half: the code from the letter and the new word, said twice. Kept a separate
+    // destination rather than a stage inside one screen, because the person leaves this screen to go
+    // read mail and comes back to it — a flag inside the previous screen would have to survive that.
+    const val PASSWORD_RESET_CODE = "passwordResetCode"
+
+    // Stage 131, the account's own gates. No identifier in either: whose address is unconfirmed
+    // and whose text is stale are facts about the bearer, read off the account row per request by
+    // `GET /users/me`. Appended after the recovery pair for the same reason that pair was appended
+    // after the plan screens — the screen map cites the line each block opens on.
+    const val EMAIL_CONFIRMATION = "emailConfirmation"
+
+    // The consent screen after registration: the published text changed, and the account has to
+    // accept the words that stand now before it continues. The register screen's checkbox is not
+    // reused as a destination — it is a field in a form, not a place a person can be sent back to.
+    const val CONSENT = "consent"
 }

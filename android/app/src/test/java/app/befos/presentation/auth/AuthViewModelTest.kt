@@ -2,8 +2,10 @@ package app.befos.presentation.auth
 
 import app.befos.MainDispatcherRule
 import app.befos.core.network.ApiResult
+import app.befos.domain.model.ConsentDocument
 import app.befos.domain.repository.AuthRepository
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.mockk
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
@@ -23,9 +25,16 @@ class AuthViewModelTest {
 
     private val repo: AuthRepository = mockk()
 
+    private val document = ConsentDocument(
+        version = "7",
+        effectiveDate = "2026-11-09",
+        text = "Текст согласия, который показывает сервер.",
+    )
+
     @Before
     fun setUp() {
         coEvery { repo.lastEmail() } returns null
+        coEvery { repo.consent() } returns ApiResult.Success(document)
     }
 
     @Test
@@ -104,5 +113,50 @@ class AuthViewModelTest {
         mainRule.testDispatcher.scheduler.advanceUntilIdle()
         assertFalse(vm.uiState.value.success)
         assertEquals("Неверный пароль", vm.uiState.value.error)
+    }
+
+    @Test
+    fun `the register branch puts the server's text in front of the person`() = runTest {
+        val vm = AuthViewModel(repo)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        assertTrue(vm.uiState.value.isRegister)
+        assertEquals("7", vm.uiState.value.consent?.version)
+        assertFalse(vm.uiState.value.consentChecked)
+        // The login branch asks nobody to accept a document they are not making an account under.
+        vm.toggleMode()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        assertFalse(vm.uiState.value.isRegister)
+    }
+
+    @Test
+    fun `registration without the checked text calls no door and says why`() = runTest {
+        val vm = AuthViewModel(repo)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        vm.onEmailChange("new@befos.app")
+        vm.onPasswordChange("longenough")
+        vm.onPasswordConfirmChange("longenough")
+        vm.submit()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals("Прочитайте и примите текст согласия.", vm.uiState.value.error)
+        assertFalse(vm.uiState.value.success)
+        coVerify(exactly = 0) { repo.register(any(), any(), any()) }
+    }
+
+    @Test
+    fun `registration carries the version of the text the screen showed`() = runTest {
+        coEvery { repo.register("new@befos.app", "longenough", "7") } returns
+            ApiResult.Success("u-1")
+        val vm = AuthViewModel(repo)
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+        vm.onEmailChange("new@befos.app")
+        vm.onPasswordChange("longenough")
+        vm.onPasswordConfirmChange("longenough")
+        vm.onConsentChecked(true)
+        vm.submit()
+        mainRule.testDispatcher.scheduler.advanceUntilIdle()
+
+        assertTrue(vm.uiState.value.success)
+        coVerify { repo.register("new@befos.app", "longenough", "7") }
     }
 }

@@ -107,6 +107,8 @@ fun ProfileDto.toDomain() = Profile(
     isHidden = isHidden,
     isModerator = isModerator,
     onboardingCompleted = onboardingCompleted,
+    emailVerified = emailVerified,
+    consentUpToDate = consentUpToDate,
 )
 
 fun OptionDto.toDomain() = Option(id, text)

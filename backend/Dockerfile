@@ -36,9 +36,9 @@ RUN pip install --no-index --find-links=/wheels -r requirements.txt \
 
 COPY . .
 
-# The named volume is mounted over this path, so its ownership comes from the directory as
-# it stands in the image — which is why the chown happens before the user switch.
-RUN mkdir -p /app/uploads && chown -R 10001:10001 /app
+# The named volumes (uploads, outbox) are mounted over these paths, so their ownership comes
+# from the directories as they stand in the image — which is why the chown precedes USER befos.
+RUN mkdir -p /app/uploads /app/outbox && chown -R 10001:10001 /app
 
 USER befos
 

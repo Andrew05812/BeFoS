@@ -7,6 +7,19 @@ data class Interest(
 )
 
 /**
+ * The text an account accepts when it registers, and the version that names it.
+ *
+ * The words come from the server rather than from a constant in this build: a screen is only able to
+ * say what the person actually agreed to if both were published together, and the register door
+ * records the version it was handed.
+ */
+data class ConsentDocument(
+    val version: String,
+    val effectiveDate: String,
+    val text: String,
+)
+
+/**
  * One photograph the person owns, under the number the server gave it.
  *
  * The number is what makes the row manageable: removing, leading with and reordering are all writes
@@ -53,6 +66,18 @@ data class Profile(
      * the form would cut them off from their own pair.
      */
     val onboardingCompleted: Boolean = false,
+    /**
+     * Whether the account has answered the letter sent to its address. The deck on the server only
+     * offers confirmed accounts, so the start screen reads this before it sends anybody to a deck
+     * they would find empty for a reason no card explains.
+     */
+    val emailVerified: Boolean = false,
+    /**
+     * Whether the text on file is still the one the product asks for. False is the honest answer for
+     * an account made before the consent existed and for one that accepted an older draft; the start
+     * screen shows the document again in both cases.
+     */
+    val consentUpToDate: Boolean = true,
 ) {
     /** The row the way every screen reads it: urls, in the order the owner's writes left them. */
     val photoUrls: List<String> get() = photos.map { it.url }

@@ -85,6 +85,18 @@ def reset_rate_limiters() -> None:
     _report_limiter.reset()
 
 
+def reset_auth_limiter() -> None:
+    """Clear the `/auth` window alone (used by fixtures whose setup is not the measurement).
+
+    `reset_rate_limiters` is the test's own front door: it wipes every window before the test
+    starts. A fixture that registers an account mid-test is setup, not measurement, and the two
+    auth requests registration and confirmation cost must not shorten the minute the test is about
+    to spend — but resetting *every* limiter there would also refund the complaint budget a test
+    had just deliberately burned, which is what stage 131's full run caught.
+    """
+    _auth_limiter.reset()
+
+
 def report_budget_available(user_id: object) -> bool:
     """Keyed by the authenticated account, the same way the socket frame budget is.
 

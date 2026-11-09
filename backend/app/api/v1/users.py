@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.deps import get_current_session_id, get_current_user
 from app.core.config import settings
+from app.core.consent import is_current
 from app.core.database import get_session
 from app.models import PHOTO_DISPLAY_ORDER, Photo, User
 from app.repositories.user_repo import UserRepository
@@ -26,10 +27,15 @@ from app.services.profile_service import ProfileService
 router = APIRouter(prefix="/users", tags=["users"])
 
 
-def _profile_to_out(profile, photos: list, is_moderator: bool) -> ProfileOut:
+def _profile_to_out(profile, photos: list, user: User) -> ProfileOut:
     return ProfileOut(
         user_id=str(profile.user_id),
-        is_moderator=bool(is_moderator),
+        is_moderator=bool(user.is_moderator),
+        # Two facts about the account, not the profile: the address proof the deck gate reads candidates
+        # by, and whether the text on file is still the one the product asks for. Both belong on the
+        # owner's own answer because both decide where the client may send this person next.
+        email_verified=bool(user.is_verified),
+        consent_up_to_date=is_current(user.consent_version),
         name=profile.name,
         age=profile.age,
         city=profile.city,
@@ -51,28 +57,27 @@ def _profile_to_out(profile, photos: list, is_moderator: bool) -> ProfileOut:
     )
 
 
-async def _owner_answer(
-    session: AsyncSession, user_id: uuid.UUID, is_moderator: bool
-) -> ProfileOut:
+async def _owner_answer(session: AsyncSession, user: User) -> ProfileOut:
     """What every write to this profile answers with: the profile and the photograph row as left.
 
     The row is read back rather than assembled from what the write was asked to do, so a person
     moving or removing a picture sees the order the server actually holds — including the flag that
-    moved to the next photograph when the leading one was removed. The role is not read here: the
-    caller already holds the account row that `get_current_user` loaded, and asking for it again
-    would pay a second SELECT per write to answer one word.
+    moved to the next photograph when the leading one was removed. The account's role, address proof
+    and consent version are not read here: the caller already holds the account row that
+    `get_current_user` loaded, and asking for it again would pay a second SELECT per write to answer
+    three words.
     """
     repo = UserRepository(session)
     photos = list(
         (
             await session.execute(
-                select(Photo).where(Photo.user_id == user_id).order_by(*PHOTO_DISPLAY_ORDER)
+                select(Photo).where(Photo.user_id == user.id).order_by(*PHOTO_DISPLAY_ORDER)
             )
         )
         .scalars()
         .all()
     )
-    return _profile_to_out(await repo.get_profile(user_id), photos, is_moderator)
+    return _profile_to_out(await repo.get_profile(user.id), photos, user)
 
 
 @router.get("/me", response_model=ProfileOut)
@@ -90,7 +95,7 @@ async def get_me(
         .scalars()
         .all()
     )
-    return _profile_to_out(profile, photos, current_user.is_moderator)
+    return _profile_to_out(profile, photos, current_user)
 
 
 @router.get("/me/export")
@@ -139,7 +144,7 @@ async def complete_onboarding(
         .scalars()
         .all()
     )
-    return _profile_to_out(profile, photos, current_user.is_moderator)
+    return _profile_to_out(profile, photos, current_user)
 
 
 @router.patch("/me", response_model=ProfileOut)
@@ -158,7 +163,7 @@ async def update_me(
         .scalars()
         .all()
     )
-    return _profile_to_out(profile, photos, current_user.is_moderator)
+    return _profile_to_out(profile, photos, current_user)
 
 
 @router.post("/me/photo", response_model=ProfileOut)
@@ -181,7 +186,7 @@ async def upload_photo(
         .scalars()
         .all()
     )
-    return _profile_to_out(profile, photos, current_user.is_moderator)
+    return _profile_to_out(profile, photos, current_user)
 
 
 @router.delete("/me/photo/{photo_id}", response_model=ProfileOut)
@@ -196,7 +201,7 @@ async def delete_photo(
     # the commit is what keeps a refused delete — a stranger's number, an absent one — from
     # destroying a photograph that is still in somebody's list.
     photo_service.delete_stored_photo(url)
-    return await _owner_answer(session, current_user.id, current_user.is_moderator)
+    return await _owner_answer(session, current_user)
 
 
 @router.post("/me/photo/{photo_id}/primary", response_model=ProfileOut)
@@ -207,7 +212,7 @@ async def make_photo_primary(
 ):
     service = ProfileService(session)
     await service.set_primary_photo(current_user.id, photo_id)
-    return await _owner_answer(session, current_user.id, current_user.is_moderator)
+    return await _owner_answer(session, current_user)
 
 
 @router.patch("/me/photo/order", response_model=ProfileOut)
@@ -218,7 +223,7 @@ async def reorder_photos(
 ):
     service = ProfileService(session)
     await service.reorder_photos(current_user.id, payload.photo_ids)
-    return await _owner_answer(session, current_user.id, current_user.is_moderator)
+    return await _owner_answer(session, current_user)
 
 
 @router.get("/interests")

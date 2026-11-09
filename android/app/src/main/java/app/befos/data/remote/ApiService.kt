@@ -9,6 +9,12 @@ import app.befos.data.model.AnswersRequest
 import app.befos.data.model.AuthResponseDto
 import app.befos.data.model.BlockedUsersDto
 import app.befos.data.model.ChangePasswordRequest
+import app.befos.data.model.ConsentAcceptRequest
+import app.befos.data.model.ConsentDto
+import app.befos.data.model.EmailConfirmationRequest
+import app.befos.data.model.PasswordResetAcceptedDto
+import app.befos.data.model.PasswordResetConfirmRequest
+import app.befos.data.model.PasswordResetRequest
 import app.befos.data.model.CompatibilityDto
 import app.befos.data.model.UniverseDto
 import app.befos.data.model.DiscoveryPageDto
@@ -71,12 +77,71 @@ class ApiService(private val client: HttpClient) {
     private fun endpoint(path: String): String = ApiConfig.api(path)
 
     // ---------- Auth ----------
-    suspend fun register(email: String, password: String): ApiResult<AuthResponseDto> =
+    suspend fun register(email: String, password: String, consentVersion: String): ApiResult<AuthResponseDto> =
         client.apiCall {
             method = HttpMethod.Post
             url(endpoint("auth/register"))
-            setBody(RegisterRequest(email, password, password))
+            setBody(RegisterRequest(email, password, password, consentVersion))
         }
+
+    /** The text registration asks a person to accept; public, because there is no account yet. */
+    suspend fun consent(): ApiResult<ConsentDto> =
+        client.apiCall {
+            method = HttpMethod.Get
+            url(endpoint("auth/consent"))
+        }
+
+    /** Record that the signed-in account read the current text; the server checks the version. */
+    suspend fun acceptConsent(consentVersion: String): ApiResult<Unit> =
+        client.apiCallUnit {
+            method = HttpMethod.Post
+            url(endpoint("auth/consent"))
+            setBody(ConsentAcceptRequest(consentVersion))
+        }
+
+    /** Spend the code from the confirmation letter. Empty: the proof lives on the account row. */
+    suspend fun confirmEmail(code: String): ApiResult<Unit> =
+        client.apiCallUnit {
+            method = HttpMethod.Post
+            url(endpoint("auth/email-confirmation/confirm"))
+            setBody(EmailConfirmationRequest(code))
+        }
+
+    /** Ask for another letter for the signed-in account; no address travels in the body. */
+    suspend fun resendEmailConfirmation(): ApiResult<Unit> =
+        client.apiCallUnit {
+            method = HttpMethod.Post
+            url(endpoint("auth/email-confirmation/resend"))
+        }
+
+    /**
+     * Ask for a code that returns a lost word.
+     *
+     * The server answers the same way whether or not the address holds an account, so this call is
+     * not a way to find out who signs up here; the body carries how long a code lives and nothing
+     * about the person it was sent to.
+     */
+    suspend fun requestPasswordReset(email: String): ApiResult<PasswordResetAcceptedDto> =
+        client.apiCall {
+            method = HttpMethod.Post
+            url(endpoint("auth/password-reset/request"))
+            setBody(PasswordResetRequest(email))
+        }
+
+    /**
+     * Trade the code read off a letter for a word said twice. Empty on purpose: the sessions this
+     * write ends include any the device still holds, so a token pair handed back would be the server
+     * un-revoking its own write.
+     */
+    suspend fun confirmPasswordReset(
+        code: String,
+        newPassword: String,
+        passwordConfirm: String,
+    ): ApiResult<Unit> = client.apiCallUnit {
+        method = HttpMethod.Post
+        url(endpoint("auth/password-reset/confirm"))
+        setBody(PasswordResetConfirmRequest(code, newPassword, passwordConfirm))
+    }
 
     suspend fun login(email: String, password: String): ApiResult<AuthResponseDto> =
         client.apiCall {

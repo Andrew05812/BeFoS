@@ -1,6 +1,13 @@
 # База данных BeFoS
 
-PostgreSQL 16, SQLAlchemy 2.0 (async) + asyncpg. Миграции — Alembic (`backend/alembic/versions/`). Первичная миграция `03f0ea587029_initial_schema` создаёт 21 таблицу, `4f2a1c9d7b30_discovery_deck_and_indexes` добавляет колоду подбора и индексы, нужные горячим чтением, `9c1f5b7d2a40_message_idempotency_key` — ключ повторяемости отправки в `messages`, `b7e3d0a9c421_onboarding_completed_at` — отметку законченного онбординга в `profiles`, `c5a7d1e0b342_unique_deck_rank_per_viewer` — уникальный индекс `(viewer_id, rank)`, `d8f4b2c6a157_index_email_lookup_a_sign_in_actually_uses` — функциональный индекс `lower(email)`, а `e6b28c4a13d0_indexes_that_only_cost_writes` снимает 15 индексов, которые были левым префиксом другого ключа и чтению не служили, и `f3a07c2d5b18_the_deck_pages_the_visible_population_newest_first` даёт чтению колоды ключ в том порядке, которое оно просит, `7c4f2a91be36_seven_activities_were_tagged_with_interests` правит строки каталога, не трогая схему, а `b4d8f1c07a52_the_pair_a_tap_was_made_for_is_kept` добавляет `activity_preferences.match_id`, и `f2b7c90ad341_a_pair_arranges_one_thing_that_has` поднимает `shared_plans` с `shared_plan_members` и даёт `messages.plan_id`, и `b4e7d3a8c619_a_decision_about_a_complaint_is_a_row` поднимает `report_reviews`, даёт `users.is_moderator` и меняет индекс очереди на `ix_reports_status_created_at` (head на 2026-10-17, `alembic check` чист — см. счёт ниже).
+PostgreSQL 16, SQLAlchemy 2.0 (async) + asyncpg. Миграции — Alembic (`backend/alembic/versions/`). Первичная миграция `03f0ea587029_initial_schema` создаёт 21 таблицу, `4f2a1c9d7b30_discovery_deck_and_indexes` добавляет колоду подбора и индексы, нужные горячим чтением, `9c1f5b7d2a40_message_idempotency_key` — ключ повторяемости отправки в `messages`, `b7e3d0a9c421_onboarding_completed_at` — отметку законченного онбординга в `profiles`, `c5a7d1e0b342_unique_deck_rank_per_viewer` — уникальный индекс `(viewer_id, rank)`, `d8f4b2c6a157_index_email_lookup_a_sign_in_actually_uses` — функциональный индекс `lower(email)`, а `e6b28c4a13d0_indexes_that_only_cost_writes` снимает 15 индексов, которые были левым префиксом другого ключа и чтению не служили, и `f3a07c2d5b18_the_deck_pages_the_visible_population_newest_first` даёт чтению колоды ключ в том порядке, которое оно просит, `7c4f2a91be36_seven_activities_were_tagged_with_interests` правит строки каталога, не трогая схему, а `b4d8f1c07a52_the_pair_a_tap_was_made_for_is_kept` добавляет `activity_preferences.match_id`, и `f2b7c90ad341_a_pair_arranges_one_thing_that_has` поднимает `shared_plans` с `shared_plan_members` и даёт `messages.plan_id`, и `b4e7d3a8c619_a_decision_about_a_complaint_is_a_row` поднимает `report_reviews`, даёт
+`users.is_moderator` и меняет индекс очереди на `ix_reports_status_created_at` (head на 2026-10-17),
+`f7c2a9d4e6b1` даёт обходу своих касаний ключ `(from_user_id, created_at DESC, id DESC)`,
+`c8f2b5d7a140` кладёт такие же ключи входящему списку и списку пропусков и снимает префикс
+`ix_likes_to_user_id`, а `a7d4f0b2c318_the_door_that_returns_a_lost_word_needs_a_dea` поднимает
+`auth_challenges`, а `b1f4a9c2e7d3_an_account_names_the_text_and_the_day_it_accepted`
+дописывает к `users` версию принятого текста и момент согласия: это head на 2026-11-09, и
+`alembic check` на нём пуст (счёт переснят ниже).
 
 Все таблицы наследуют `TimestampMixin` (`created_at`, `updated_at`), кроме чисто справочных. Первичные ключи пользователей и связанных сущностей — `UUID`; справочники — `INTEGER` (autoincrement). Внешние ключи на `users.id` используют `ON DELETE CASCADE`.
 
@@ -51,6 +58,24 @@ schemaname='public'` и `select count(*) from pg_indexes where schemaname='publi
 входят в `passes` за 4 047 мс с префиксным индексом и за 3 514 мс без него, в `messages` — 4 234
 против 3 518 мс. План, числа и SQL эксперимента — в [`docs/SCALE_PLAN.md`](SCALE_PLAN.md).
 
+Счёт переснят на стадии 131 на одной и той же пустой базе, чтобы «до» и «после» не сводить из
+разных съёмов: пустая база `befos_s131check`, поднятая `alembic upgrade head` целиком, отвечает на
+`alembic check` «No new upgrade operations detected», после `downgrade -1` (head `c8f2b5d7a140`)
+в ней 26 таблиц и 76 индексов, после обратного `upgrade head` (`a7d4f0b2c318`) — 27 таблиц и 79
+индексов, то есть ревизия добавляет ровно одну таблицу и три индекса (pkey, уникальный по
+`token_hash` и `ix_auth_challenges_owner_purpose`). Окно прогона — 15:26:56…15:27:19 UTC 2026-11-06,
+артефакты `s131_schema_counts.log` и `s131_schema_counts_before_after.log` в архиве проб (вне
+дерева); база после съёма удалена. Моделей в `app/models` стало 26 — `grep __tablename__` по этому
+каталогу ровно столько и считает, и `alembic check` пуст, что и есть проверка «модель объявлена, но
+не забыта миграцией».
+
+`b1f4a9c2e7d3` не добавляет ни таблиц, ни индексов: две nullable-колонки на `users` и
+ничего в планах чтения. `alembic check` на ней пуст, `downgrade base` оставляет одну строку
+таблиц и один индекс, повторный `upgrade head` возвращает тот же счёт, а `downgrade` этой
+ревизии снимает обе колонки. `NULL` в `consent_version` — не пустая строка и не прочерк: это
+строка, созданная до того, как текст появился, и клиент показывает ей документ снова
+(`RootViewModel` → `CONSENT`).
+
 ## Диаграмма связей (обзор)
 
 ```
@@ -84,6 +109,8 @@ users ─1:1─ profiles ─M:N─ interests   (через user_interests)
 | is_active | Boolean | default true |
 | is_verified | Boolean | default false |
 | is_moderator | Boolean | не default, nullable false — единственная привилегия продукта, и её не записывает ни один маршрут (стадия 102) |
+| consent_version | String(16) | nullable; версия текста, которую аккаунт принял (`core/consent.py`), `NULL` — строка до стадии 131 и читается как «согласия нет», а не как «согласие есть» |
+| consent_accepted_at | timestamptz | nullable; момент принятия той версии, что стоит слева; `POST /auth/consent` переписывает оба поля вместе |
 | is_deleted | Boolean | мягкое удаление |
 | deleted_at | timestamptz | nullable |
 
@@ -565,6 +592,24 @@ activity_id)`, прочитанный из двух строк `activity_prefere
 `id` (UUID PK), `user_id` (FK, cascade), `token_hash` (String 64, unique — SHA-256 от refresh-токена), `expires_at` (timestamptz), `revoked` (Boolean), `revoked_at`, `user_agent` (String, null). Индекс `ix_refresh_user_revoked (user_id, revoked)` — отзыв сессий пользователя; одиночный индекс по `user_id` удалён `e6b28c4a13d0` как его префикс. Refresh-токены ротируются: при обновлении старый отзывается.
 
 Ни одна колонка этой таблицы правкой стадии 110 не добавлена и не переименована — `head` Alembic на этом дереве остаётся `b4e7d3a8c619`, и `git diff --name-only 34b4875..HEAD -- backend/alembic` пуст. Изменилось только то, кто имеет право читать уже существующие столбцы: `user_agent` (`token_repo.py:27` кладёт в него первые 255 символов заголовка, пустую строку — как `NULL`) с этой стадии читается обратно самим владельцем ряда — `live_for_owner` (`token_repo.py:76`) берёт строки этого `user_id`, где `revoked IS FALSE AND expires_at > now`, и строит из них список устройств. Наружу из прочитанной стороны выходит ровно `id`, `user_agent`, `created_at`, `expires_at` и признак текущего ряда; `token_hash` и сам refresh-токен не уходят ни в каком виде, поэтому список устройств не даёт того, чем можно обновить пару. Разрез одной строки (`revoke_one_live_for_owner`, `token_repo.py:100`) — тот же единственный условный `UPDATE`, что и `consume` (`:33`), с тем же `expires_at` в предикате, поэтому множество рядов, которые этот разрез может закончить, совпадает со множеством рядов, которые тот же фильтр умеет показать: чужой id, уже законченный и несуществующий неразличимы. Перебор всех строк аккаунта использует `revoke_all_for_user` (`:68`) — ту же половину, что стоит за выходом через смену слова. Принадлежность ряда конкретному устройству держится не в таблице, а в токене: `sid` живёт в payload доступного токена (`auth_service.py:92`) и читается из него на каждом запросе (`auth/deps.py:60`), поэтому ряд, выданный этой сессией, помечен в её собственном списке словом «текущее», а не отдельной колонкой.
+
+### `auth_challenges`
+`user_id` (FK, cascade — код принадлежит аккаунту и не переживает его при жёстком удалении строки),
+`purpose` (String 20, `ChallengePurpose`: `password_reset`), `token_hash` (String 64, unique —
+SHA-256 от кода, сам код не пишется нигде), `expires_at` (timestamptz), `consumed_at` (timestamptz,
+null = не погашен). Индекс `ix_auth_challenges_token_hash` — единственное чтение двери по коду;
+`ix_auth_challenges_owner_purpose (user_id, purpose)` — вопрос «есть ли у этого аккаунта живой код»,
+который задаёт себе запрос письма, чтобы второй запрос не выслал второе письмо. Одиночного индекса по
+`user_id` нет: он был бы левым префиксом этого ключа (`test_schema_index_redundancy.py`).
+Проверки `ck_` на таблице нет намеренно: условие `expires_at > created_at` сделало бы просроченный
+код неполучаемым в наборе, а ветка «письмо опоздало» — самая опасная в этой двери.
+Ревизия `a7d4f0b2c318`, стадия 131.
+
+Два отказа этой таблицы отвечают одним текстом (`recovery_service.py:REFUSED`): ряда, которого нет,
+уже погашенного и просроченного снаружи не различить, поэтому дверь не отвечает на вопрос, докуда
+дошла догадка. Погашение — единственный `UPDATE … WHERE consumed_at IS NULL AND expires_at > now` с
+`RETURNING user_id` (`challenge_repo.py:redeem`): тот же арбитр, что и у ротации refresh-токена, два
+запроса с одним кодом не меняют слово дважды.
 
 ## Пул и что он не покрывает
 

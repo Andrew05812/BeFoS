@@ -13,12 +13,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 import subprocess
 import sys
 import time
 import uuid
 from datetime import datetime
+from pathlib import Path
 
 import httpx
 import websockets  # comes with uvicorn[standard], the same server that answers here
@@ -32,6 +34,66 @@ results: list[tuple[bool, str]] = []
 # found on the live pair, so the journey reads the document with the same eyes the screen does.
 _CONNECTIONS = {"harmony", "complementarity", "discussion", "unknown"}
 _SCALE_VALUE = re.compile(r"\d+[.,]\d+")
+
+# Stage 131: the letters the product writes, and the mailbox they land in. The stack is the compose
+# one, so the outbox volume is read out of its backend container; a deployment that mounts a host
+# directory names it in E2E_OUTBOX_DIR and this pull steps aside.
+CONFIRM_SUBJECT = "Подтверждение адреса BeFoS"
+RESET_SUBJECT = "Код восстановления BeFoS"
+_CODE_IN_LETTER = re.compile(r"\b[0-9A-HJ-NP-Z]{4}(?:-[0-9A-HJ-NP-Z]{4}){2}\b")
+CONSENT_VERSION = "1"
+MAILBOX = Path(
+    os.environ.get("E2E_OUTBOX_DIR", str(Path(__file__).resolve().parent / "outbox"))
+)
+COMPOSE_FILE = Path(
+    os.environ.get("E2E_COMPOSE_FILE", str(Path(__file__).resolve().parent.parent / "docker-compose.yml"))
+)
+
+
+def _pull_mailbox() -> None:
+    if os.environ.get("E2E_OUTBOX_DIR"):
+        return
+    MAILBOX.mkdir(parents=True, exist_ok=True)
+    try:
+        ident = subprocess.check_output(
+            ["docker", "compose", "-f", str(COMPOSE_FILE), "ps", "-q", "backend"],
+            text=True,
+            timeout=30,
+        ).strip()
+        if ident:
+            subprocess.run(
+                ["docker", "cp", f"{ident}:/app/outbox/.", str(MAILBOX)],
+                check=False,
+                capture_output=True,
+                timeout=30,
+            )
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
+def letter_code(address: str, subject: str) -> str:
+    """The code printed in the newest letter of this kind to this mailbox."""
+    _pull_mailbox()
+    letters = sorted(
+        MAILBOX.glob("*.eml"), key=lambda path: path.stat().st_mtime_ns, reverse=True
+    )
+    for letter in letters:
+        body = letter.read_text(encoding="utf-8")
+        if subject in body and f"to: {address}".lower() in body.lower():
+            found = _CODE_IN_LETTER.search(body)
+            if found:
+                return found.group(0).replace("-", "")
+    raise AssertionError(f"no {subject!r} letter for {address} in {MAILBOX}")
+
+
+def letter_count(address: str, subject: str) -> int:
+    _pull_mailbox()
+    total = 0
+    for letter in MAILBOX.glob("*.eml"):
+        body = letter.read_text(encoding="utf-8").lower()
+        if subject.lower() in body and f"to: {address}".lower() in body:
+            total += 1
+    return total
 
 
 def pace(seconds: float = 60.0) -> None:
@@ -658,7 +720,8 @@ def agreed_hour_reaches_the_chat(match_id: str, tok_a: str, tok_b: str, activity
             fresh = await asyncio.to_thread(
                 c.post, f"{BASE}/auth/register",
                 json={"email": f"e2e.answerer.{time.time_ns()}@befosmail.com",
-                      "password": "Str0ngPass!23", "password_confirm": "Str0ngPass!23"},
+                      "password": "Str0ngPass!23", "password_confirm": "Str0ngPass!23",
+                      "consent_version": CONSENT_VERSION},
             )
             hd = {"Authorization": f"Bearer {fresh.json()['tokens']['access_token']}"}
             stranger_no = await asyncio.to_thread(
@@ -997,7 +1060,8 @@ def complaint_reaches_a_moderator(c, ha: dict, hb: dict, uid_a: str, uid_b: str,
     check(review_for_a.status_code == 403, "an ordinary account decides nothing, named number or not",
           str(review_for_a.status_code))
 
-    rd = c.post(f"{BASE}/auth/register", json={"email": email_d, "password": pw, "password_confirm": pw})
+    rd = c.post(f"{BASE}/auth/register", json={"email": email_d, "password": pw,
+                                               "password_confirm": pw, "consent_version": CONSENT_VERSION})
     uid_d = rd.json()["user"]["id"]
     hd = {"Authorization": f"Bearer {rd.json()['tokens']['access_token']}"}
     # Stage 103 draws the queue's door from one field of the account's own read, so the walk checks
@@ -1104,7 +1168,22 @@ def main() -> int:
     email_b = f"e2e.b.{stamp}@befosmail.com"
     pw = "Str0ngPass!23"
 
-    # 0. health
+    # 0. the consent text, before there is an account to read it with. Registration has to name the
+    # version it showed; a body that names nothing is a client that showed nothing, and it is refused.
+    consent = c.get(f"{BASE}/auth/consent")
+    check(consent.status_code == 200 and len(consent.json().get("text", "")) > 400
+          and bool(consent.json().get("version")),
+          "the consent text is readable without a session",
+          f"version {consent.json().get('version')}")
+    global CONSENT_VERSION
+    CONSENT_VERSION = consent.json()["version"]
+    nameless = c.post(f"{BASE}/auth/register",
+                      json={"email": f"e2e.consent.{stamp}@befosmail.com",
+                            "password": pw, "password_confirm": pw})
+    check(nameless.status_code == 422, "registration refuses a body that names no text",
+          str(nameless.status_code))
+
+    # 0b. health
     h = c.get(f"{BASE}/health").json()
     check(h.get("status") == "ok", "health", str(h))
     hdb = c.get(f"{BASE}/health/db").json()
@@ -1117,9 +1196,11 @@ def main() -> int:
     shared = slugs[:4]
 
     # 1. register A + B
-    ra = c.post(f"{BASE}/auth/register", json={"email": email_a, "password": pw, "password_confirm": pw})
+    ra = c.post(f"{BASE}/auth/register", json={"email": email_a, "password": pw,
+                                               "password_confirm": pw, "consent_version": CONSENT_VERSION})
     check(ra.status_code in (200, 201) and "tokens" in ra.json(), "register A", str(ra.status_code))
-    rb = c.post(f"{BASE}/auth/register", json={"email": email_b, "password": pw, "password_confirm": pw})
+    rb = c.post(f"{BASE}/auth/register", json={"email": email_b, "password": pw,
+                                               "password_confirm": pw, "consent_version": CONSENT_VERSION})
     check(rb.status_code in (200, 201) and "tokens" in rb.json(), "register B", str(rb.status_code))
     tok_a = ra.json()["tokens"]["access_token"]
     tok_b = rb.json()["tokens"]["access_token"]
@@ -1129,8 +1210,29 @@ def main() -> int:
     ha = {"Authorization": f"Bearer {tok_a}"}
     hb = {"Authorization": f"Bearer {tok_b}"}
 
+    # 1b. the address proves itself. A is answered now; B stays unconfirmed on purpose, so the deck
+    # gate below is measured on a person who is otherwise ready to be shown.
+    me_a = c.get(f"{BASE}/users/me", headers=ha).json()
+    check(me_a.get("email_verified") is False and me_a.get("consent_up_to_date") is True,
+          "registration names an unconfirmed address and the text it accepted",
+          f"verified={me_a.get('email_verified')} consent={me_a.get('consent_up_to_date')}")
+    answered = c.post(f"{BASE}/auth/email-confirmation/confirm",
+                      json={"code": letter_code(email_a, CONFIRM_SUBJECT)})
+    check(answered.status_code == 204 and answered.content == b"",
+          "A answers the letter and the address is confirmed", str(answered.status_code))
+    check(c.get(f"{BASE}/users/me", headers=ha).json().get("email_verified") is True,
+          "the account's own read says the address is confirmed")
+    silent = c.post(f"{BASE}/auth/email-confirmation/resend", headers=ha)
+    check(silent.status_code == 204, "a confirmed address asks for a letter and gets silence",
+          str(silent.status_code))
+    letters_b = letter_count(email_b, CONFIRM_SUBJECT)
+    again_b = c.post(f"{BASE}/auth/email-confirmation/resend", headers=hb)
+    check(again_b.status_code == 204 and letter_count(email_b, CONFIRM_SUBJECT) == letters_b,
+          "a live letter is not sent twice", str(letters_b))
+
     # duplicate register rejected
-    dup = c.post(f"{BASE}/auth/register", json={"email": email_a, "password": pw, "password_confirm": pw})
+    dup = c.post(f"{BASE}/auth/register", json={"email": email_a, "password": pw,
+                                                "password_confirm": pw, "consent_version": CONSENT_VERSION})
     check(dup.status_code >= 400, "duplicate register rejected", str(dup.status_code))
 
     # 2. login A
@@ -1191,6 +1293,35 @@ def main() -> int:
           "each reader gets their own profile, not the other's",
           f"A {cats[0]['score']}% vs B {prof_b['categories'][0]['score']}%")
 
+    # 5a. the deck gate: B is onboarded and has answered the questionnaire, and is still not a person
+    # anybody may be shown until the letter goes back with its code. The gate is in the candidate
+    # predicate, so the tap on B's own id is refused by the same read that leaves it out of the deck.
+    def _cards(headers: dict) -> list[dict]:
+        found: list[dict] = []
+        page_cursor = None
+        while True:
+            params: dict = {"limit": 50}
+            if page_cursor:
+                params["cursor"] = page_cursor
+            page = c.get(f"{BASE}/discover", headers=headers, params=params).json()
+            batch = page.get("items", [])
+            found.extend(batch)
+            if not page.get("has_more") or not batch:
+                return found
+            page_cursor = page.get("next_cursor")
+
+    before_confirmation = _cards(ha)
+    check(all(it["user_id"] != uid_b for it in before_confirmation),
+          "an unconfirmed address stays out of the deck", f"{len(before_confirmation)} cards")
+    refused_tap = c.post(f"{BASE}/users/{uid_b}/like", headers=ha)
+    check(refused_tap.status_code == 404, "and cannot be reached by a tap on its id",
+          str(refused_tap.status_code))
+    confirmed_b = c.post(f"{BASE}/auth/email-confirmation/confirm",
+                         json={"code": letter_code(email_b, CONFIRM_SUBJECT)})
+    check(confirmed_b.status_code == 204, "B answers the letter", str(confirmed_b.status_code))
+    check(c.get(f"{BASE}/users/me", headers=hb).json().get("email_verified") is True,
+          "B's account now says the address is confirmed")
+
     # 5. discovery (page by cursor; endpoint caps limit at 50)
     items: list[dict] = []
     cursor = None
@@ -1239,9 +1370,13 @@ def main() -> int:
 
     # A deck remembers whom it has already shown, so the narrowing cannot be demonstrated on the
     # reader who just paged through the whole wide deck — it gets a fresh one.
-    rc = c.post(f"{BASE}/auth/register", json={"email": f"e2e.city.{stamp}@befosmail.com", "password": pw, "password_confirm": pw})
+    rc = c.post(f"{BASE}/auth/register", json={"email": f"e2e.city.{stamp}@befosmail.com", "password": pw,
+                                               "password_confirm": pw, "consent_version": CONSENT_VERSION})
     tok_c = rc.json()["tokens"]["access_token"]
     hc = {"Authorization": f"Bearer {tok_c}"}
+    check(c.post(f"{BASE}/auth/email-confirmation/confirm",
+                 json={"code": letter_code(rc.json()["user"]["email"], CONFIRM_SUBJECT)}).status_code == 204,
+          "the fresh reader confirms its address before it is shown anybody")
     oc = c.post(f"{BASE}/users/me/onboarding", headers=hc,
                 json=onboard_payload("Вера", "other", ["female", "male"], shared))
     c.post(f"{BASE}/tests/answers", headers=hc,
@@ -1299,10 +1434,14 @@ def main() -> int:
     # 243/244). The false premise was the walk's, not the product's: the product answered emptiness
     # correctly, and the read two lines after the release proves it by putting that same person back.
     rp = c.post(f"{BASE}/auth/register", json={"email": f"e2e.pass.{stamp}@befosmail.com",
-                                               "password": pw, "password_confirm": pw})
+                                               "password": pw, "password_confirm": pw,
+                                               "consent_version": CONSENT_VERSION})
     tok_p = rp.json()["tokens"]["access_token"]
     uid_p = rp.json()["user"]["id"]
     hp = {"Authorization": f"Bearer {tok_p}"}
+    check(c.post(f"{BASE}/auth/email-confirmation/confirm",
+                 json={"code": letter_code(rp.json()["user"]["email"], CONFIRM_SUBJECT)}).status_code == 204,
+          "the pass row's reader confirms its address")
     op = c.post(f"{BASE}/users/me/onboarding", headers=hp,
                 json=onboard_payload("Галина", "other", ["female", "male"], shared))
     ap = c.post(f"{BASE}/tests/answers", headers=hp,
@@ -1803,7 +1942,8 @@ def main() -> int:
     check(len(hist_a["messages"]) >= 2, "A sees full thread", f"{len(hist_a['messages'])} msgs")
 
     # 11b. realtime on the same pair; C exists only to be kept out of the room
-    rc = c.post(f"{BASE}/auth/register", json={"email": f"e2e.c.{stamp}@befosmail.com", "password": pw, "password_confirm": pw})
+    rc = c.post(f"{BASE}/auth/register", json={"email": f"e2e.c.{stamp}@befosmail.com", "password": pw,
+                                               "password_confirm": pw, "consent_version": CONSENT_VERSION})
     check(rc.status_code in (200, 201), "register C (a stranger to the pair)", str(rc.status_code))
     tok_c = rc.json()["tokens"]["access_token"]
     realtime(match_id, uid_a, uid_b, tok_a, tok_b, tok_c, c)
@@ -2078,6 +2218,46 @@ def main() -> int:
     check(len(rows_out) == 1 and rows_out[0]["device"] == ua_phone["User-Agent"] and rows_out[0]["current"] is True,
           "the file knows which device it was gathered from",
           str([(r["device"], r.get("current")) for r in rows_out])[:160])
+
+    # 15e. the lost word comes back through the letter, on the live server. The request learns
+    # nothing about whether the address holds an account; the letter carries a code that works once;
+    # spending it ends every session the account held, and the old word stops opening the door.
+    pace()
+    before_recovery = c.post(f"{BASE}/auth/login",
+                             json={"email": email_a, "password": pw_new}, headers=ua_tablet)
+    check(before_recovery.status_code == 200, "a session is open before the recovery",
+          str(before_recovery.status_code))
+    ref_before_recovery = before_recovery.json()["tokens"]["refresh_token"]
+
+    asked = c.post(f"{BASE}/auth/password-reset/request", json={"email": email_a})
+    check(asked.status_code == 202 and asked.json().get("accepted") is True
+          and asked.json().get("expires_in_seconds", 0) > 0,
+          "the recovery door takes an address and names the window", str(asked.json())[:90])
+    nobody = c.post(f"{BASE}/auth/password-reset/request",
+                    json={"email": f"e2e.nobody.{stamp}@befosmail.com"})
+    check(nobody.status_code == 202 and nobody.json() == asked.json(),
+          "an address with no account hears the same answer, down to the window",
+          str(nobody.json())[:90])
+
+    reset_code = letter_code(email_a, RESET_SUBJECT)
+    check(len(reset_code) == 12, "the letter carries a code of twelve characters", f"{len(reset_code)}")
+
+    pw_recovered = "Recovered!789"
+    recovered = c.post(f"{BASE}/auth/password-reset/confirm",
+                       json={"code": reset_code, "new_password": pw_recovered,
+                             "password_confirm": pw_recovered})
+    check(recovered.status_code == 204 and recovered.content == b"",
+          "the code trades for the new word, once", str(recovered.status_code))
+    spent = c.post(f"{BASE}/auth/password-reset/confirm",
+                   json={"code": reset_code, "new_password": "AnotherW0rd!1",
+                         "password_confirm": "AnotherW0rd!1"})
+    check(spent.status_code == 401, "the same code does not trade again", str(spent.status_code))
+    old_after = c.post(f"{BASE}/auth/login", json={"email": email_a, "password": pw_new})
+    check(old_after.status_code == 401, "the old word stopped opening the account", str(old_after.status_code))
+    new_after = c.post(f"{BASE}/auth/login", json={"email": email_a, "password": pw_recovered})
+    check(new_after.status_code == 200, "the new one does", str(new_after.status_code))
+    ended = c.post(f"{BASE}/auth/refresh", json={"refresh_token": ref_before_recovery})
+    check(ended.status_code == 401, "the sessions the old word opened ended with it", str(ended.status_code))
 
     # 16. unauthorized access rejected
     noauth = c.get(f"{BASE}/users/me")

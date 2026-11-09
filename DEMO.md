@@ -25,13 +25,26 @@
    `/auth/register`, `/users/me/onboarding`, `/tests`, `/tests/answers`, `/tests/complete`):
    ```bash
    cd backend && ./.venv/Scripts/python.exe - <<'PY'
-   import httpx, time
+   import glob, httpx, os, re, subprocess, time
    B = "http://localhost:8000/api/v1"
    c = httpx.Client(base_url=B, timeout=30)
    email = f"demo.partner.{int(time.time())}@example.com"
+   consent = c.get("/auth/consent").json()["version"]
    r = c.post("/auth/register", json={
        "email": email, "password": "DemoPass123!", "password_confirm": "DemoPass123!",
+       "consent_version": consent,
    }).json()
+   # Стадия 131: подбор и ящик касаний показывают только подтверждённые адреса. Код
+   # лежит в письме, письмо — в ящике контейнера; читаем его так, как прочитал бы человек.
+   os.makedirs("outbox-demo", exist_ok=True)
+   subprocess.run(["docker", "compose", "cp", "backend:/app/outbox/.",
+                   "outbox-demo"], check=True, capture_output=True)
+   letters = [p for p in glob.glob("outbox-demo/*.eml")
+              if f"To: {email}" in open(p, encoding="utf-8").read()]
+   code = re.search(r"[0-9A-HJ-NP-Z]{4}-[0-9A-HJ-NP-Z]{4}-[0-9A-HJ-NP-Z]{4}",
+                    open(max(letters, key=os.path.getmtime), encoding="utf-8").read())
+   assert c.post("/auth/email-confirmation/confirm",
+                 json={"code": code.group(0).replace("-", "")}).status_code == 204
    token = r["tokens"]["access_token"]
    h = {"Authorization": f"Bearer {token}"}
    c.post("/users/me/onboarding", headers=h, json={

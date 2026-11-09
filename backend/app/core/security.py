@@ -101,3 +101,34 @@ def decode_token(token: str, token_type: TokenType) -> dict[str, Any]:
 def generate_token_hash(token: str) -> str:
     """Store refresh tokens hashed (SHA-256), never in plaintext."""
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+# The alphabet a recovery code is drawn from. `0/O` and `1/I/L` are absent on purpose: this string is
+# meant to survive being read off a mail client on one device and typed into another. Twelve
+# characters out of 32 is about 1.1e18 possibilities, and the sliding window on `/auth` is what bounds
+# how many of them a caller may try.
+RECOVERY_CODE_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
+RECOVERY_CODE_LENGTH = 12
+
+
+def generate_recovery_code() -> str:
+    """A fresh one-time code, minted with the same source of randomness a session id is minted with.
+
+    Returned in its bare twelve characters; printing it in groups is a job for the letter
+    (`services/mail.py:format_code`), so that a comparison never has to know about typography.
+    """
+    return "".join(secrets.choice(RECOVERY_CODE_ALPHABET) for _ in range(RECOVERY_CODE_LENGTH))
+
+
+def normalise_recovery_code(spoken: str) -> str:
+    """The code as a person typed it, back to the characters the server compares.
+
+    A mail client wraps a long string, an Android keyboard offers its own separators, and a Cyrillic
+    layout can hand over full-width letters. Everything that reduces to twelve alphabet characters is
+    the same code; anything else is refused by the row it does not match, not by a rule invented here
+    about what a person is allowed to paste.
+    """
+    cleaned = "".join(
+        character for character in (spoken or "").upper() if character in RECOVERY_CODE_ALPHABET
+    )
+    return cleaned

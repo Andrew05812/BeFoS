@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import ConflictError, NotFoundError, ValidationError
 from app.models import (
     ActivityPreference,
+    AuthChallenge,
     Block,
     CompatibilityProfile,
     DiscoveryQueue,
@@ -191,8 +192,18 @@ class SafetyService:
         # unless the erasure says so: nothing reads them for a deleted account, because
         # every route that could asks for a live user first. The deck rows are the record of
         # who this person was shown, and the activity preferences are part of the same
-        # portrait; both go with the account.
-        for row in (TestAnswer, TestResult, CompatibilityProfile, ActivityPreference):
+        # portrait; both go with the account. `auth_challenges` joins the list for a reason of its own:
+        # an unredeemed recovery code is not history but a door, and the same reasoning that revokes
+        # every refresh token below (`revoke_all_for_user`) refuses to let one stand behind an account
+        # its owner has just erased. The schema's ON DELETE CASCADE would cover a hard delete, and
+        # never fires here, because accounts are soft-deleted.
+        for row in (
+            TestAnswer,
+            TestResult,
+            CompatibilityProfile,
+            ActivityPreference,
+            AuthChallenge,
+        ):
             await self.session.execute(delete(row).where(row.user_id == user_id))
         await self.session.execute(delete(DiscoveryQueue).where(DiscoveryQueue.viewer_id == user_id))
         user.is_deleted = True

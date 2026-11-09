@@ -60,6 +60,10 @@ private val translated: Map<String, String> = mapOf(
     "passwords do not match." to "Пароли не совпадают.",
     "password must be at least 8 characters." to "Пароль должен быть не короче 8 символов.",
     "current password is incorrect." to "Текущий пароль указан неверно.",
+    // The recovery door answers one sentence for a code that never existed, was already used and is
+    // too late, and this copy must not guess between them either: the screen that said «срок вышел»
+    // would be telling the caller which of the three it just learned.
+    "the code did not work. ask for a new letter." to "Код не подошёл. Запросите новое письмо.",
     "account is disabled." to "Аккаунт отключён. Обратитесь в поддержку.",
     "account is deactivated." to "Аккаунт отключён. Обратитесь в поддержку.",
     "user no longer exists." to "Сессия истекла. Войдите снова.",

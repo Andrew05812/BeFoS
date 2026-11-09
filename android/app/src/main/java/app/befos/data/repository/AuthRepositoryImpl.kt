@@ -5,8 +5,10 @@ import app.befos.core.network.StoredAuth
 import app.befos.core.network.TokenStore
 import app.befos.core.network.map
 import app.befos.data.mapper.toDomain
+import app.befos.data.model.PasswordResetAcceptedDto
 import app.befos.data.model.TokenPairDto
 import app.befos.data.remote.ApiService
+import app.befos.domain.model.ConsentDocument
 import app.befos.domain.model.SessionsPage
 import app.befos.domain.repository.AuthRepository
 import kotlinx.coroutines.flow.Flow
@@ -22,8 +24,12 @@ class AuthRepositoryImpl(
 
     override suspend fun lastEmail(): String? = tokenStore.lastEmail()
 
-    override suspend fun register(email: String, password: String): ApiResult<String> {
-        val result = api.register(email, password)
+    override suspend fun register(
+        email: String,
+        password: String,
+        consentVersion: String,
+    ): ApiResult<String> {
+        val result = api.register(email, password, consentVersion)
         return when (result) {
             is ApiResult.Success -> {
                 persist(result.data.tokens, result.data.user.id, email)
@@ -44,10 +50,43 @@ class AuthRepositoryImpl(
         }
     }
 
+    override suspend fun consent(): ApiResult<ConsentDocument> =
+        api.consent().map { ConsentDocument(it.version, it.effectiveDate, it.text) }
+
+    /**
+     * A success rewrites the person's own row, so their token pair is untouched: this is a stamp, not
+     * a new session, and dropping the pair here would log somebody out for agreeing to a document.
+     */
+    override suspend fun acceptConsent(consentVersion: String): ApiResult<Unit> =
+        api.acceptConsent(consentVersion)
+
+    override suspend fun confirmEmail(code: String): ApiResult<Unit> = api.confirmEmail(code)
+
+    override suspend fun resendEmailConfirmation(): ApiResult<Unit> =
+        api.resendEmailConfirmation()
+
     override suspend fun logout() {
         val refresh = tokenStore.current()?.refreshToken
         if (refresh != null) runCatching { api.logout(refresh) }
         tokenStore.clear()
+    }
+
+    override suspend fun requestPasswordReset(email: String): ApiResult<Int> =
+        api.requestPasswordReset(email).map { it.expiresInSeconds }
+
+    /**
+     * The server ends every session the account holds when it accepts a code, this device's included,
+     * so the stored pair goes with them — the same reason [changePassword] clears it. A screen that
+     * kept the tokens would keep reporting a session the recovery already revoked.
+     */
+    override suspend fun confirmPasswordReset(
+        code: String,
+        newPassword: String,
+        passwordConfirm: String,
+    ): ApiResult<Unit> {
+        val result = api.confirmPasswordReset(code, newPassword, passwordConfirm)
+        if (result is ApiResult.Success) tokenStore.clear()
+        return result
     }
 
     /**

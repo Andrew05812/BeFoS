@@ -55,6 +55,7 @@ from httpx import AsyncClient
 from PIL import Image
 
 from app.core.config import settings
+from app.core.consent import CONSENT_VERSION
 from app.services.photo_service import process_and_store_upload
 from .conftest import register_and_auth
 
@@ -148,7 +149,12 @@ async def test_registering_returns_the_event_loop(client: AsyncClient) -> None:
     def request():
         return client.post(
             "/api/v1/auth/register",
-            json={"email": email, "password": "Test12345", "password_confirm": "Test12345"},
+            json={
+                "email": email,
+                "password": "Test12345",
+                "password_confirm": "Test12345",
+                "consent_version": CONSENT_VERSION,
+            },
         )
 
     duration, max_gap, ticks, response = await _watch(request)

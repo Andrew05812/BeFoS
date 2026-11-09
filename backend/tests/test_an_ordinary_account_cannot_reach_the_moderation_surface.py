@@ -31,6 +31,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 
+from app.core.consent import CONSENT_VERSION
 from app.core.database import AsyncSessionLocal
 from app.models import Report, ReportReview, User
 from .conftest import auth_headers, register_and_auth
@@ -136,6 +137,7 @@ async def test_no_route_writes_the_moderator_flag(client: AsyncClient) -> None:
             "email": "self-appointed@befos.app",
             "password": "Test12345",
             "password_confirm": "Test12345",
+            "consent_version": CONSENT_VERSION,
             "is_moderator": True,
             "role": "moderator",
         },

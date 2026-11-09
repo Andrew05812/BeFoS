@@ -140,6 +140,13 @@ class ExportService:
             "email": user.email,
             "is_active": user.is_active,
             "is_moderator": bool(user.is_moderator),
+            # Stage 131: the signature and the address proof travel in the file too. A person
+            # reading their own copy is entitled to see what the product recorded they agreed to,
+            # not only the profile that agreement was about; null is shown as null, because an
+            # account made before the text existed never accepted it.
+            "is_verified": bool(user.is_verified),
+            "consent_version": user.consent_version,
+            "consent_accepted_at": user.consent_accepted_at,
             "created_at": user.created_at,
             "updated_at": user.updated_at,
         }

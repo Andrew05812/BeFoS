@@ -15,6 +15,9 @@ from __future__ import annotations
 
 import asyncio
 import os
+import pathlib
+import re
+import tempfile
 import threading
 
 # Test database location. Defaults to the Docker Compose postgres published on
@@ -61,8 +64,10 @@ def _ensure_test_database() -> None:
 
 _ensure_test_database()
 
+from app.core.config import settings  # noqa: E402
 from app.core.database import AsyncSessionLocal, Base, engine  # noqa: E402
-from app.core.rate_limit import reset_rate_limiters  # noqa: E402
+from app.core.consent import CONSENT_VERSION  # noqa: E402
+from app.core.rate_limit import reset_auth_limiter, reset_rate_limiters  # noqa: E402
 from app.main import create_app  # noqa: E402
 from app.models import (  # noqa: E402
     Block,
@@ -77,6 +82,7 @@ from app.models import (  # noqa: E402
     Profile,
     Recommendation,
     RefreshToken,
+    AuthChallenge,
     Report,
     ReportReview,
     SharedPlan,
@@ -108,6 +114,7 @@ _DOMAIN_MODELS = (
     Photo,
     Profile,
     RefreshToken,
+    AuthChallenge,
     User,
 )
 
@@ -330,20 +337,80 @@ async def client() -> AsyncClient:
     await engine.dispose()
 
 
-async def register_and_auth(client: AsyncClient, email: str, password: str = "Test12345") -> dict:
-    """Register a user and return ``{"token", "refresh", "user_id", "email"}``."""
+async def register_and_auth(
+    client: AsyncClient,
+    email: str,
+    password: str = "Test12345",
+    *,
+    verify: bool = True,
+) -> dict:
+    """Register a user and return ``{"token", "refresh", "user_id", "email"}``.
+
+    ``verify`` walks the real confirmation door — the code is read out of the letter the server
+    wrote, exactly as a person reads it out of a mailbox — because since stage 131 an unconfirmed
+    account is not a candidate in the deck, and a fixture that left every account unconfirmed would
+    turn every discovery test into a test of the empty state. A test about the gate itself asks for
+    ``verify=False`` and keeps the account behind it.
+    """
     resp = await client.post(
         "/api/v1/auth/register",
-        json={"email": email, "password": password, "password_confirm": password},
+        json={
+            "email": email,
+            "password": password,
+            "password_confirm": password,
+            "consent_version": CONSENT_VERSION,
+        },
     )
     assert resp.status_code == 201, resp.text
     data = resp.json()
-    return {
+    account = {
         "token": data["tokens"]["access_token"],
         "refresh": data["tokens"]["refresh_token"],
         "user_id": data["user"]["id"],
         "email": data["user"]["email"],
     }
+    if verify:
+        code = _confirmation_code(email)
+        confirmed = await client.post(
+            "/api/v1/auth/email-confirmation/confirm", json={"code": code}
+        )
+        assert confirmed.status_code == 204, confirmed.text
+        # Fixtures are setup, not measurement: the two auth requests above (and the letter they
+        # read) are paid before the test's own window opens, so a test that counts what a
+        # person may do in a minute still measures the product and not how many accounts its
+        # neighbours happened to register. Only the auth window is cleared — wiping the report
+        # budget here would refund complaints a test had just deliberately spent.
+        reset_auth_limiter()
+    return account
+
+
+def _confirmation_code(email: str) -> str:
+    """The code the server just printed to this address, read out of the newest letter for it.
+
+    The letters are files (`services/mail.py:OutboxTransport`), so a test fixture can be a mail
+    client. The newest one is the letter the helper's own registration produced; older ones belong
+    to tests about expiry and are spent or out of the window by the time they get here.
+    """
+    address = email.lower()
+    letters = sorted(
+        pathlib.Path(settings.mail_outbox_dir).glob("*.eml"),
+        key=lambda path: path.stat().st_mtime_ns,
+        reverse=True,
+    )
+    for letter in letters:
+        text = letter.read_text(encoding="utf-8")
+        if f"to: {address}" not in text.lower():
+            continue
+        found = re.search(r"\b([0-9A-HJ-NP-Z]{4}(?:-[0-9A-HJ-NP-Z]{4}){2})\b", text)
+        if found:
+            return found.group(1).replace("-", "")
+    raise AssertionError(f"no confirmation letter for {email!r} in {settings.mail_outbox_dir}")
+
+
+# Registration writes a confirmation letter. No test wants one in the repository's working
+# directory, and the helper above has to be able to read it back, so the session owns one outbox.
+settings.mail_transport = "outbox"
+settings.mail_outbox_dir = tempfile.mkdtemp(prefix="befos-test-outbox-")
 
 
 def auth_headers(token: str) -> dict:

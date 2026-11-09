@@ -15,6 +15,11 @@ _INSECURE_DEFAULTS = {
 # in .env.example, in docker-compose.yml as a default, and in the README's local-run steps,
 # so a deployment that kept it has a database password anybody with the repository knows.
 _INSECURE_DB_PASSWORDS = {"befos_password"}
+# The address the development default sends letters from. A placeholder in the same sense as the two
+# JWT secrets above: it names a domain nobody owns, so a deployment that kept it is mailing as
+# somebody else, and the production validator refuses it for the same reason it refuses
+# `befos_password` — the value is printed in this repository.
+_INSECURE_MAIL_FROM = "no-reply@befos.local"
 _MIN_SECRET_LEN = 32
 # The key that seals a page link. Kept apart from the two session keys on purpose: a link names a
 # place in one reader's own list and is worthless outside it, while a forged access token opens the
@@ -101,6 +106,36 @@ class Settings(BaseSettings):
     demo_email: str = Field(default="demo@befos.app", alias="DEMO_EMAIL")
     demo_password: str = Field(default="Demo12345", alias="DEMO_PASSWORD")
 
+    # --- The letter channel: how a code leaves this process, if it leaves at all. ---
+    # `outbox` writes the letter into a directory on the host and is the development default, because
+    # this repository has never held a mail credential and must not invent one — the same reasoning
+    # that left the release unsigned (`docs/RELEASE.md` §11, item 1). `smtp` completes a real session
+    # with the standard library and nothing else: no dependency is added here, and no provider is
+    # contacted until the operator names one in the environment.
+    mail_transport: str = Field(default="outbox", alias="MAIL_TRANSPORT")
+    mail_outbox_dir: str = Field(default="./outbox", alias="MAIL_OUTBOX_DIR")
+    mail_from: str = Field(default=_INSECURE_MAIL_FROM, alias="MAIL_FROM")
+    # The absolute prefix a letter is allowed to print as a link. Empty means the letter prints the
+    # code and nothing else, which is the honest default: a link built out of a host nobody configured
+    # is a broken door inside the one message whose whole job is to be a door.
+    mail_link_base: str = Field(default="", alias="MAIL_LINK_BASE")
+    mail_smtp_host: str = Field(default="", alias="MAIL_SMTP_HOST")
+    mail_smtp_port: int = Field(default=587, alias="MAIL_SMTP_PORT")
+    mail_smtp_username: str = Field(default="", alias="MAIL_SMTP_USERNAME")
+    mail_smtp_password: str = Field(default="", alias="MAIL_SMTP_PASSWORD")
+    mail_smtp_starttls: bool = Field(default=True, alias="MAIL_SMTP_STARTTLS")
+    # How long a recovery code stays spendable. Half an hour is roughly the window in which a person
+    # who just lost their word is still sitting at the screen that lost it; past a couple of hours the
+    # letter is a door left open on a mailbox that may be shared, rather than an answer to a question
+    # that was just asked.
+    reset_code_minutes: int = Field(default=30, alias="RESET_CODE_MINUTES")
+    # How long the code that proves a mailbox stays spendable. Longer than a recovery code on purpose:
+    # a recovery letter answers a question asked a minute ago, while the confirmation letter is waiting
+    # for somebody who registered and then went back to their work. A day is the ceiling — past that the
+    # letter is less a proof of a request than a door left ajar on an address that may have changed hands
+    # — and five minutes the floor, for the same reading-speed reason as above.
+    confirm_code_minutes: int = Field(default=60, alias="CONFIRM_CODE_MINUTES")
+
     @field_validator("cors_origins")
     @classmethod
     def _strip(cls, v: str) -> str:
@@ -181,6 +216,85 @@ class Settings(BaseSettings):
             raise ValueError(
                 "CURSOR_SECRET_PREVIOUS repeats the current secret under another id: the rotation "
                 "would change nothing about what an attacker can forge."
+            )
+        return self
+
+    @field_validator("reset_code_minutes")
+    @classmethod
+    def _code_life(cls, v: int) -> int:
+        if not 5 <= v <= 180:
+            raise ValueError(
+                f"RESET_CODE_MINUTES={v} is outside 5..180. Under five minutes a code is refused "
+                "before a person has read it off one screen and typed it into another; past three "
+                "hours it is a door left standing on a mailbox that may be shared."
+            )
+        return v
+
+    @field_validator("confirm_code_minutes")
+    @classmethod
+    def _confirmation_life(cls, v: int) -> int:
+        if not 5 <= v <= 1440:
+            raise ValueError(
+                f"CONFIRM_CODE_MINUTES={v} is outside 5..1440. Under five minutes a code is refused "
+                "before a person has read it off one screen and typed it into another; past a day "
+                "it is no longer an answer to «I registered just now»."
+            )
+        return v
+
+    @model_validator(mode="after")
+    def _mail_channel_is_consistent(self) -> "Settings":
+        """The channel a letter leaves by is named here, and in production it must really leave.
+
+        Two rules, because they fail in different ways. The name is checked in every environment:
+        `services/mail.py` raises when it is handed anything else, and a start that waits for the
+        first recovery request to discover the typo is a start that already promised somebody a
+        letter. Production then refuses `outbox` outright — writing a letter into a directory on the
+        host while the door answers that a code is on its way is precisely the kind of capability
+        this project has been told not to claim — and holds the SMTP branch to the settings that make
+        it a session rather than a guess.
+        """
+        name = (self.mail_transport or "").strip().lower()
+        if name not in {"outbox", "smtp"}:
+            raise ValueError(
+                f"MAIL_TRANSPORT={self.mail_transport!r} names no channel this build has; expected "
+                "`outbox` (a directory on this host) or `smtp` (a real protocol session)."
+            )
+        if not self.is_production:
+            return self
+        if name == "outbox":
+            raise ValueError(
+                "MAIL_TRANSPORT must be `smtp` in production: `outbox` keeps the letter in a "
+                "directory on this host while the door answers that a code is on its way, and that is "
+                "a claim about delivery this build cannot support."
+            )
+        if not self.mail_smtp_host:
+            raise ValueError(
+                "MAIL_SMTP_HOST must name a peer in production, otherwise the channel the deployment "
+                "chose has nowhere to connect to and every recovery request fails at the first byte."
+            )
+        if bool(self.mail_smtp_username) != bool(self.mail_smtp_password):
+            raise ValueError(
+                "MAIL_SMTP_USERNAME and MAIL_SMTP_PASSWORD come as a pair: one without the other is a "
+                "peer this server cannot authenticate against, and the person waiting for a code will "
+                "be told about mail rather than about a half-configured credential."
+            )
+        if self.mail_from == _INSECURE_MAIL_FROM:
+            raise ValueError(
+                "MAIL_FROM is still the shipped development address. It names a domain nobody owns, "
+                "so a production deployment that kept it is mailing as somebody else — and the value "
+                "is printed in this repository, which makes it a public choice rather than a default."
+            )
+        if not self.mail_smtp_starttls:
+            raise ValueError(
+                "MAIL_SMTP_STARTTLS must be true in production. This build speaks SMTP with the "
+                "standard library and knows only STARTTLS, so with it off the recovery code — and the "
+                "credential, since AUTH is sent after the greeting — crosses the network in the clear."
+            )
+        if self.mail_link_base and not self.mail_link_base.startswith("https://"):
+            raise ValueError(
+                "MAIL_LINK_BASE, when a deployment sets it, must be an https:// address: the link a "
+                "letter prints is the shortest path from somebody else's mail client to a door on "
+                "this account."
             )
         return self
 
