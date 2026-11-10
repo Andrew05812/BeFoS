@@ -233,10 +233,13 @@ async def test_deleting_an_account_does_not_read_the_interests_it_drops(client: 
         "those rows"
     )
     # 20 was the erasure before stage 131; the 21st is the DELETE that takes the account's
-    # one-time codes with it (recovery and address confirmation share `auth_challenges`). The
-    # ceiling is a trip count, not a budget of meaning: it moves only with a statement the
-    # erasure itself gained, never with a loop that grew.
-    assert len(seen) <= 21, f"{len(seen)} trips to erase an account"
+    # one-time codes with it (recovery and address confirmation share `auth_challenges`). Stage
+    # 132's three are the rows that now name this account in somebody else's data: its waiting
+    # mark, the invitations it minted, and the id it left inside an invitation it accepted (the
+    # last is an UPDATE, and `accepted_at` stays). The ceiling is a trip count, not a budget of
+    # meaning: it moves only with a statement the erasure itself gained, never with a loop that
+    # grew.
+    assert len(seen) <= 24, f"{len(seen)} trips to erase an account"
 
 
 async def test_the_stored_set_is_the_answered_set(client: AsyncClient, session) -> None:

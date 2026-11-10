@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime, timezone
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ConflictError, NotFoundError, ValidationError
@@ -13,10 +13,12 @@ from app.models import (
     Block,
     CompatibilityProfile,
     DiscoveryQueue,
+    Invitation,
     Photo,
     TestAnswer,
     TestResult,
     User,
+    WaitlistEntry,
 )
 from app.models.base import age_years, utc_today
 from app.repositories.social_repo import SocialRepository
@@ -206,6 +208,20 @@ class SafetyService:
         ):
             await self.session.execute(delete(row).where(row.user_id == user_id))
         await self.session.execute(delete(DiscoveryQueue).where(DiscoveryQueue.viewer_id == user_id))
+        # Stage 132. The waiting mark is this account's own request about its own city, so it goes
+        # with the account. The invitations it minted go too: nobody should be able to walk through
+        # a door belonging to an erased person, even while the soft-deleted row still exists. An
+        # invitation this account *accepted* belongs to somebody else and is kept, but the id of the
+        # erased guest is cut out of it — `accepted_at` stays, which is what keeps the door spent and
+        # the inviter's count honest; SET NULL is what a hard delete would have done, and accounts
+        # here are never hard-deleted.
+        await self.session.execute(delete(WaitlistEntry).where(WaitlistEntry.user_id == user_id))
+        await self.session.execute(delete(Invitation).where(Invitation.inviter_id == user_id))
+        await self.session.execute(
+            update(Invitation)
+            .where(Invitation.accepted_by_user_id == user_id)
+            .values(accepted_by_user_id=None)
+        )
         user.is_deleted = True
         user.is_active = False
         user.deleted_at = datetime.now(timezone.utc)

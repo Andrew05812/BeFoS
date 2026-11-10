@@ -62,6 +62,9 @@ services:
       MAIL_OUTBOX_DIR: ${MAIL_OUTBOX_DIR:-/app/outbox}
       MAIL_FROM: ${MAIL_FROM:-no-reply@befos.local}
       MAIL_LINK_BASE: ${MAIL_LINK_BASE:-}
+      # The personal invitation is a client deep link, not a web page: until a page exists the
+      # prefix stays the custom scheme the Android manifest declares (docs/OPERATIONS.md §11).
+      INVITE_LINK_BASE: ${INVITE_LINK_BASE:-befos://invite}
       MAIL_SMTP_HOST: ${MAIL_SMTP_HOST:-}
       MAIL_SMTP_PORT: ${MAIL_SMTP_PORT:-587}
       MAIL_SMTP_USERNAME: ${MAIL_SMTP_USERNAME:-}

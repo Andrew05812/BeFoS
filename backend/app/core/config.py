@@ -119,6 +119,11 @@ class Settings(BaseSettings):
     # code and nothing else, which is the honest default: a link built out of a host nobody configured
     # is a broken door inside the one message whose whole job is to be a door.
     mail_link_base: str = Field(default="", alias="MAIL_LINK_BASE")
+    # The prefix a personal invitation is printed under. A custom scheme is the honest default
+    # while no web front door exists: an `https://` link here would be a promise that a page opens,
+    # and no page does. A deployment that owns a domain overrides it, and the client keeps parsing
+    # the code as the last path segment either way.
+    invite_link_base: str = Field(default="befos://invite", alias="INVITE_LINK_BASE")
     mail_smtp_host: str = Field(default="", alias="MAIL_SMTP_HOST")
     mail_smtp_port: int = Field(default=587, alias="MAIL_SMTP_PORT")
     mail_smtp_username: str = Field(default="", alias="MAIL_SMTP_USERNAME")
@@ -240,6 +245,17 @@ class Settings(BaseSettings):
                 "it is no longer an answer to «I registered just now»."
             )
         return v
+
+    @field_validator("invite_link_base")
+    @classmethod
+    def _invite_base(cls, v: str) -> str:
+        cleaned = v.strip().rstrip("/")
+        if not (cleaned.startswith("befos://") or cleaned.startswith("https://")):
+            raise ValueError(
+                "INVITE_LINK_BASE must name a scheme the client can open: `befos://invite` on the "
+                "stand, or an https:// prefix once the owner has a web front door."
+            )
+        return cleaned
 
     @model_validator(mode="after")
     def _mail_channel_is_consistent(self) -> "Settings":

@@ -40,6 +40,9 @@ _UNKNOWN_VALUES = {
     # The number a person gives to take back a line they typed. Same sense again: it names one row
     # of one pair, and only the half that typed it owns the write.
     "message_id": lambda: str(uuid.uuid4()),
+    # A personal invitation link, by the row's own id. It is an object identifier like the rest:
+    # only its inviter may close it, and a stranger's answer must not say whether it exists.
+    "invitation_id": lambda: str(uuid.uuid4()),
 }
 
 _HTTP_METHODS = ("GET", "POST", "PATCH", "PUT", "DELETE")
@@ -84,7 +87,7 @@ def test_the_sweep_walks_the_whole_identifier_surface() -> None:
     The floor is not a target — it fails when a route drops out of the table (a rename, a
     removal, a parameter the mapping no longer knows), which is how a hand-written list goes
     quietly stale and how an automated one would too if nobody read the set it produced.
-    Measured on this tree: 40 calls — 8 under ``/users/{user_id}`` (both halves of the block pair
+    Measured on this tree: 41 calls, the invitation write among them — 8 under ``/users/{user_id}`` (both halves of the block pair
     among them: a route that lets one of a write and its undo through is exactly what this floor is
     here to catch, and the ``DELETE`` stage 116 mounts to take one's own tap back is its own write),
     2 under ``/users/me/photo/{photo_id}``, 1 under ``/auth/sessions/{session_id}/revoke``

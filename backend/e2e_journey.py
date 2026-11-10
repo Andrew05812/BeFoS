@@ -1161,6 +1161,52 @@ def onboard_payload(name: str, gender: str, pref: list[str], interests: list[str
     }
 
 
+def register_account(c: httpx.Client, email: str, invite: str | None = None) -> dict:
+    body = {
+        "email": email,
+        "password": "Str0ngPass!23",
+        "password_confirm": "Str0ngPass!23",
+        "consent_version": CONSENT_VERSION,
+    }
+    if invite:
+        body["invite_code"] = invite
+    created = c.post(f"{BASE}/auth/register", json=body)
+    check(created.status_code == 201, f"live registration of {email}", str(created.status_code))
+    return created.json()
+
+
+def confirm_account(c: httpx.Client, email: str, token: str) -> None:
+    confirmed = c.post(
+        f"{BASE}/auth/email-confirmation/confirm",
+        json={"code": letter_code(email, CONFIRM_SUBJECT)},
+    )
+    check(confirmed.status_code == 204, f"{email} answers its confirmation letter",
+          str(confirmed.status_code))
+
+
+def ready_account(
+    c: httpx.Client, account: dict, *, name: str, gender: str, pref: list[str],
+    city: str, interests: list[str], tag: str,
+) -> dict:
+    """Onboarding, a home city of its own and the questionnaire — a body the deck could serve."""
+    headers = {"Authorization": f"Bearer {account['tokens']['access_token']}"}
+    onboarded = c.post(f"{BASE}/users/me/onboarding", headers=headers,
+                       json=onboard_payload(name, gender, pref, interests))
+    check(onboarded.status_code == 200, f"{tag} finishes onboarding", str(onboarded.status_code))
+    moved = c.patch(f"{BASE}/users/me", headers=headers, json={"city": city})
+    check(moved.status_code == 200, f"{tag} gets a city of its own", str(moved.status_code))
+    catalogue = c.get(f"{BASE}/tests", headers=headers).json()
+    answers = [
+        {"question_id": question["id"], "option_id": question["options"][0]["id"]}
+        for question in catalogue["questions"] if question["options"]
+    ]
+    saved = c.post(f"{BASE}/tests/answers", headers=headers, json={"answers": answers})
+    finished = c.post(f"{BASE}/tests/complete", headers=headers)
+    check(saved.status_code == 200 and finished.status_code == 200, f"{tag} finishes the questionnaire",
+          f"{saved.status_code}/{finished.status_code}")
+    return c.get(f"{BASE}/users/me", headers=headers).json()
+
+
 def main() -> int:
     c = httpx.Client(timeout=30.0, trust_env=False)
     stamp = int(time.time())
@@ -2258,6 +2304,178 @@ def main() -> int:
     check(new_after.status_code == 200, "the new one does", str(new_after.status_code))
     ended = c.post(f"{BASE}/auth/refresh", json={"refresh_token": ref_before_recovery})
     check(ended.status_code == 401, "the sessions the old word opened ended with it", str(ended.status_code))
+
+    # 15f. Stage 132: the empty deck names its world, and one personal door opens one account.
+    #
+    # The stand is seeded, so `no_one_yet` and `audience_preparing` cannot be produced here without
+    # deleting the catalogue the rest of this walk uses; those two are pinned by the pytest file
+    # `test_the_empty_deck_names_why_and_offers_a_door.py`. The reasons below are produced on fresh
+    # accounts, and every value read back is the server's — no bucket is computed in this script.
+    pace()
+    suffix = f"{stamp}-s132"
+    email_e = f"e2e.empty.viewer.{suffix}@befosmail.com"
+    email_f = f"e2e.empty.peer.{suffix}@befosmail.com"
+    email_g = f"e2e.empty.guest.{suffix}@befosmail.com"
+    empty_city = f"Город-Пустой-{stamp}"
+
+    e_account = register_account(c, email_e)
+    e_token = e_account["tokens"]["access_token"]
+    he = {"Authorization": f"Bearer {e_token}"}
+    confirm_account(c, email_e, e_token)
+    # The diagnosis is only asked of a page that came back empty. These filters make the shell's
+    # deck empty without touching the gate being measured: verified, onboarded? no.
+    empty_filters = c.patch(f"{BASE}/users/me", headers=he, json={
+        "age_min": 99, "age_max": 99,
+        "gender_preference": ["male", "female", "nonbinary", "other"],
+        "city_preference": "",
+    })
+    check(empty_filters.status_code == 200, "the shell can narrow its deck before onboarding",
+          str(empty_filters.status_code))
+    shell = c.get(f"{BASE}/discover", params={"limit": 5}, headers=he).json()
+    check(shell["items"] == [] and shell["empty"]["reason"] == "onboarding_incomplete",
+          "a confirmed shell with no questionnaire is told which gate it stands at",
+          str(shell.get("empty")))
+
+    f_account = register_account(c, email_f)
+    f_token = f_account["tokens"]["access_token"]
+    hf = {"Authorization": f"Bearer {f_token}"}
+    confirm_account(c, email_f, f_token)
+    f_me = ready_account(c, f_account, name="Фёдор", gender="male", pref=["female"],
+                         city=empty_city, interests=shared, tag="F")
+    e_me = ready_account(c, e_account, name="Елена", gender="female", pref=["male"],
+                         city=empty_city, interests=shared, tag="E")
+
+    narrow = c.patch(f"{BASE}/users/me", headers=he, json={
+        "age_min": 99, "age_max": 99,
+        "gender_preference": ["male", "female", "nonbinary", "other"],
+        "city_preference": "",
+    })
+    too_narrow = c.get(f"{BASE}/discover", params={"limit": 5}, headers=he).json()
+    check(narrow.status_code == 200 and too_narrow["items"] == []
+          and too_narrow["empty"]["reason"] == "filters_too_narrow",
+          "age 99..99 is named as the filters, not as an empty product", str(too_narrow.get("empty")))
+
+    nowhere = c.patch(f"{BASE}/users/me", headers=he, json={
+        "age_min": 18, "age_max": 99,
+        "gender_preference": ["male", "female", "nonbinary", "other"],
+        "city_preference": f"Нигде-{stamp}",
+    })
+    city_empty = c.get(f"{BASE}/discover", params={"limit": 5}, headers=he).json()
+    check(nowhere.status_code == 200 and city_empty["items"] == []
+          and city_empty["empty"]["reason"] == "city_filter_empty"
+          and city_empty["empty"]["can_widen_filters"] is True,
+          "a search city nobody lives in names the city, and offers to widen it",
+          str(city_empty.get("empty")))
+
+    together = c.patch(f"{BASE}/users/me", headers=he, json={
+        "age_min": f_me["age"], "age_max": f_me["age"],
+        "gender_preference": ["male"], "city_preference": empty_city,
+    })
+    one_card = c.get(f"{BASE}/discover", params={"limit": 50}, headers=he).json()
+    check(together.status_code == 200
+          and [it["user_id"] for it in one_card["items"]] == [f_account["user"]["id"]],
+          "the narrowed deck finds the one account that matches it",
+          str([it["user_id"] for it in one_card["items"]]))
+    passed = c.post(f"{BASE}/users/{f_account['user']['id']}/pass", headers=he)
+    check(passed.status_code == 200 and passed.json().get("passed") is True,
+          "the viewer answers the one card in its deck", str(passed.status_code))
+
+    exhausted = c.get(f"{BASE}/discover", params={"limit": 50}, headers=he).json()
+    check(exhausted["items"] == [] and exhausted["empty"]["reason"] == "exhausted",
+          "a deck whose one matching card was answered is exhausted, not a product with nobody",
+          str(exhausted.get("empty")))
+
+
+    waiting = c.post(f"{BASE}/discover/waitlist", headers=he, json={"city": "Казань"})
+    marked = c.get(f"{BASE}/discover/waitlist", headers=he)
+    check(waiting.status_code == 200 and waiting.json().get("joined") is True
+          and waiting.json().get("city") == "Казань"
+          and marked.status_code == 200 and marked.json() == waiting.json(),
+          "the waiting mark reads back as the account's own row, unchanged",
+          str(waiting.json()))
+    homed = c.post(f"{BASE}/discover/waitlist", headers=he, json={})
+    check(homed.status_code == 200 and homed.json().get("joined") is True
+          and homed.json().get("city") == empty_city,
+          "an unnamed waiting city comes from the account's own profile", str(homed.json()))
+    untouched = c.get(f"{BASE}/discover/waitlist", headers=hf)
+    check(untouched.status_code == 200 and untouched.json().get("joined") is False
+          and untouched.json().get("city") is None,
+          "one account's waiting mark is not another's", str(untouched.json()))
+    withdrawn = c.delete(f"{BASE}/discover/waitlist", headers=he)
+    twice_withdrawn = c.delete(f"{BASE}/discover/waitlist", headers=he)
+    after_withdraw = c.get(f"{BASE}/discover/waitlist", headers=he).json()
+    check(withdrawn.status_code == 204 and twice_withdrawn.status_code == 204
+          and after_withdraw.get("joined") is False and after_withdraw.get("city") is None,
+          "withdrawing the waiting mark is idempotent and reads back as gone",
+          f"{withdrawn.status_code}/{twice_withdrawn.status_code}")
+
+    door = c.post(f"{BASE}/referrals", headers=he)
+    door_body = door.json()
+    again_door = c.post(f"{BASE}/referrals", headers=he).json()
+    preview = c.post(f"{BASE}/invites/preview", json={"code": door_body["code"]})
+    preview_text = str(preview.json())
+    check(door.status_code == 200 and door_body["url"].startswith("befos://invite/")
+          and len(door_body["code"]) >= 20 and again_door["id"] == door_body["id"]
+          and preview.status_code == 200 and preview.json().get("valid") is True,
+          "a personal door is minted once: the second tap returns the same live link",
+          f"{door.status_code} {door_body.get('url')}")
+    check(email_e not in preview_text and e_me["name"] not in preview_text
+          and e_account["user"]["id"] not in preview_text,
+          "a preview says whether the door opens, not whose it is", preview_text)
+
+    guest = register_account(c, email_g, invite=door_body["code"])
+    guest_id = guest["user"]["id"]
+    guest_token = guest["tokens"]["access_token"]
+    guest_headers = {"Authorization": f"Bearer {guest_token}"}
+    check(guest.get("invite_applied") is True, "the new account names the invitation it walked through",
+          str(guest.get("invite_applied")))
+    narrowed_guest = c.patch(f"{BASE}/users/me", headers=guest_headers, json={
+        "age_min": 99, "age_max": 99,
+        "gender_preference": ["male", "female", "nonbinary", "other"],
+    })
+    check(narrowed_guest.status_code == 200, "the unconfirmed guest can narrow its deck",
+          str(narrowed_guest.status_code))
+    unconfirmed = c.get(f"{BASE}/discover", params={"limit": 5},
+                        headers=guest_headers).json()
+    check(unconfirmed["items"] == [] and unconfirmed["empty"]["reason"] == "email_unconfirmed",
+          "an unconfirmed account is told its own address is the gate, before any audience",
+          str(unconfirmed.get("empty")))
+
+    listed = c.get(f"{BASE}/referrals", headers=he).json()
+    listed_text = str(listed)
+    check(listed["accepted_total"] == 1 and guest_id not in listed_text
+          and email_g not in listed_text
+          and "accepted" in {row["status"] for row in listed["invites"]},
+          "the inviter learns the count, never the guest's name, id or address",
+          f"accepted={listed.get('accepted_total')}")
+    spent = c.post(f"{BASE}/invites/preview", json={"code": door_body["code"]}).json()
+    check(spent.get("valid") is False, "a spent door does not open for a second account", str(spent))
+
+    intruder = c.delete(f"{BASE}/referrals/{door_body['id']}", headers=hf)
+    owner_spent = c.delete(f"{BASE}/referrals/{door_body['id']}", headers=he)
+    check(intruder.status_code == 404 and owner_spent.status_code == 404,
+          "a stranger's revoke and the owner's revoke of a spent door answer the same 404",
+          f"{intruder.status_code}/{owner_spent.status_code}")
+    second = c.post(f"{BASE}/referrals", headers=he)
+    second_body = second.json()
+    check(second.status_code == 200 and second_body["id"] != door_body["id"],
+          "with the first spent, the inviter may open exactly one new door", str(second.status_code))
+    check(c.delete(f"{BASE}/referrals/{second_body['id']}", headers=hf).status_code == 404,
+          "a stranger cannot close the inviter's live door")
+    revoked = c.delete(f"{BASE}/referrals/{second_body['id']}", headers=he)
+    revoked_preview = c.post(
+        f"{BASE}/invites/preview", json={"code": second_body["code"]}
+    ).json()
+    check(revoked.status_code == 204 and revoked_preview.get("valid") is False,
+          "the owner's revoke closes the door immediately", str(revoked.status_code))
+
+    for token, label in (
+        (guest_token, "empty guest"),
+        (f_token, "empty peer"),
+        (e_token, "empty viewer"),
+    ):
+        gone = c.delete(f"{BASE}/users/me", headers={"Authorization": f"Bearer {token}"})
+        check(gone.status_code == 200, f"the {label} probe account is deleted", str(gone.status_code))
 
     # 16. unauthorized access rejected
     noauth = c.get(f"{BASE}/users/me")

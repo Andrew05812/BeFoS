@@ -12,6 +12,12 @@ import app.befos.data.model.ChangePasswordRequest
 import app.befos.data.model.ConsentAcceptRequest
 import app.befos.data.model.ConsentDto
 import app.befos.data.model.EmailConfirmationRequest
+import app.befos.data.model.InviteDto
+import app.befos.data.model.InvitePreviewDto
+import app.befos.data.model.InvitePreviewRequest
+import app.befos.data.model.InvitesDto
+import app.befos.data.model.WaitlistJoinRequest
+import app.befos.data.model.WaitlistStatusDto
 import app.befos.data.model.PasswordResetAcceptedDto
 import app.befos.data.model.PasswordResetConfirmRequest
 import app.befos.data.model.PasswordResetRequest
@@ -77,11 +83,61 @@ class ApiService(private val client: HttpClient) {
     private fun endpoint(path: String): String = ApiConfig.api(path)
 
     // ---------- Auth ----------
-    suspend fun register(email: String, password: String, consentVersion: String): ApiResult<AuthResponseDto> =
+    suspend fun register(
+        email: String,
+        password: String,
+        consentVersion: String,
+        inviteCode: String? = null,
+    ): ApiResult<AuthResponseDto> =
         client.apiCall {
             method = HttpMethod.Post
             url(endpoint("auth/register"))
-            setBody(RegisterRequest(email, password, password, consentVersion))
+            setBody(RegisterRequest(email, password, password, consentVersion, inviteCode))
+        }
+
+    /** Whether an invitation code opens, and when it closes. The answer names nobody. */
+    suspend fun previewInvite(code: String): ApiResult<InvitePreviewDto> =
+        client.apiCall {
+            method = HttpMethod.Post
+            url(endpoint("invites/preview"))
+            setBody(InvitePreviewRequest(code))
+        }
+
+    suspend fun myInvites(): ApiResult<InvitesDto> =
+        client.apiCall {
+            method = HttpMethod.Get
+            url(endpoint("referrals"))
+        }
+
+    suspend fun createInvite(): ApiResult<InviteDto> =
+        client.apiCall {
+            method = HttpMethod.Post
+            url(endpoint("referrals"))
+        }
+
+    suspend fun revokeInvite(invitationId: String): ApiResult<Unit> =
+        client.apiCallUnit {
+            method = HttpMethod.Delete
+            url(endpoint("referrals/$invitationId"))
+        }
+
+    suspend fun waitlist(): ApiResult<WaitlistStatusDto> =
+        client.apiCall {
+            method = HttpMethod.Get
+            url(endpoint("discover/waitlist"))
+        }
+
+    suspend fun joinWaitlist(city: String?): ApiResult<WaitlistStatusDto> =
+        client.apiCall {
+            method = HttpMethod.Post
+            url(endpoint("discover/waitlist"))
+            setBody(WaitlistJoinRequest(city))
+        }
+
+    suspend fun leaveWaitlist(): ApiResult<Unit> =
+        client.apiCallUnit {
+            method = HttpMethod.Delete
+            url(endpoint("discover/waitlist"))
         }
 
     /** The text registration asks a person to accept; public, because there is no account yet. */

@@ -35,6 +35,22 @@ class Event:
     MESSAGE_SENT = "message_sent"
     RECOMMENDATION_VIEWED = "recommendation_viewed"
     RECOMMENDATION_SELECTED = "recommendation_selected"
+    # Stage 132. One line for each rung of the growth ladder the empty deck exposes: the reason a
+    # screen had nothing to show, a link being opened and a link being spent, a waiting mark being
+    # left and taken back. None of them carries an address, a city string, a profile or a code —
+    # properties are buckets and booleans, which is enough to count people and not enough to name
+    # one.
+    DISCOVERY_EMPTY = "discovery_empty"
+    # The denominator of the invitation funnel: every account that finished registering, whether
+    # it carried a code or not. Its only property is whether one was spent, so the journal can say
+    # «one in nine newcomers walked through a door» without ever naming the door or the friend.
+    REGISTRATION_COMPLETED = "registration_completed"
+    INVITE_OPENED = "invite_opened"
+    INVITE_CREATED = "invite_created"
+    INVITE_ACCEPTED = "invite_accepted"
+    INVITE_REVOKED = "invite_revoked"
+    WAITLIST_JOINED = "waitlist_joined"
+    WAITLIST_LEFT = "waitlist_left"
 
 
 @dataclass

@@ -28,6 +28,7 @@ from app.models.chat import Message, MessageRead
 from app.models.discovery import DiscoveryQueue
 from app.models.activity import Activity, ActivityPreference, Recommendation
 from app.models.plan import SharedPlan, SharedPlanMember
+from app.models.referral import Invitation, WaitlistEntry
 from app.models.token import AuthChallenge, RefreshToken
 
 __all__ = [
@@ -67,4 +68,6 @@ __all__ = [
     "SharedPlanMember",
     "RefreshToken",
     "AuthChallenge",
+    "Invitation",
+    "WaitlistEntry",
 ]

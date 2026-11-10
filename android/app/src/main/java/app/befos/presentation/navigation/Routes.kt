@@ -132,4 +132,8 @@ object Routes {
     // accept the words that stand now before it continues. The register screen's checkbox is not
     // reused as a destination — it is a field in a form, not a place a person can be sent back to.
     const val CONSENT = "consent"
+
+    // Stage 132: the account's own door out of an empty deck. One route, no identifier — whose
+    // invitations these are comes from the session, and no invited person is ever addressed here.
+    const val REFERRALS = "referrals"
 }

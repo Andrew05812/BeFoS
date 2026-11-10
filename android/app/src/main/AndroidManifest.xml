@@ -23,11 +23,21 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTop"
             android:theme="@style/Theme.BeFoS"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- Stage 132: the personal door. `befos://invite/<code>` is opened from a shared
+                 message; the code travels in the body of the preview call, never again in a server
+                 path, so a forwarded link is a door and not a search key for a profile. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="befos" android:host="invite" />
             </intent-filter>
         </activity>
 

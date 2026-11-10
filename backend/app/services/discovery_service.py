@@ -37,6 +37,7 @@ from app.models.base import age_years, utc_today
 from app.repositories.social_repo import DiscoveryRepository, SocialRepository
 from app.repositories.user_repo import UserRepository
 from app.services.compatibility_service import CompatibilityService
+from app.services.empty_deck_service import EmptyDeckService
 
 # Candidates ranked and appended in one go. Big enough that a viewer rarely waits on a
 # rebuild, small enough that one rebuild never pulls the whole selection into Python.
@@ -101,6 +102,9 @@ class DiscoveryService:
         self.social = SocialRepository(session)
         self.discovery = DiscoveryRepository(session)
         self.compatibility = CompatibilityService(session)
+        # The empty page is the one page whose content is useless without a sentence about why.
+        # Kept in its own service so the deck's ranking stays free of counting for a screen.
+        self.empty = EmptyDeckService(session)
 
     @staticmethod
     def _preferences(viewer_profile: Profile) -> dict:
@@ -223,7 +227,12 @@ class DiscoveryService:
         return cards
 
     async def feed(
-        self, viewer_id: uuid.UUID, *, limit: int = 20, cursor: str | None = None
+        self,
+        viewer_id: uuid.UUID,
+        *,
+        limit: int = 20,
+        cursor: str | None = None,
+        viewer_is_verified: bool | None = None,
     ) -> dict:
         viewer_profile = await self.users.get_profile(viewer_id)
         if viewer_profile is None:
@@ -295,10 +304,28 @@ class DiscoveryService:
         # that produced it is stored. Both have to survive this request.
         await self.session.commit()
         tracker.track(Event.DISCOVERY_FEED, str(viewer_id), cards=len(cards))
+        empty_answer = None
+        if not cards:
+            # The first page is the only one whose emptiness the person is *shown*: a short cursor
+            # page that ends here is followed by the same screen, but the screen already knows what
+            # it said. Counting only once keeps a refresh loop from turning the diagnosis into a
+            # load source of its own.
+            explained = await self.empty.explain(
+                viewer_id,
+                viewer_profile,
+                gender_pref=prefs["gender_pref"],
+                age_min=prefs["age_min"],
+                age_max=prefs["age_max"],
+                city_pref=prefs["city"],
+                track=cursor is None,
+                viewer_is_verified=viewer_is_verified,
+            )
+            empty_answer = explained
         return {
             "items": cards,
             "next_cursor": seal_rank(viewer_id, last_rank) if advanced else None,
             "has_more": has_more,
+            "empty": empty_answer,
         }
 
 

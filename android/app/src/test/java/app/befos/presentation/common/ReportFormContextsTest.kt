@@ -11,6 +11,7 @@ import app.befos.domain.repository.ChatRepository
 import app.befos.domain.repository.DiscoveryRepository
 import app.befos.domain.repository.MatchRepository
 import app.befos.domain.repository.ProfileRepository
+import app.befos.domain.repository.ReferralRepository
 import app.befos.domain.repository.SafetyRepository
 import app.befos.domain.repository.TestRepository
 import app.befos.domain.safety.AnsweredUsers
@@ -79,7 +80,8 @@ class ReportFormContextsTest {
             )
             coEvery { pass(any()) } returns ApiResult.Success(Unit)
         }
-        return DiscoveryViewModel(repo, safety, AnsweredUsers())
+        val referrals: ReferralRepository = mockk(relaxed = true)
+        return DiscoveryViewModel(repo, safety, AnsweredUsers(), referrals)
     }
 
     private fun thread(

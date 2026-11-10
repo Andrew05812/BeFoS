@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.analytics.tracker import Event, tracker
 from app.core.config import settings
 from app.core.consent import CONSENT_VERSION, is_current
 from app.core.exceptions import ConflictError, NotFoundError, UnauthorizedError, ValidationError
@@ -23,6 +24,7 @@ from app.models import Profile, User
 from app.repositories.token_repo import TokenRepository
 from app.repositories.user_repo import UserRepository
 from app.services.mail import MailChannelUnavailable
+from app.services.referral_service import ReferralService
 from app.services.verification_service import VerificationService
 
 logger = get_logger(__name__)
@@ -40,7 +42,8 @@ class AuthService:
         password: str,
         password_confirm: str,
         consent_version: str | None,
-    ) -> User:
+        invite_code: str | None = None,
+    ) -> tuple[User, bool]:
         # The text first, and before the word is hashed: an account may only be created by a client
         # that was shown the document the product asks for today. A stale version is refused with a
         # sentence that says «reload», not «edit» — the person did nothing wrong, the build did.
@@ -83,6 +86,12 @@ class AuthService:
         )
         self.session.add(profile)
         await self.session.flush()
+        # A personal link is attribution, never a condition of the account: for a spent, expired or
+        # self-addressed code the registration still lands, and the answer says `False` so the
+        # invitee's screen does not celebrate somebody else's link. The invitation row is locked in
+        # this same transaction (`ReferralService.accept`), so two registrations cannot both claim
+        # one code.
+        invite_applied = await ReferralService(self.session).accept(invite_code, user)
         # The account is the person's the moment the row exists: a mail channel that is refusing
         # letters must not refuse a registration. The letter is a consequence of the account — the
         # confirmation screen has its resend door — so a failed hand-over is logged (without the
@@ -91,6 +100,15 @@ class AuthService:
         # arithmetic, which is a 500 on a registration that in fact succeeded.
         await self.session.commit()
         logger.info("Registered new user id=%s", user.id)
+        # The account exists now, not merely a pending row: the event is written after the commit
+        # that made the registration. `invite_applied` is the whole referral half, and it is a bool
+        # of attribution rather than the inviter's id, because a growth count must not become a
+        # list of who invited whom.
+        tracker.track(
+            Event.REGISTRATION_COMPLETED,
+            str(user.id),
+            invite_applied=invite_applied,
+        )
         try:
             await VerificationService(self.session).send_letter(user)
         except (MailChannelUnavailable, smtplib.SMTPException, OSError) as error:
@@ -98,7 +116,7 @@ class AuthService:
                 "The account was created but the confirmation letter was not handed over (%s)",
                 type(error).__name__,
             )
-        return user
+        return user, invite_applied
 
     async def authenticate(self, email: str, password: str) -> User:
         user = await self.users.get_by_email(email)

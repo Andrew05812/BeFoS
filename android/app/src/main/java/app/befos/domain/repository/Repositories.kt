@@ -9,8 +9,12 @@ import app.befos.domain.model.ConsentDocument
 import app.befos.domain.model.DiscoveryPage
 import app.befos.domain.model.Interest
 import app.befos.domain.model.LikeOutcome
+import app.befos.domain.model.Invite
+import app.befos.domain.model.InviteList
+import app.befos.domain.model.InvitePreview
 import app.befos.domain.model.LikedMePage
 import app.befos.domain.model.MatchesPage
+import app.befos.domain.model.WaitlistStatus
 import app.befos.domain.model.Message
 import app.befos.domain.model.OnboardingData
 import app.befos.domain.model.OutgoingLikesPage
@@ -60,7 +64,12 @@ interface AuthRepository {
      * server records it on the row and refuses a build that names an older draft, so the text is
      * read first (`consent()`), never assumed.
      */
-    suspend fun register(email: String, password: String, consentVersion: String): ApiResult<String>
+    suspend fun register(
+        email: String,
+        password: String,
+        consentVersion: String,
+        inviteCode: String? = null,
+    ): ApiResult<String>
     suspend fun login(email: String, password: String): ApiResult<String>
     suspend fun logout()
 
@@ -139,6 +148,24 @@ interface AuthRepository {
      * stands on and will not answer for it again at the next refresh.
      */
     suspend fun endEverySession(): ApiResult<Unit>
+}
+
+/**
+ * The account's own personal door and its waiting mark.
+ *
+ * An invitation is single-use and owned by the inviter: [createInvite] returns the live one when
+ * there is one, [revokeInvite] closes it, and [previewInvite] is the only anonymous call — it says
+ * whether a code opens and never whose it is. Nothing here names an invited person, because the
+ * server does not hand that name out.
+ */
+interface ReferralRepository {
+    suspend fun invites(): ApiResult<InviteList>
+    suspend fun createInvite(): ApiResult<Invite>
+    suspend fun revokeInvite(invitationId: String): ApiResult<Unit>
+    suspend fun previewInvite(code: String): ApiResult<InvitePreview>
+    suspend fun waitlist(): ApiResult<WaitlistStatus>
+    suspend fun joinWaitlist(city: String? = null): ApiResult<WaitlistStatus>
+    suspend fun leaveWaitlist(): ApiResult<Unit>
 }
 
 interface ProfileRepository {

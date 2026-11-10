@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.deps import get_current_user
 from app.core.database import get_session
+from app.core.rate_limit import auth_rate_limit_dependency
 from app.models import User
 from app.schemas.schemas import (
     DiscoveryResponse,
@@ -15,6 +16,8 @@ from app.schemas.schemas import (
     LikeResponse,
     PassedUsersResponse,
     PassResponse,
+    WaitlistJoinRequest,
+    WaitlistStatusOut,
 )
 from app.services.discovery_service import (
     LIKED_ME_SHOWN,
@@ -23,6 +26,7 @@ from app.services.discovery_service import (
     DiscoveryService,
 )
 from app.services.match_service import MatchService
+from app.services.waitlist_service import WaitlistService
 
 router = APIRouter(tags=["discovery"])
 
@@ -40,7 +44,9 @@ async def discover(
     between requests cannot shift a card into or out of the page being asked for.
     """
     service = DiscoveryService(session)
-    data = await service.feed(current_user.id, limit=limit, cursor=cursor)
+    data = await service.feed(
+        current_user.id, limit=limit, cursor=cursor, viewer_is_verified=current_user.is_verified
+    )
     return DiscoveryResponse(**data)
 
 
@@ -111,6 +117,41 @@ async def passed_users(
     service = DiscoveryService(session)
     data = await service.passed(current_user.id, cursor=cursor, limit=limit)
     return PassedUsersResponse(**data)
+
+
+@router.get("/discover/waitlist", response_model=WaitlistStatusOut)
+async def read_waitlist(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """The account's own waiting mark — the one row this door can read, and it is the reader's."""
+    return WaitlistStatusOut(**await WaitlistService(session).status(current_user))
+
+
+@router.post("/discover/waitlist", response_model=WaitlistStatusOut)
+async def join_waitlist(
+    payload: WaitlistJoinRequest,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Leave a mark: «скажите мне, когда рядом появятся люди».
+
+    The city is optional and defaults to the one in the profile; no coordinates are accepted or
+    stored. The mark is a request the account can read back and withdraw, not a subscription — and
+    it is not a promise of a letter, because no product-notice channel exists in this build. When one
+    does, `waitlist_entries.notified_at` is the field it will write (see `docs/OPERATIONS.md`).
+    """
+    return WaitlistStatusOut(**await WaitlistService(session).join(current_user, payload.city))
+
+
+@router.delete("/discover/waitlist", status_code=204)
+async def leave_waitlist(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Withdraw the mark. Idempotent, like every «take my answer back» door here."""
+    await WaitlistService(session).leave(current_user)
+    return None
 
 
 @router.post("/users/{user_id}/like", response_model=LikeResponse)

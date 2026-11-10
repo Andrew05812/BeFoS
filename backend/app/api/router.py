@@ -10,6 +10,7 @@ from app.api.v1 import (
     matches,
     moderation,
     plans,
+    referrals,
     safety,
     tests,
     users,
@@ -31,6 +32,11 @@ api_router.include_router(auth.router)
 api_router.include_router(users.router, dependencies=[Depends(rate_limit_dependency)])
 api_router.include_router(tests.router, dependencies=[Depends(rate_limit_dependency)])
 api_router.include_router(discover.router, dependencies=[Depends(rate_limit_dependency)])
+# A personal invitation is an object with an id, and the inviter's own doors are read and closed
+# behind the bearer. The public preview lives in the same router and is the one door a stranger may
+# present guesses to, so the router carries the stricter `/auth` window as well as the default one;
+# the signed doors inherit that window too, and twenty calls a minute is still more than they need.
+api_router.include_router(referrals.router, dependencies=[Depends(rate_limit_dependency)])
 api_router.include_router(matches.router, dependencies=[Depends(rate_limit_dependency)])
 # Plans are named two ways — by their own id, and by the pair they belong to — so the two route
 # families are registered as the two routers they are written as.

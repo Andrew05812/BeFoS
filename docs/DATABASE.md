@@ -5,9 +5,11 @@ PostgreSQL 16, SQLAlchemy 2.0 (async) + asyncpg. Миграции — Alembic (`
 `f7c2a9d4e6b1` даёт обходу своих касаний ключ `(from_user_id, created_at DESC, id DESC)`,
 `c8f2b5d7a140` кладёт такие же ключи входящему списку и списку пропусков и снимает префикс
 `ix_likes_to_user_id`, а `a7d4f0b2c318_the_door_that_returns_a_lost_word_needs_a_dea` поднимает
-`auth_challenges`, а `b1f4a9c2e7d3_an_account_names_the_text_and_the_day_it_accepted`
-дописывает к `users` версию принятого текста и момент согласия: это head на 2026-11-09, и
-`alembic check` на нём пуст (счёт переснят ниже).
+`auth_challenges`, `b1f4a9c2e7d3_an_account_names_the_text_and_the_day_it_accepted`
+дописывает к `users` версию принятого текста и момент согласия, а
+`d2f8a4c9b1e7_an_invitation_is_a_one_person_door_and_a_waiting` кладёт личную дверь приглашения и
+добровольную отметку ожидания: это head на 2026-11-10, и `alembic check` на нём пуст (счёт переснят
+ниже).
 
 Все таблицы наследуют `TimestampMixin` (`created_at`, `updated_at`), кроме чисто справочных. Первичные ключи пользователей и связанных сущностей — `UUID`; справочники — `INTEGER` (autoincrement). Внешние ключи на `users.id` используют `ON DELETE CASCADE`.
 
@@ -90,6 +92,8 @@ users ─1:1─ profiles ─M:N─ interests   (через user_interests)
   ├─M:N─ matches (user_a, user_b) ─1:N─ messages ─1:N─ message_reads
   │                                └─1:N─ shared_plans ─1:N─ shared_plan_members
   ├─M:N─ blocks / reports   (reports ─1:N─ report_reviews, рука модератора)
+  ├─1:N─ invitations        (inviter; accepted_by — nullable UNIQUE гость)
+  ├─1:1─ waitlist_entries   (своя добровольная отметка ожидания)
   └─1:N─ activity_preferences ─N:1─ activities ─M:N─ recommendations (per match)
                                     └─1:N─ shared_plans (тот же activity_id)
 ```
@@ -610,6 +614,51 @@ null = не погашен). Индекс `ix_auth_challenges_token_hash` — е
 дошла догадка. Погашение — единственный `UPDATE … WHERE consumed_at IS NULL AND expires_at > now` с
 `RETURNING user_id` (`challenge_repo.py:redeem`): тот же арбитр, что и у ротации refresh-токена, два
 запроса с одним кодом не меняют слово дважды.
+
+## Приглашения и лист ожидания
+
+### `invitations`
+`id` (UUID PK), `inviter_id` (FK `users.id`, cascade), `code` (String 32, unique — сам носитель
+двери), `expires_at` (timestamptz), `revoked_at` (timestamptz, null), `accepted_by_user_id`
+(FK `users.id`, **SET NULL**, nullable, **UNIQUE**), `accepted_at` (timestamptz, null).
+Индексы: уникальный `ix_invitations_code` — публичное превью кода; составной
+`ix_invitations_inviter_created (inviter_id, created_at DESC, id)` — собственная лента
+пригласившего, новые первыми, с `id` как разрывателем одного микросекундного мига (тот же
+приём, что в списках касаний стадии 54); уникальный ключ
+`uq_invitation_invited_account` — одна учётная запись проходит одну дверь. Ревизия
+`d2f8a4c9b1e7`, стадия 132.
+
+Код — `secrets.token_urlsafe(18)`, 24 URL-safe-символа, 144 бита; он не выводится из `id`
+приглашающего и не может быть развёрнут в профиль. Живёт 30 дней. Строка не удаляется при
+отзыве (`revoked_at` — отдельный факт) и не удаляется при принятии (`accepted_at` — второй
+факт), поэтому экран пригласившего различает «истекло», «отозвано» и «принято», не спрашивая
+про гостя ничего сверх этих дат. `accepted_by_user_id` наружу не отдаётся ни одним ответом;
+`GET /referrals` считает только свои строки. FK гостя — `ON DELETE SET NULL`, а не `CASCADE`:
+стирание приглашённого аккаунта не должно превращать потраченную ссылку обратно в живую.
+`inviter_id` — `CASCADE`, потому что без пригласившего у двери нет владельца. 144-битный
+код и лимит 20 выдач в сутки на аккаунт делают перебор невыгодным; тот же лимит ограничивает
+принятия, чтобы приглашение не стало каналом накрутки.
+
+### `waitlist_entries`
+`id` (UUID PK), `user_id` (FK `users.id`, cascade, **UNIQUE** — `uq_waitlist_entry_account`),
+`city` (String 120, null), `cancelled_at` (timestamptz, null — снятая отметка), `notified_at`
+(timestamptz, null — **не используется**). Ревизия `d2f8a4c9b1e7`, стадия 132. Один ряд на
+аккаунт, а не то, что ждёт людей; координаты и данные устройства не хранятся. Город без
+явного значения берётся из `profiles.city`; пустой остаётся `NULL`, а не пустой строкой.
+Снятие — печать `cancelled_at`, не `DELETE`: оператор видит, что просьба была и была отозвана.
+`notified_at` — место, куда напишет будущая стадия с **настоящим** каналом доставки и
+отдельным согласием; пока его не существует, ни один экран не обещает письмо
+(`docs/RELEASE.md` §11 пункт 10).
+
+Постоянный счёт этой стадии: пустая база `befos_s132counts_final2`, поднятая `alembic upgrade head`
+(прогон 2026-11-10T02:46:12Z), даёт `alembic check` «No new upgrade operations detected», а
+`pg_tables`/`pg_indexes` при `schemaname='public'` — **29 таблиц и 85 индексов**; после
+`downgrade -1` (`b1f4a9c2e7d3`) — 27 и 79, после обратного `upgrade head` — снова 29 и 85;
+после `downgrade base` остаётся 1 таблица и 1 индекс (`alembic_version`), а повторный
+`upgrade head` возвращает 29 и 85. То есть ревизия приносит ровно две таблицы и шесть индексов.
+Моделей в `app/models` 28;
+`grep __tablename__` считает столько же, а `alembic check` пуст — заявленное и мигрированное
+совпадают.
 
 ## Пул и что он не покрывает
 
