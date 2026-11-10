@@ -32,20 +32,38 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import app.befos.core.designsystem.AppButton
+import app.befos.core.designsystem.AppCard
 import app.befos.core.designsystem.AppTextField
 import app.befos.core.designsystem.EmberGradient
 import app.befos.core.designsystem.InlineNotice
 import app.befos.core.designsystem.Iris
 import app.befos.core.designsystem.Peach
 import app.befos.core.designsystem.Spacing
+import app.befos.core.di.appContainer
 import app.befos.core.di.beFosViewModel
 
 @Composable
 fun AuthScreen(onAuthed: () -> Unit, onForgotPassword: () -> Unit) {
-    val vm: AuthViewModel = beFosViewModel { AuthViewModel(it.authRepository) }
+    val container = appContainer()
+    val vm: AuthViewModel = beFosViewModel {
+        AuthViewModel(it.authRepository, it.referralRepository)
+    }
     val state by vm.uiState.collectAsState()
+    val carriedInvite by container.registrationInviteCode.collectAsState()
 
-    LaunchedEffect(state.success) { if (state.success) onAuthed() }
+    // A link opened in this process is offered to the form, not forced on it: the banner can be
+    // dismissed and the account made without one. The code leaves the container only on success or
+    // on an explicit refusal, so a recomposition does not lose it halfway through typing.
+    LaunchedEffect(carriedInvite) {
+        carriedInvite?.let(vm::offerInvitation)
+    }
+
+    LaunchedEffect(state.success) {
+        if (state.success) {
+            container.clearRegistrationInvite()
+            onAuthed()
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -91,6 +109,17 @@ fun AuthScreen(onAuthed: () -> Unit, onForgotPassword: () -> Unit) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(bottom = Spacing.xxl),
         )
+
+        state.invitation?.let { invitation ->
+            InvitationBanner(
+                invitation = invitation,
+                onDecline = {
+                    container.clearRegistrationInvite()
+                    vm.declineInvitation()
+                },
+                modifier = Modifier.padding(bottom = Spacing.lg),
+            )
+        }
 
         Column(
             modifier = Modifier
@@ -155,7 +184,13 @@ fun AuthScreen(onAuthed: () -> Unit, onForgotPassword: () -> Unit) {
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            TextButton(onClick = vm::toggleMode) {
+            TextButton(
+                onClick = {
+                    // Walking to the login branch is a refusal of the invitation, not a detour.
+                    container.clearRegistrationInvite()
+                    vm.toggleMode()
+                },
+            ) {
                 Text(
                     if (state.isRegister) "Войти" else "Регистрация",
                     style = MaterialTheme.typography.labelLarge,
@@ -177,3 +212,81 @@ fun AuthScreen(onAuthed: () -> Unit, onForgotPassword: () -> Unit) {
         }
     }
 }
+
+/**
+ * The words a forwarded door gets on the form it opens.
+ *
+ * None of the four states prints the code: it is a bearer secret, and the inviter's name, id and
+ * address are not in the preview either. An expired link and an unreachable server both keep
+ * the form usable — the one action a stuck person needs is «create the account anyway».
+ */
+@Composable
+private fun InvitationBanner(
+    invitation: Invitation,
+    onDecline: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val title: String
+    val body: String
+    when {
+        invitation.checking -> {
+            title = "Проверяем приглашение…"
+            body = "Форма уже открыта: ответ сервера только скажет, засчитается ли ссылка."
+        }
+        invitation.valid == true -> {
+            title = "Вас пригласили в BeFoS"
+            body = invitation.expiresAt?.let { expires ->
+                "Личная ссылка друга действует до ${inviteDate(expires)}. Она одноразовая и " +
+                    "закроется после регистрации."
+            } ?: "Личная ссылка друга одноразовая и закроется после регистрации."
+        }
+        invitation.valid == false -> {
+            title = "Приглашение больше не действует"
+            body = "Ссылку уже использовали или её срок истёк. Это не мешает создать аккаунт — " +
+                "просто регистрация будет без приглашения."
+        }
+        else -> {
+            title = "Приглашение не проверилось"
+            body = "Проверка не прошла, но форма работает: сервер попробует применить код при " +
+                "регистрации. Если ссылка была действующей, она закроется."
+        }
+    }
+
+    AppCard(modifier = modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(Spacing.lg),
+            verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+        ) {
+            Text(
+                "Приглашение друга",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                body,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            TextButton(onClick = onDecline) {
+                Text(
+                    "Продолжить без приглашения",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+            }
+        }
+    }
+}
+
+/** `2026-12-09T23:59:59+03:00` is a date on a banner, not a parser exercise. */
+private fun inviteDate(value: String): String =
+    value.take(10).replace("-", ".")

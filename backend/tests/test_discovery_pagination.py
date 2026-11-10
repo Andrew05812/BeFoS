@@ -566,6 +566,18 @@ async def test_seen_rows_are_what_survives(client: AsyncClient, session: AsyncSe
         "items": [],
         "next_cursor": None,
         "has_more": False,
+        # Stage 132: an exhausted deck is told apart from a product with nobody in it, and
+        # from filters that exclude everyone. Buckets only — the candidates are not counted
+        # back to the reader by name or exact number.
+        "empty": {
+            "reason": "exhausted",
+            "audience": "some",
+            "nearby": "some",
+            "someone_preparing_here": False,
+            "can_widen_filters": False,
+            "waitlist_joined": False,
+            "waitlist_city": None,
+        },
     }
     assert sorted(uid for uid, _ in served) == sorted(seeded)
 

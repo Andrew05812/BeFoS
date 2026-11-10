@@ -4,11 +4,21 @@ import calendar
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import and_, or_, select, func, delete, update, text, tuple_
+from sqlalchemy import and_, literal, or_, select, func, delete, update, text, tuple_
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Block, DiscoveryQueue, Like, Match, Pass, Report, User, Profile
+from app.models import (
+    Block,
+    DiscoveryQueue,
+    Like,
+    Match,
+    Pass,
+    Profile,
+    Report,
+    User,
+    WaitlistEntry,
+)
 from app.models.base import utcnow, utc_today
 from app.models.discovery import READY, SEEN
 
@@ -408,12 +418,13 @@ class DiscoveryRepository:
         ]
 
     @staticmethod
-    def _relationship_conditions(viewer_id: uuid.UUID, subject) -> list:
-        """The pair these two already formed, and the block either side holds.
+    def _block_condition(viewer_id: uuid.UUID, subject) -> list:
+        """The wall either side holds, on the unordered pair — one condition, not a direction.
 
-        Both are anti-joins on the unordered pair, because neither relationship has a direction a
-        reader may forget: a match whose `user_a_id` is the subject and a match whose `user_b_id`
-        is it are the same pair, and so are the two ways one person can block the other.
+        Kept apart from `_relationship_conditions` since stage 132: the empty-deck diagnosis asks
+        «how many people could this viewer have been shown», and a person behind a block is not one
+        of them, while a person already tapped or matched is. The diagnosis uses this condition
+        alone; the deck uses it together with the match anti-join.
         """
         return [
             ~select(Block.id)
@@ -424,6 +435,18 @@ class DiscoveryRepository:
                 )
             )
             .exists(),
+        ]
+
+    @staticmethod
+    def _relationship_conditions(viewer_id: uuid.UUID, subject) -> list:
+        """The pair these two already formed, and the block either side holds.
+
+        Both are anti-joins on the unordered pair, because neither relationship has a direction a
+        reader may forget: a match whose `user_a_id` is the subject and a match whose `user_b_id`
+        is it are the same pair, and so are the two ways one person can block the other.
+        """
+        return [
+            *DiscoveryRepository._block_condition(viewer_id, subject),
             ~select(Match.id)
             .where(
                 or_(
@@ -491,6 +514,135 @@ class DiscoveryRepository:
             )
             .exists()
         )
+
+    async def audience_snapshot(
+        self,
+        *,
+        viewer_id: uuid.UUID,
+        gender_pref: list[str],
+        age_min: int,
+        age_max: int,
+        city_pref: str | None,
+        city: str | None,
+    ) -> dict[str, int]:
+        """Six aggregates behind one empty page, as integers and never as rows.
+
+        The screen that says «здесь пока никого» is making a claim about the world, and the claim is
+        only honest if the server can tell the shapes apart: nobody at all, nobody in this city,
+        somebody but outside the reader's filters, everybody the reader already answered, or
+        accounts that exist and are not yet showable. Six counts answer that, and a single
+        statement carries all six — an empty deck is the one page a person may refresh, so the
+        diagnosis must not cost six round trips.
+
+        Every scalar is a COUNT over the same eligibility rule the deck reads (`_candidate_conditions`),
+        with the reader's blocks subtracted in all of them. No row crosses the boundary: the route
+        turns each count into a bucket before it reaches the client, and the buckets are the whole
+        promise. `remaining` is the only exact number a caller sees, and it is the reader's own
+        action count, not anybody else's.
+
+        ``ever_eligible`` keeps taps and pairs in scope on purpose — those people *were* eligible,
+        and «вы посмотрели всех» is a different sentence from «здесь никого». The match anti-join
+        is left to `remaining`, where it belongs to the deck's own question.
+        """
+        candidate = self._candidate_conditions(viewer_id, Profile.user_id)
+        block = self._block_condition(viewer_id, Profile.user_id)
+        prefs = self._preference_conditions(gender_pref, age_min, age_max, city_pref)
+        gender_age = self._preference_conditions(gender_pref, age_min, age_max, None)
+
+        def count(*conditions) -> int:
+            stmt = (
+                select(func.count())
+                .select_from(
+                    select(Profile.user_id)
+                    .join(User, User.id == Profile.user_id)
+                    .where(*conditions)
+                    .subquery()
+                )
+            )
+            return stmt.scalar_subquery()
+
+        remaining = count(*candidate, *block, *self._acted_conditions(viewer_id, Profile.user_id), *prefs)
+        ever = count(*candidate, *block, *prefs)
+        showable_any = count(*candidate, *block)
+        gender_age_any = count(*candidate, *block, *gender_age)
+        open_any = count(*candidate, *block, *self._acted_conditions(viewer_id, Profile.user_id))
+        open_gender_age = count(
+            *candidate,
+            *block,
+            *self._acted_conditions(viewer_id, Profile.user_id),
+            *gender_age,
+        )
+
+        if city:
+            same_city_any = count(
+                *candidate, *block, func.lower(Profile.city) == city.strip().lower()
+            )
+            preparing_nearby = count(
+                *block,
+                User.is_deleted.is_(False),
+                User.is_active.is_(True),
+                User.is_verified.is_(False),
+                User.id != viewer_id,
+                Profile.is_hidden.is_(False),
+                Profile.onboarding_completed_at.is_not(None),
+                func.lower(Profile.city) == city.strip().lower(),
+            )
+        else:
+            same_city_any = literal(0).label("same_city_any")
+            preparing_nearby = literal(0).label("preparing_nearby")
+
+        preparing_any = count(
+            *block,
+            User.is_deleted.is_(False),
+            User.is_active.is_(True),
+            User.id != viewer_id,
+            Profile.is_hidden.is_(False),
+            or_(
+                User.is_verified.is_(False),
+                Profile.onboarding_completed_at.is_(None),
+            ),
+        )
+
+        # The reader's own waiting mark rides the same statement. It is their row, not another
+        # account's, and the empty screen asks for it in the same breath as the reason; a second
+        # round trip would have been paid on every empty page to learn a fact about the caller.
+        live_wait = (
+            WaitlistEntry.cancelled_at.is_(None),
+            WaitlistEntry.user_id == viewer_id,
+        )
+        waiting = select(func.count(WaitlistEntry.id)).where(*live_wait).scalar_subquery()
+        waiting_city = select(func.max(WaitlistEntry.city)).where(*live_wait).scalar_subquery()
+
+        values = (
+            await self.session.execute(
+                select(
+                    remaining.label("remaining"),
+                    ever.label("ever"),
+                    showable_any.label("showable_any"),
+                    gender_age_any.label("gender_age_any"),
+                    open_any.label("open_any"),
+                    open_gender_age.label("open_gender_age"),
+                    same_city_any.label("same_city_any"),
+                    preparing_nearby.label("preparing_nearby"),
+                    preparing_any.label("preparing_any"),
+                    waiting.label("waiting"),
+                    waiting_city.label("waiting_city"),
+                )
+            )
+        ).one()
+        return {
+            "remaining": int(values.remaining),
+            "ever": int(values.ever),
+            "showable_any": int(values.showable_any),
+            "gender_age_any": int(values.gender_age_any),
+            "open_any": int(values.open_any),
+            "open_gender_age": int(values.open_gender_age),
+            "same_city_any": int(values.same_city_any),
+            "preparing_nearby": int(values.preparing_nearby),
+            "preparing_any": int(values.preparing_any),
+            "waitlist_joined": bool(values.waiting),
+            "waitlist_city": values.waiting_city if values.waiting else None,
+        }
 
     async def new_candidate_ids(
         self,

@@ -52,7 +52,7 @@ Runtime (`backend/requirements.txt`, единственный файл, кото
 | greenlet | 3.1.1 | MIT |
 | PyJWT | 2.15.1 | MIT |
 | bcrypt | 4.2.1 | Apache-2.0 |
-| pillow | 12.3.0 | MIT-CMU (разрешительный текст в стиле CMU/HPND) |
+| pillow | 13.0.0 | MIT-CMU (разрешительный текст в стиле CMU/HPND) |
 
 Тестовый инструментарий (`backend/requirements-dev.txt`, не в образе):
 

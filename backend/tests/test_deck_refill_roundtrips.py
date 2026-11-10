@@ -88,7 +88,11 @@ async def test_the_exhausted_deck_scans_the_selection_once(client: AsyncClient) 
         "already answered what the next refill and `has_unqueued_candidate` would ask"
     )
     assert asks == 0, "`has_more` re-asked a question this request already paid for"
-    assert len(seen) <= 8, f"the exhausted deck cost {len(seen)} statements"
+    # Stage 132's diagnosis is one more statement, and it is *one*: the reason, the two buckets
+    # and the reader's own waiting mark are scalar subqueries of the same aggregate, not a
+    # follow-up query per field. The repeats the three asserts above guard are still bounded;
+    # the total grew by the one sentence the empty screen was missing.
+    assert len(seen) <= 9, f"the exhausted deck cost {len(seen)} statements"
 
     # The answer the three-scan version gave, unchanged.
     assert body["items"] == []

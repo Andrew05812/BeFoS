@@ -49,6 +49,10 @@ class RegisterRequest(BaseModel):
     password: str = Field(min_length=8, max_length=128)
     password_confirm: str = Field(min_length=8, max_length=128)
     consent_version: str = Field(min_length=1, max_length=16)
+    # A personal link is optional: the product must let a person register without one. When it is
+    # present and no longer alive, the account is still made and `invite_applied` says false — a
+    # spent invitation belongs to the inviter's screen, not to the invitee's door.
+    invite_code: str | None = Field(default=None, max_length=32)
 
 
 class ConsentOut(BaseModel):
@@ -130,6 +134,9 @@ class TokenPair(BaseModel):
 class AuthResponse(BaseModel):
     user: "UserBrief"
     tokens: TokenPair
+    # Whether the code this request carried was spent on the new account. False also covers «no
+    # code was sent», so a client must compare it with what it sent, not read it as a failure.
+    invite_applied: bool = False
 
 
 class UserBrief(ORMModel):
@@ -501,8 +508,79 @@ class DiscoveryCard(BaseModel):
     highlight: str | None = None
 
 
+class DiscoveryEmpty(BaseModel):
+    """Why a page carried no cards, in the only terms another account is allowed to appear in.
+
+    No id, name, email of the person behind the reason, and no exact size of any population except
+    the reader's own `remaining` count (which the service does not put on the wire — the buckets
+    below are what the screen says aloud). `reason` is the contract; the buckets qualify it.
+    """
+
+    reason: str
+    # Coarse sizes of two overlapping populations: everybody showable in the product, and those in
+    # the reader's own city. Both are `none | few | some | many` (`none` = 0, `few` <= 9,
+    # `some` <= 49, `many` >= 50) and exist so «здесь никого» cannot be mistaken for «в продукте
+    # никого», without handing anyone a number sharp enough to watch a city grow person by person.
+    audience: str = "none"
+    nearby: str = "none"
+    # True when at least one account in the reader's city exists but has not passed the gates that
+    # make a profile showable (address unconfirmed, questionnaire unfinished). A boolean, not a
+    # count, for the reason the bucket docstring gives — and because the waiting person is not
+    # this reader's to count.
+    someone_preparing_here: bool = False
+    # Whether at least one person is reachable by loosening the reader's own filters. The client
+    # uses it to decide if «Ослабить фильтры» is an honest button or a dead end.
+    can_widen_filters: bool = False
+    waitlist_joined: bool = False
+    waitlist_city: str | None = None
+
+
 class DiscoveryResponse(Paged[DiscoveryCard]):
-    pass
+    """One page of the deck; `empty` is present only when the page carried no cards."""
+
+    empty: DiscoveryEmpty | None = None
+
+
+class InvitePreviewRequest(BaseModel):
+    """A code is a bearer secret, so it travels in a body and never in a path: access logs print
+    paths, and an invitation code in a log is a door in a log.
+    """
+
+    code: str = Field(min_length=1, max_length=32)
+
+
+class InvitePreview(BaseModel):
+    """Whether a code opens a door. Never whose door: no name, no id, no email."""
+
+    valid: bool
+    expires_at: datetime | None = None
+
+
+class InviteOut(BaseModel):
+    id: str
+    code: str
+    url: str
+    # active | accepted | revoked | expired
+    status: str
+    expires_at: datetime
+    accepted_at: datetime | None = None
+    created_at: datetime
+
+
+class InviteListOut(BaseModel):
+    invites: list[InviteOut] = []
+    accepted_total: int = 0
+
+
+class WaitlistJoinRequest(BaseModel):
+    """The city the person chooses to wait in; absent means «the one in my profile»."""
+
+    city: str | None = Field(default=None, max_length=120)
+
+
+class WaitlistStatusOut(BaseModel):
+    joined: bool = False
+    city: str | None = None
 
 
 class LikeResponse(BaseModel):

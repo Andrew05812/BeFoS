@@ -5,11 +5,28 @@ import androidx.lifecycle.viewModelScope
 import app.befos.core.network.ApiResult
 import app.befos.domain.model.ConsentDocument
 import app.befos.domain.repository.AuthRepository
+import app.befos.domain.repository.ReferralRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+
+/**
+ * The personal door a deep link carried into the registration screen.
+ *
+ * `valid == null` means the server has not answered yet; a failed preview leaves it null with
+ * [error] set and does not block registration, because a network that cannot answer one small
+ * question may still carry the form. The code itself is never shown — it is a bearer secret, and a
+ * screen that printed it would put a friend's door in a screenshot.
+ */
+data class Invitation(
+    val code: String,
+    val checking: Boolean = true,
+    val valid: Boolean? = null,
+    val expiresAt: String? = null,
+    val error: String? = null,
+)
 
 data class AuthUiState(
     val isRegister: Boolean = false,
@@ -25,12 +42,17 @@ data class AuthUiState(
     val consentChecked: Boolean = false,
     val consentLoading: Boolean = false,
     val consentError: String? = null,
+    /** Set when the screen was opened through `befos://invite/<code>`. */
+    val invitation: Invitation? = null,
     val loading: Boolean = false,
     val error: String? = null,
     val success: Boolean = false,
 )
 
-class AuthViewModel(private val authRepository: AuthRepository) : ViewModel() {
+class AuthViewModel(
+    private val authRepository: AuthRepository,
+    private val referralRepository: ReferralRepository,
+) : ViewModel() {
 
     private val _uiState = MutableStateFlow(AuthUiState())
     val uiState: StateFlow<AuthUiState> = _uiState.asStateFlow()
@@ -50,6 +72,55 @@ class AuthViewModel(private val authRepository: AuthRepository) : ViewModel() {
         }
     }
 
+    /**
+     * A personal link opened the app: register with it unless the person says otherwise.
+     *
+     * The preview asks only whether the door is open and until when. It runs beside the form rather
+     * than in front of it, so a slow or broken answer never keeps a person from registering; the
+     * server is asked again, once, in the register call that this screen finally sends.
+     */
+    fun offerInvitation(code: String) {
+        val cleaned = code.trim()
+        if (cleaned.isEmpty() || _uiState.value.invitation?.code == cleaned) return
+        _uiState.update {
+            it.copy(
+                isRegister = true,
+                invitation = Invitation(code = cleaned),
+                error = null,
+                consentChecked = false,
+            )
+        }
+        loadConsent()
+        viewModelScope.launch {
+            when (val result = referralRepository.previewInvite(cleaned)) {
+                is ApiResult.Success -> _uiState.update { state ->
+                    if (state.invitation?.code != cleaned) state
+                    else state.copy(
+                        invitation = state.invitation?.copy(
+                            checking = false,
+                            valid = result.data.valid,
+                            expiresAt = result.data.expiresAt,
+                            error = null,
+                        ),
+                    )
+                }
+                is ApiResult.Error -> _uiState.update { state ->
+                    if (state.invitation?.code != cleaned) state
+                    else state.copy(
+                        invitation = state.invitation?.copy(
+                            checking = false,
+                            valid = null,
+                            error = result.message,
+                        ),
+                    )
+                }
+            }
+        }
+    }
+
+    /** «Continue without an invitation»: the form stays, the attribution does not. */
+    fun declineInvitation() = _uiState.update { it.copy(invitation = null) }
+
     fun onEmailChange(v: String) = _uiState.update { it.copy(email = v, error = null) }
     fun onPasswordChange(v: String) = _uiState.update { it.copy(password = v, error = null) }
     fun onPasswordConfirmChange(v: String) = _uiState.update { it.copy(passwordConfirm = v, error = null) }
@@ -65,6 +136,9 @@ class AuthViewModel(private val authRepository: AuthRepository) : ViewModel() {
                 error = null,
                 passwordConfirm = "",
                 consentChecked = false,
+                // «У меня уже есть аккаунт» is a refusal as clear as a button: an
+                // invitation belongs to registration, and a login must not carry it.
+                invitation = null,
             )
         }
         // Opening the register branch for the first time is the moment the text is needed. The read
@@ -105,16 +179,21 @@ class AuthViewModel(private val authRepository: AuthRepository) : ViewModel() {
                 _uiState.update { it.copy(error = "Прочитайте и примите текст согласия.") }
                 return
             }
-            register(email, s.password, document.version)
+            register(email, s.password, document.version, s.invitation?.code)
             return
         }
         login(email, s.password)
     }
 
-    private fun register(email: String, password: String, consentVersion: String) {
+    private fun register(
+        email: String,
+        password: String,
+        consentVersion: String,
+        inviteCode: String?,
+    ) {
         _uiState.update { it.copy(loading = true, error = null) }
         viewModelScope.launch {
-            when (val result = authRepository.register(email, password, consentVersion)) {
+            when (val result = authRepository.register(email, password, consentVersion, inviteCode)) {
                 is ApiResult.Success -> _uiState.update { it.copy(loading = false, success = true) }
                 is ApiResult.Error -> _uiState.update { it.copy(loading = false, error = result.message) }
             }

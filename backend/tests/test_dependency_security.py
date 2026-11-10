@@ -6,7 +6,7 @@ keep the behaviour the app depends on, and did it close the hole the advisory de
 The suite as a whole proves the app still works; these prove the guards are guards.
 
 Nothing here weakens a check to fit a library: every assertion below was read off the
-patched versions (PyJWT 2.15.1, Pillow 12.3.0, python-multipart 0.0.32) and the routes as
+patched versions (PyJWT 2.15.1, Pillow 13.0.0, python-multipart 0.0.32) and the routes as
 they ship.
 """
 

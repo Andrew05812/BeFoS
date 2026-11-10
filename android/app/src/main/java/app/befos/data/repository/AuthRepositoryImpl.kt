@@ -28,8 +28,9 @@ class AuthRepositoryImpl(
         email: String,
         password: String,
         consentVersion: String,
+        inviteCode: String?,
     ): ApiResult<String> {
-        val result = api.register(email, password, consentVersion)
+        val result = api.register(email, password, consentVersion, inviteCode)
         return when (result) {
             is ApiResult.Success -> {
                 persist(result.data.tokens, result.data.user.id, email)

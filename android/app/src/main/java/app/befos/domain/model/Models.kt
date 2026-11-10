@@ -332,6 +332,56 @@ data class DiscoveryPage(
     val cards: List<DiscoveryCard>,
     val nextCursor: String?,
     val hasMore: Boolean,
+    /** Why the page carried no cards; null when it carried some (or the backend is older). */
+    val empty: DiscoveryEmpty? = null,
+)
+
+/**
+ * The server's sentence about an empty deck, kept in the server's own categories.
+ *
+ * `reason` is one of `no_one_yet`, `audience_preparing`, `filters_too_narrow`, `city_filter_empty`,
+ * `exhausted`, `email_unconfirmed`, `onboarding_incomplete`. The sizes are buckets, never counts of
+ * people: the screen may say «рядом уже есть люди», and it may not say «рядом пять человек» — the
+ * second sentence is a fact about five accounts that never agreed to be counted.
+ */
+data class DiscoveryEmpty(
+    val reason: String,
+    val audience: String,
+    val nearby: String,
+    val someonePreparingHere: Boolean,
+    val canWidenFilters: Boolean,
+    val waitlistJoined: Boolean,
+    val waitlistCity: String?,
+) {
+    val isAudienceEmpty: Boolean get() = audience == "none"
+}
+
+/** A personal invitation the account owns. It never names the person who accepted it. */
+data class Invite(
+    val id: String,
+    val code: String,
+    val url: String,
+    val status: String,
+    val expiresAt: String?,
+    val acceptedAt: String?,
+    val createdAt: String?,
+) {
+    val isActive: Boolean get() = status == "active"
+}
+
+data class InviteList(
+    val invites: List<Invite>,
+    val acceptedTotal: Int,
+)
+
+data class InvitePreview(
+    val valid: Boolean,
+    val expiresAt: String?,
+)
+
+data class WaitlistStatus(
+    val joined: Boolean,
+    val city: String?,
 )
 
 /**

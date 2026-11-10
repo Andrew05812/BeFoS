@@ -3,9 +3,11 @@ package app.befos.data.repository
 import app.befos.core.network.ApiResult
 import app.befos.core.network.map
 import app.befos.data.mapper.toDomain
+import app.befos.data.model.DiscoveryEmptyDto
 import app.befos.data.model.MyLikesDto
 import app.befos.data.model.PassedUsersDto
 import app.befos.data.remote.ApiService
+import app.befos.domain.model.DiscoveryEmpty
 import app.befos.domain.model.DiscoveryPage
 import app.befos.domain.model.LikeOutcome
 import app.befos.domain.model.LikedMePage
@@ -21,6 +23,7 @@ class DiscoveryRepositoryImpl(private val api: ApiService) : DiscoveryRepository
                 cards = page.items.map { it.toDomain() },
                 nextCursor = page.nextCursor,
                 hasMore = page.hasMore,
+                empty = page.empty?.toDomain(),
             )
         }
 
@@ -74,5 +77,15 @@ class DiscoveryRepositoryImpl(private val api: ApiService) : DiscoveryRepository
         likes = likes.map { it.toDomain() },
         truncated = hasMore,
         nextCursor = nextCursor,
+    )
+
+    private fun DiscoveryEmptyDto.toDomain() = DiscoveryEmpty(
+        reason = reason,
+        audience = audience,
+        nearby = nearby,
+        someonePreparingHere = someonePreparingHere,
+        canWidenFilters = canWidenFilters,
+        waitlistJoined = waitlistJoined,
+        waitlistCity = waitlistCity,
     )
 }

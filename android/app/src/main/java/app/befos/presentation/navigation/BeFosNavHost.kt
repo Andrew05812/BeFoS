@@ -155,6 +155,22 @@ fun BeFosNavHost(navController: NavHostController) {
                 onOpenLikedMe = { navController.navigate(Routes.LIKED_ME) { launchSingleTop = true } },
                 onOpenPassed = { navController.navigate(Routes.PASSED) { launchSingleTop = true } },
                 onOpenMyLikes = { navController.navigate(Routes.MY_LIKES) { launchSingleTop = true } },
+                onOpenReferrals = { navController.navigate(Routes.REFERRALS) { launchSingleTop = true } },
+                onConfirmEmail = {
+                    // The deck's gate replaces the deck rather than stacking a second MAIN behind
+                    // it: after confirmation the start screen grows a fresh deck, and «назад» must
+                    // not resurrect the one that could not load cards.
+                    navController.navigate(Routes.EMAIL_CONFIRMATION) {
+                        popUpTo(Routes.MAIN) { inclusive = true }
+                        launchSingleTop = true
+                    }
+                },
+                onFinishOnboarding = {
+                    navController.navigate(Routes.ONBOARDING) {
+                        popUpTo(Routes.MAIN) { inclusive = true }
+                        launchSingleTop = true
+                    }
+                },
                 onLoggedOut = {
                     navController.navigate(Routes.AUTH) {
                         popUpTo(Routes.MAIN) { inclusive = true }
@@ -171,6 +187,7 @@ fun BeFosNavHost(navController: NavHostController) {
             SettingsScreen(
                 onBack = { navController.popBackStack() },
                 onOpenModeration = { navController.navigate(Routes.MODERATION) { launchSingleTop = true } },
+                onOpenReferrals = { navController.navigate(Routes.REFERRALS) { launchSingleTop = true } },
                 onLoggedOut = {
                     navController.navigate(Routes.AUTH) {
                         // Drop SETTINGS *and* MAIN so back from AUTH cannot resurrect a logged-out stack.
@@ -442,6 +459,12 @@ fun BeFosNavHost(navController: NavHostController) {
 
         composable(Routes.CONSENT) {
             ConsentAcceptScreen(onDone = { rootVm.resolve() })
+        }
+
+        // Stage 132. Appended for the same measured reason as the two gates above: the screen map
+        // cites the line each block opens on, and an insertion higher up would stale a row per screen.
+        composable(Routes.REFERRALS) {
+            app.befos.presentation.referrals.ReferralsScreen(onBack = { navController.popBackStack() })
         }
     }
 }

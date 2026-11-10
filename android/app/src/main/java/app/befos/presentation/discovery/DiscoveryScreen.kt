@@ -108,9 +108,18 @@ fun DiscoveryScreen(
     onOpenLikedMe: () -> Unit,
     onOpenPassed: () -> Unit,
     onOpenMyLikes: () -> Unit,
+    onOpenFilters: () -> Unit,
+    onOpenReferrals: () -> Unit,
+    onConfirmEmail: () -> Unit,
+    onFinishOnboarding: () -> Unit,
 ) {
     val vm: DiscoveryViewModel = beFosViewModel {
-        DiscoveryViewModel(it.discoveryRepository, it.safetyRepository, it.answeredUsers)
+        DiscoveryViewModel(
+            it.discoveryRepository,
+            it.safetyRepository,
+            it.answeredUsers,
+            it.referralRepository,
+        )
     }
     val state by vm.uiState.collectAsState()
     val reportState by vm.report.state.collectAsState()
@@ -147,21 +156,37 @@ fun DiscoveryScreen(
             title = "Не удалось загрузить анкеты",
             onRetry = vm::load,
         )
+        // The last card was answered and the next page is on its way. Showing the empty pane here
+        // would name a reason before the server has given one, so the deck keeps its place.
+        state.current == null && state.refreshing -> DiscoverySkeleton()
         state.isEmpty || state.current == null -> {
             // A deck that ran out because the next page never arrived cannot claim it showed
-            // everyone: that sentence is only true when the server said there is no more.
+            // everyone: that sentence is only true when the server said there is no more catalogue.
+            // A transport failure is a different sentence from an empty world, so it keeps its own
+            // pane and never borrows a reason that the server did not give.
             val stalled = state.feedError != null && state.cards.isNotEmpty()
-            EmptyState(
-                title = if (stalled) "Подбор не продолжился" else "Анкеты закончились",
-                message = if (stalled) {
-                    "Показали всё, что успели загрузить. Следующие анкеты не пришли — попробуйте ещё раз."
-                } else {
-                    "Мы показали всех, кто подходит вам сейчас. Новые анкеты появляются со временем — попробуйте обновить подбор позже."
-                },
-                overline = "Подбор",
-                actionLabel = if (stalled) "Загрузить ещё" else "Обновить подбор",
-                onAction = if (stalled) vm::fetchMore else vm::load,
-            )
+            if (stalled) {
+                EmptyState(
+                    title = "Подбор не продолжился",
+                    message = "Показали всё, что успели загрузить. Следующие анкеты не пришли — " +
+                        "попробуйте ещё раз.",
+                    overline = "Подбор",
+                    actionLabel = "Загрузить ещё",
+                    onAction = vm::fetchMore,
+                )
+            } else {
+                DeckEmptyState(
+                    state = state,
+                    onRefresh = vm::load,
+                    onOpenFilters = onOpenFilters,
+                    onOpenReferrals = onOpenReferrals,
+                    onConfirmEmail = onConfirmEmail,
+                    onFinishOnboarding = onFinishOnboarding,
+                    onJoinWaitlist = vm::joinWaitlist,
+                    onLeaveWaitlist = vm::leaveWaitlist,
+                    onDismissWaitlistError = vm::dismissWaitlistError,
+                )
+            }
         }
         else -> DiscoveryContent(state, vm, onOpenProfile, onOpenLikedMe, onOpenPassed, onOpenMyLikes)
     }

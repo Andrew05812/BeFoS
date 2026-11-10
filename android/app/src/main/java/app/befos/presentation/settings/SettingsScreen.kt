@@ -74,7 +74,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @Composable
-fun SettingsScreen(onBack: () -> Unit, onLoggedOut: () -> Unit, onOpenModeration: () -> Unit) {
+fun SettingsScreen(
+    onBack: () -> Unit,
+    onLoggedOut: () -> Unit,
+    onOpenModeration: () -> Unit,
+    onOpenReferrals: () -> Unit,
+) {
     val vm: SettingsViewModel = beFosViewModel { SettingsViewModel(it.safetyRepository, it.authRepository, it.profileRepository) }
     val state by vm.uiState.collectAsState()
     val context = LocalContext.current
@@ -208,6 +213,24 @@ fun SettingsScreen(onBack: () -> Unit, onLoggedOut: () -> Unit, onOpenModeration
                 .padding(horizontal = Spacing.gutter, vertical = Spacing.xl),
             verticalArrangement = Arrangement.spacedBy(Spacing.xxl),
         ) {
+            // Stage 132: a door to the account's one personal invitation. It sits above privacy
+            // because it is a thing a person came here to *do*, not a setting they are looking for.
+            Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
+                SectionHeader("Друзья")
+                AppButton(
+                    text = "Пригласить друга",
+                    onClick = onOpenReferrals,
+                    variant = AppButtonVariant.Tonal,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    "Одноразовая ссылка: человек откроет BeFoS и зарегистрируется по ней. " +
+                        "Кто именно пришёл, вы не увидите — сервер показывает только число.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
             Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
                 SectionHeader("Приватность")
                 AppCard(modifier = Modifier.fillMaxWidth()) {

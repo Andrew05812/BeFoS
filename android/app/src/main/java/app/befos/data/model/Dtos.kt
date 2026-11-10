@@ -28,6 +28,9 @@ data class TokenPairDto(
 data class AuthResponseDto(
     val user: UserBriefDto,
     val tokens: TokenPairDto,
+    // Whether the registration carried a live invitation that this account spent. False also
+    // means «no code was sent», so the screen compares it with the code it had, not with success.
+    @SerialName("invite_applied") val inviteApplied: Boolean = false,
 )
 
 @Serializable
@@ -39,6 +42,9 @@ data class RegisterRequest(
     // person, read from `GET /auth/consent`. The server records it and refuses a build that showed
     // an older draft, which is why it is sent rather than inferred from the app's version code.
     @SerialName("consent_version") val consentVersion: String,
+    // A personal link the person may have opened before registering. Absent is the ordinary door;
+    // a stale or spent code is not a refusal — the account is made and `invite_applied` says false.
+    @SerialName("invite_code") val inviteCode: String? = null,
 )
 
 @Serializable
@@ -484,6 +490,61 @@ data class DiscoveryPageDto(
     val items: List<DiscoveryCardDto> = emptyList(),
     @SerialName("next_cursor") val nextCursor: String? = null,
     @SerialName("has_more") val hasMore: Boolean = false,
+    // Present only when `items` is empty. The server owns the reason and gives it in buckets, so
+    // the screen can name a next step without learning who is behind it.
+    val empty: DiscoveryEmptyDto? = null,
+)
+
+@Serializable
+data class DiscoveryEmptyDto(
+    val reason: String = "no_one_yet",
+    val audience: String = "none",
+    val nearby: String = "none",
+    @SerialName("someone_preparing_here") val someonePreparingHere: Boolean = false,
+    @SerialName("can_widen_filters") val canWidenFilters: Boolean = false,
+    @SerialName("waitlist_joined") val waitlistJoined: Boolean = false,
+    @SerialName("waitlist_city") val waitlistCity: String? = null,
+)
+
+/** A personal invitation as its owner may read it: its own status, never the invited person. */
+@Serializable
+data class InviteDto(
+    val id: String,
+    val code: String,
+    val url: String,
+    val status: String = "active",
+    @SerialName("expires_at") val expiresAt: String? = null,
+    @SerialName("accepted_at") val acceptedAt: String? = null,
+    @SerialName("created_at") val createdAt: String? = null,
+)
+
+@Serializable
+data class InvitesDto(
+    val invites: List<InviteDto> = emptyList(),
+    @SerialName("accepted_total") val acceptedTotal: Int = 0,
+)
+
+/** Whether a code opens a door; the body names no inviter, by contract. */
+@Serializable
+data class InvitePreviewDto(
+    val valid: Boolean = false,
+    @SerialName("expires_at") val expiresAt: String? = null,
+)
+
+@Serializable
+data class InvitePreviewRequest(
+    val code: String,
+)
+
+@Serializable
+data class WaitlistStatusDto(
+    val joined: Boolean = false,
+    val city: String? = null,
+)
+
+@Serializable
+data class WaitlistJoinRequest(
+    val city: String? = null,
 )
 
 /**

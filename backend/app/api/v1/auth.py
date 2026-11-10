@@ -84,11 +84,17 @@ async def accept_consent(
 @router.post("/register", response_model=AuthResponse, status_code=201)
 async def register(payload: RegisterRequest, request: Request, session: AsyncSession = Depends(get_session)):
     service = AuthService(session)
-    user = await service.register(
-        payload.email, payload.password, payload.password_confirm, payload.consent_version
+    user, invite_applied = await service.register(
+        payload.email,
+        payload.password,
+        payload.password_confirm,
+        payload.consent_version,
+        payload.invite_code,
     )
     tokens = await service.issue_tokens(user, request.headers.get("user-agent"))
-    return AuthResponse(user=_user_brief(user), tokens=TokenPair(**tokens))
+    return AuthResponse(
+        user=_user_brief(user), tokens=TokenPair(**tokens), invite_applied=invite_applied
+    )
 
 
 @router.post("/email-confirmation/confirm", status_code=204)

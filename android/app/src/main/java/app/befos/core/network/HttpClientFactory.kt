@@ -73,7 +73,10 @@ internal fun isPublicAuthRoute(url: String): Boolean =
         // not always the device that registered — so this door, too, is answered without a session.
         // `POST /auth/consent` stays off the list on purpose: it writes the account's
         // row and must carry the bearer that says whose row it is.
-        url.contains("/auth/email-confirmation/confirm")
+        url.contains("/auth/email-confirmation/confirm") ||
+        // Stage 132: the invitation preview is how a person who is not signed in learns whether the
+        // link a friend sent them still opens. The code travels in the body, never in the path.
+        url.contains("/invites/preview")
 
 /**
  * What the device says about itself when it signs in.

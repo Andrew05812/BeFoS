@@ -73,6 +73,7 @@ from app.models import (  # noqa: E402
     Block,
     CompatibilityProfile,
     DiscoveryQueue,
+    Invitation,
     Like,
     Match,
     Message,
@@ -90,6 +91,7 @@ from app.models import (  # noqa: E402
     TestAnswer,
     TestResult,
     User,
+    WaitlistEntry,
 )
 from app.seed import _seed_catalogs  # noqa: E402
 
@@ -115,6 +117,8 @@ _DOMAIN_MODELS = (
     Profile,
     RefreshToken,
     AuthChallenge,
+    Invitation,
+    WaitlistEntry,
     User,
 )
 
